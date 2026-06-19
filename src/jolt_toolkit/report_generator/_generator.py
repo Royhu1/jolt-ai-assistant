@@ -42,6 +42,7 @@ from jolt_toolkit.report_generator.report_builder import (
 from jolt_toolkit.report_generator.diesel_pipeline import (
     process_diesel_leg,
 )
+from jolt_toolkit.report_generator.operators import derive_leg_operator
 
 
 # ── row-tuple 列索引（从 HEADERS 动态派生，排除首列 Leg Number）─────────────
@@ -345,6 +346,18 @@ class JOLTReportGenerator:
         cumulative_km = 0.0
         home_point = None
 
+        # ── 运营商解析（v2.2.5 恢复）────────────────────────────────────
+        # SRF 为主：round-robin 车取 leg.trip.trial.description（per-leg 变），
+        # 专属车取 vehicle.organisation.name（整车一致）。fetch 一次静态 org，
+        # trial.description 按 trip URI 记忆化，op_acc 汇总一次性日志。
+        srf_org_raw = None
+        try:
+            srf_org_raw = self.srf_data.vehicles.get(obj_id=reg_srf).organisation.name
+        except Exception as exc:
+            logging.debug("无法获取 vehicle.organisation.name: %s", exc)
+        trial_cache: dict = {}
+        op_acc: dict = {}
+
         # ── 柴油车分支：用 SRFLOGGER_V1 legs 作为主循环源 ────────────────
         if is_diesel:
             logging.info("柴油车分支: 处理 %d 个 SRFLOGGER leg", len(logger_legs))
@@ -354,6 +367,10 @@ class JOLTReportGenerator:
                         leg, cfg, cumulative_km, srf_data=self.srf_data,
                         out_dir=out_dir,
                         reg=reg,
+                        reg_code=reg,
+                        srf_org_raw=srf_org_raw,
+                        trial_cache=trial_cache,
+                        op_acc=op_acc,
                         debug_mode=self.debug_mode,
                         # 柴油 raw logger CSV 由 _save_logger_data 独立落盘（gated on
                         # debug_mode）；此处仅控制 4 面板 diesel validation 图，故
@@ -450,6 +467,19 @@ class JOLTReportGenerator:
                 charger_meter_df=leg_charger_meter,
             )
 
+            # ── 运营商代码（per-leg；同一 leg 的所有 seg 共用）──────────
+            op_code, _op_src, _op_unknown = derive_leg_operator(
+                leg, reg,
+                srf_org_raw=srf_org_raw,
+                vehicles=VEHICLE_CONFIG,
+                trial_cache=trial_cache,
+            )
+            op_acc.setdefault(op_code, 0)
+            op_acc[op_code] += 1
+            if _op_unknown:
+                op_acc.setdefault("_unknown", set())
+                op_acc["_unknown"].add(op_code)
+
             for seg in c_segs:
                 seg_clean = {k: v for k, v in seg.items() if k not in _ANCHOR_PRIVATE_KEYS}
                 row, _ = _seg_to_row(
@@ -459,6 +489,7 @@ class JOLTReportGenerator:
                     srf_data=self.srf_data,
                     altitude_col=altitude_col,
                     speed_col=speed_col,
+                    operator=op_code,
                 )
                 all_rows.append((seg["start_time"], list(row)))
 
@@ -475,6 +506,7 @@ class JOLTReportGenerator:
                     logger_speed_all=logger_speed_all,
                     logger_acc_pedal_all=logger_acc_pedal_all,
                     logger_dec_pedal_all=logger_dec_pedal_all,
+                    operator=op_code,
                 )
                 all_rows.append((seg["start_time"], list(row)))
 
@@ -536,6 +568,20 @@ class JOLTReportGenerator:
 
         # 根据 fuel type 选择列布局（电车 HEADERS / 柴油 DIESEL_HEADERS）
         out_headers = DIESEL_HEADERS if is_diesel else HEADERS
+
+        # ── 一次性运营商解析汇总 ────────────────────────────────────────
+        if op_acc:
+            unknown = op_acc.pop("_unknown", set())
+            dist = ", ".join(
+                f"{(k if k is not None else '<none>')}={v}"
+                for k, v in sorted(op_acc.items(), key=lambda kv: -kv[1])
+            )
+            logging.info("运营商解析（按 leg 计）：%s", dist or "无")
+            bad = {c for c in unknown if c is not None}
+            if bad:
+                logging.warning("运营商代码未在 KNOWN_OPERATOR_CODES 中：%s", ", ".join(sorted(bad)))
+            if None in op_acc:
+                logging.warning("有 %d 个 leg 无法确定运营商", op_acc[None])
 
         # ── 后处理：effective capacity 修正 ──────────────────────────────
         # 柴油车没有 SOC / 电池容量，跳过此步骤。

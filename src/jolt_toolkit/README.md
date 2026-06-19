@@ -1,6 +1,6 @@
 # jolt_toolkit — package internal architecture documentation
 
-> Developer-facing internal architecture reference. The src-layout has been used since v2.0.0-dev. Current version **v2.2.4**.
+> Developer-facing internal architecture reference. The src-layout has been used since v2.0.0-dev. Current version **v2.2.5**.
 > Project overview & repo-wide usage → [root README.md](../../README.md) | Claude working conventions → [CLAUDE.md](../../CLAUDE.md)
 
 ## Installation and usage
@@ -86,7 +86,7 @@ identify_crr_cda("YN25RSY", "2025-08-26", "2026-01-15")
 
 For driving-cycle correction and other measured-data workflows that consume these reports, see [`data_analysis_workspace/README.md`](../../data_analysis_workspace/README.md).
 
-## Package structure (v2.2.4)
+## Package structure (v2.2.5)
 
 ```
 src/jolt_toolkit/
@@ -100,6 +100,7 @@ src/jolt_toolkit/
 │   ├── _generator.py              # JOLTReportGenerator main flow orchestration
 │   ├── segment_algorithms.py      # unified charge/discharge segmentation algorithm (EV path)
 │   ├── diesel_pipeline.py         # diesel Logger-only branch (added in v2.2.2)
+│   ├── operators.py               # per-leg operator-code resolution (v2.2.5): SRF trial.description / organisation.name cascade → `Operator` column
 │   ├── report_builder.py          # Excel report generation + HTML viewer (incl. Stop row synthesis)
 │   ├── finetune.py                # segmentation correction post-processing (apply operations → rewrite xlsx + figures + HTML)
 │   ├── charger_patcher.py         # charger data patching
@@ -294,7 +295,7 @@ total_electric_energy_used = electric_energy_propulsion + auxiliary − electric
 > Charge / Stop rows write NaN; the diesel column set does not contain this column. See
 > `report_builder._get_propulsion_energy()`.
 
-> **`EP_exclude_aux` (EV column added in v2.2.4, the 49th and last column of HEADERS)**: the net traction energy consumption efficiency (kWh/km) after removing auxiliary/standstill
+> **`EP_exclude_aux` (EV column added in v2.2.4, the 49th column of HEADERS; since v2.2.5 the last column is `Operator`)**: the net traction energy consumption efficiency (kWh/km) after removing auxiliary/standstill
 > loads (HVAC, low-voltage systems, etc.). The definition can be found in
 > `data_analysis_workspace/energy_balance_check/report.md`:
 > ```
@@ -311,6 +312,27 @@ total_electric_energy_used = electric_energy_propulsion + auxiliary − electric
 > (temp=38 / wind=41 / link=5 / mass=16 / kin=47 / propulsion=48) are all unaffected.
 > See `report_builder._ep_exclude_aux()`; for legacy reports, backfill with
 > `scripts/patch_ep_exclude_aux.py`.
+
+> **`Operator` (column added in v2.2.5, the last column of BOTH `HEADERS` (50th)
+> and `DIESEL_HEADERS` (26th))**: a single project operator CODE per leg (e.g.
+> `JLP`, `SJG`, `HTL`, `NESTLE`, `WJF`, `DP_WORLD`, `KNOWLES`,
+> `WELCH_TRANSPORT`, `WS`, `PORT_EXPRESS_DAIMLER`). Resolved by
+> `report_generator/operators.py:derive_leg_operator()` via an **SRF-primary**
+> cascade: (1) `leg.trip.trial.description` round-robin pattern
+> `"JOLT Round Robin: <OP>-<OEM>"` → captured `<OP>` → code — this is the
+> per-leg, time-varying signal for *shared / round-robin* vehicles (their
+> `vehicle.organisation.name` is the generic umbrella "JOLT Partners"); (2)
+> static `vehicle.organisation.name` for *dedicated* single-operator vehicles
+> (e.g. `"JOLT Nestle-Volvo"` → `NESTLE`, `"William Jackson Food"` → `WJF`); (3)
+> `vehicles.json` config fallback (`operators` time-ranged list or `operator`
+> string, currently absent → no-op); (4) None. The cascade is memoised per
+> report by the fetch-free `leg.trip.uri`. One company == one code (a dedicated
+> vehicle reuses an existing round-robin token rather than minting a parallel
+> code). Stop rows carry the operator from the neighbouring leg
+> (`_stop_row_from_neighbours`). **The position is at the END of both header
+> sets**, so every hard-coded column index (LoggerPatcher / WeatherPatcher /
+> `_generator._IDX_*`, all ≤ 48 for EV) is unaffected; EV rows get the operator
+> from the FPS loop in `_generator`, diesel rows from `process_diesel_leg`.
 
 #### Three-tier battery capacity model
 
@@ -1002,7 +1024,7 @@ generation path for diesel vehicles. Trigger condition: the vehicle configuratio
 **Shared parts**: the `find_speed_trips()` segmentation helper, the `_insert_stop_rows()` post-processing,
 and the `_write_excel_report()` formatting (column set selected via the `headers` keyword argument).
 
-**Separate column sets**: electric vehicles use `HEADERS` (49 columns since v2.2.4, with `EP_exclude_aux` at the end), diesel uses `DIESEL_HEADERS` (25 columns).
+**Separate column sets**: electric vehicles use `HEADERS` (50 columns since v2.2.5, with `EP_exclude_aux` then `Operator` at the end), diesel uses `DIESEL_HEADERS` (26 columns, `Operator` last). The per-leg operator code is resolved by `report_generator/operators.py` (see the `Operator` column note above).
 The diesel column set **does not contain** electricity-related columns such as SOC, AC/DC charge energy, Battery Capacity, Energy Performance (kWh/km),
 instead expressing fuel consumption with `Fuel Used (L)` and `Fuel Consumption (L/100km)`.
 `_row_col_index`, `_stop_row_from_neighbours`, `_insert_stop_rows`, and `_write_excel_report`

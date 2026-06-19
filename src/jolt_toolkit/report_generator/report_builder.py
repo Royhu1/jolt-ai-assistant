@@ -112,6 +112,12 @@ HEADERS = (
     # （temp=38 / wind=41 / link=5 / mass=16 / kin=47）均 ≤ 47，不受影响。
     # 柴油车走 DIESEL_HEADERS 不含此列。
     "EP_exclude_aux",
+    # v2.2.5 新增：单车单 leg 的运营商代码（project operator CODE）。来源级联见
+    # report_generator/operators.py（SRF 为主：round-robin 取 leg.trip.trial.
+    # description，专属车取 vehicle.organisation.name；vehicles.json 为兜底）。
+    # 加在 HEADERS **末尾**，不移动任何既有列索引（LoggerPatcher / WeatherPatcher
+    # 的硬编码列索引、_generator 的 _IDX_* 均 ≤ 48，不受影响）。
+    "Operator",
 )
 
 # ── 柴油车专用列头（v2.2.2 扩展：不再复用电车 HEADERS）────────────────────
@@ -143,6 +149,9 @@ DIESEL_HEADERS = (
     "Average Wind Direction",
     "Weather Type",
     "Energy Source",
+    # v2.2.5 新增：运营商代码，柴油车与电车列集对齐。加在 **末尾**（diesel row
+    # 末尾追加，长度断言 len(row) == len(DIESEL_HEADERS) - 1 自动跟随）。
+    "Operator",
 )
 
 # =============================================================================
@@ -1268,6 +1277,13 @@ def _stop_row_from_neighbours(
             except (TypeError, ValueError):
                 pass  # leave as nan
 
+    # ── Operator — carry from the neighbouring leg (same vehicle, same stop) ──
+    if _has("Operator"):
+        op = _get(prev_row, "Operator")
+        if op is None or (isinstance(op, float) and np.isnan(op)):
+            op = _get(next_row, "Operator")
+        row[_i("Operator")] = op
+
     return row
 
 
@@ -1332,6 +1348,7 @@ def _seg_to_row(
     logger_speed_all: pd.DataFrame | None = None,
     logger_acc_pedal_all: pd.DataFrame | None = None,
     logger_dec_pedal_all: pd.DataFrame | None = None,
+    operator: str | None = None,
 ) -> tuple:
     """
     将一个 segment dict 转换为一行 Excel 数据（HEADERS 顺序）。
@@ -1556,6 +1573,7 @@ def _seg_to_row(
         energy_perf_kinetics,  # Energy Performance Kinetics Corrected (kWh/km)
         propulsion_kwh,  # Propulsion Energy (kWh)  [v2.2.3]
         ep_exclude_aux,  # EP_exclude_aux (kWh/km)  [v2.2.4]
+        operator,  # Operator (project code)  [v2.2.5]
     )
     return row, cumulative_km
 

@@ -51,6 +51,7 @@ from jolt_toolkit.report_generator.report_builder import (
     _get_postcode,
     _write_html_viewer,
 )
+from jolt_toolkit.report_generator.operators import derive_leg_operator
 
 logger = logging.getLogger(__name__)
 
@@ -423,6 +424,7 @@ def _diesel_seg_to_row(
     leg_uri: str,
     cumulative_km: float,
     srf_data=None,
+    operator: str | None = None,
 ) -> tuple[tuple, float]:
     """
     把一个 diesel trip dict 转换成一个 row tuple（顺序与 DIESEL_HEADERS 一致，去掉 Leg Number）。
@@ -478,6 +480,7 @@ def _diesel_seg_to_row(
         seg.get("wind_dir_text") or nan,                # Average Wind Direction   — Logger Channel 7
         nan,                                            # Weather Type — text label, 仍需 OpenWeather WeatherPatcher
         "lfc_fuel",                                     # Energy Source
+        operator,                                       # Operator (project code) [v2.2.5]
     )
 
     assert len(row) == len(DIESEL_HEADERS) - 1, (
@@ -825,6 +828,10 @@ def process_diesel_leg(
     debug_mode: bool = False,
     generate_validation_fig: bool = True,
     leg_idx: int = 0,
+    reg_code: str | None = None,
+    srf_org_raw: str | None = None,
+    trial_cache: dict | None = None,
+    op_acc: dict | None = None,
 ) -> tuple[list, float]:
     """
     处理一条 SRFLOGGER_V1 leg：拉取 Logger channels、速度分段、per-trip 计算、生成行元组。
@@ -851,6 +858,22 @@ def process_diesel_leg(
     if not trips:
         return [], cumulative_km
 
+    # ── 运营商代码（per-leg）──────────────────────────────────────────────
+    # 柴油 leg 来自 SRFLOGGER；trial.description 对专属车通常是 "JOLT - <OP>"
+    # （不匹配 round-robin 正则），落到 vehicle.organisation.name 兜底解析。
+    op_code, op_source, op_unknown = derive_leg_operator(
+        leg, reg_code or reg,
+        srf_org_raw=srf_org_raw,
+        vehicles=VEHICLE_CONFIG,
+        trial_cache=trial_cache,
+    )
+    if op_acc is not None:
+        op_acc.setdefault(op_code, 0)
+        op_acc[op_code] += 1
+        if op_unknown:
+            op_acc.setdefault("_unknown", set())
+            op_acc["_unknown"].add(op_code)
+
     # Build the row tuples from the kept segments (sequential, so cumulative_km
     # advances trip by trip). ``_segments_from_df`` has already applied the
     # mass carry-over + distance / pathological filtering, so iterating its
@@ -858,7 +881,7 @@ def process_diesel_leg(
     rows: list = []
     for seg in seg_metrics:
         row, cumulative_km = _diesel_seg_to_row(
-            seg, leg.uri, cumulative_km, srf_data=srf_data,
+            seg, leg.uri, cumulative_km, srf_data=srf_data, operator=op_code,
         )
         rows.append((seg["start_time"], list(row)))
 
