@@ -91,7 +91,7 @@ Single vehicle, single period (≤ ~3 months):
 python .claude/skills/generate-excel-report/generate_report.py -veh YK73WFN -ds 2025-03-01 -de 2025-05-31
 # add --debug for validation figures + raw CSV; --raw-only for raw + HTML without baked figures
 # --fast only for quick non-final runs
-# --out-dir ./excel_report_database/2.2.4   # override the version-derived output dir
+# --out-dir ./excel_report_database/2.2.5   # override the version-derived output dir
 ```
 
 Single vehicle, long range → auto-split into one report per meteorological quarter (default):
@@ -100,7 +100,7 @@ Single vehicle, long range → auto-split into one report per meteorological qua
 # whole range for one vehicle, meteorological-quarter reports (the default span, inclusive end)
 python .claude/skills/generate-excel-report/batch_generate.py --veh YK73WFN --ds 2024-06-01 --de 2026-06-09
 # equal-length escape hatch (e.g. monthly) or a forced output dir
-python .claude/skills/generate-excel-report/batch_generate.py --veh YK73WFN --ds 2024-06-01 --de 2025-12-01 --months 1 --out-dir ./excel_report_database/2.2.4
+python .claude/skills/generate-excel-report/batch_generate.py --veh YK73WFN --ds 2024-06-01 --de 2025-12-01 --months 1 --out-dir ./excel_report_database/2.2.5
 # raw-only (fast) batch regenerate; figures re-drawn later by the overlay regenerate step
 python .claude/skills/generate-excel-report/batch_generate.py --raw-only
 ```

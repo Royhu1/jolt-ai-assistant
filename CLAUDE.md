@@ -31,3 +31,7 @@ Data processing and analysis for the "Joint Operators Logistics Trial" (JOLT) pr
 ## Git Workflow
 
 @./.claude/rules/git-workflow.md
+
+## Housekeeping & Local Storage
+
+@./.claude/rules/housekeeping.md

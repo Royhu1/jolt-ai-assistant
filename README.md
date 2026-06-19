@@ -156,6 +156,7 @@ agents are launched automatically for larger tasks in their area.
 | `report-finetuner` | Post-processing segmentation corrections to generated xlsx reports (produces `*_finetuned` artefacts). |
 | `academic-writer` | Writes and maintains the academic paper workspace `publication_workspace/`. |
 | `literature-reviewer` | Searches / reads / curates the literature (now under the statistics paper's `reference/` + `draft/`). |
+| `project-health-steward` | Periodic project health checks: tidy/archive temp + stale files, version-consistency, doc & skill/agent hygiene, and local-storage (`D:\JOLT_local`) management; accumulates experience in `.claude/health_checks/`. |
 
 ## Project maintenance notes (for human developers)
 

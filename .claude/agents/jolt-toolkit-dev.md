@@ -43,7 +43,7 @@ memory: project
 跨目录的改动（例如仿真参数影响到 report generator）必须先在主对话里协调两个 agent
 的工作顺序，再分别动手；不要越界修改不属于你的目录。
 
-## 项目核心知识（v2.2.2 架构）
+## 项目核心知识（v2.2.5 架构）
 
 ### 入口与顶层数据流
 - **单车 CLI**：`python .claude/skills/generate-excel-report/generate_report.py -veh REG -ds YYYY-MM-DD -de YYYY-MM-DD [--debug] [--fast]`（从仓库根运行，需 `PYTHONPATH=src` 或 `pip install -e .`）
@@ -59,9 +59,10 @@ memory: project
   4. EV 独有后处理：`ChargerPatcher` → `LoggerPatcher`；柴油跳过这一步
 
 ### HEADERS 两套并行列集（v2.2.2 新增）
-- **`HEADERS`**（47 列）—— 电车专用。去年的老字段全部保留，末尾两列是
-  `Energy Source` 和 `Energy Performance Kinetics Corrected (kWh/km)`。
-- **`DIESEL_HEADERS`**（25 列）—— 柴油车专用。**不** 再共享 EV HEADERS + NaN 填充。
+- **`HEADERS`**（50 列）—— 电车专用。末三列依次是 `Propulsion Energy (kWh)`（v2.2.3 加）/
+  `EP_exclude_aux`（v2.2.4 加）/ `Operator`（v2.2.5 加，idx 49 末列）。
+- **`DIESEL_HEADERS`**（26 列）—— 柴油车专用。**不** 再共享 EV HEADERS + NaN 填充。
+  末两列 `Energy Source` / `Operator`（v2.2.5 加，idx 25 末列）。
   保留字段：`Leg Type / SRF Logger Link / 时间 / 位置 / Duration / Distance / Avg
   Speed / Elevation Diff / Vehicle Mass + CV / Cumulative Distance / Fuel Used (L) /
   Fuel Consumption (L/100km) / 天气 5 列 / Energy Source`。彻底删除了 SOC、AC/DC、
@@ -163,7 +164,7 @@ memory: project
 - Commit 消息使用 Conventional Commits：`feat:` / `fix:` / `refactor:` / `docs:` /
   `chore:`；禁用无意义消息。
 - `cache/` / `excel_report_database/` / `figures/` / `publication_workspace/` 不进 git。
-- `excel_report_database/` 和 `figures/` 按版本号子目录（`excel_report_database/2.2.2/`、`figures/2.2.2/`）。
+- `excel_report_database/` 和 `figures/` 按版本号子目录（`excel_report_database/2.2.5/`、`figures/2.2.5/`）。
 - 版本号在 `pyproject.toml` 的 `version` 字段，SemVer。
 - 不在 `main` 分支直接写代码，所有新功能/重构走 `feat/<描述>` / `fix/<描述>` /
   `refactor/<描述>` 分支，测试通过后合回 main + 打 tag。

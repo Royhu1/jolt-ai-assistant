@@ -24,7 +24,7 @@ package (owned by the `jolt-toolkit-dev` agent — route any behaviour/layout ch
 ## Inputs to confirm with the user (ask only if ambiguous)
 
 - **Version** — the `excel_report_database/<version>/` sub-directory to scan
-  (e.g. `2.2.4`). **Default to `2.2.4`** (the current canonical/latest version) if not given.
+  (e.g. `2.2.5`). **Default to `2.2.5`** (the current canonical/latest version) if not given.
 - **Output path** — defaults to `excel_report_database/<version>/data_dashboard.html`;
   only override (`--out`) if the user asks.
 
@@ -44,8 +44,8 @@ package (owned by the `jolt-toolkit-dev` agent — route any behaviour/layout ch
 ## How to run
 
 ```bash
-python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.4
-# → excel_report_database/2.2.4/data_dashboard.html (open offline by double-click)
+python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.5
+# → excel_report_database/2.2.5/data_dashboard.html (open offline by double-click)
 # overrides: --db-root <reports root>   --out <html path>
 ```
 
