@@ -7,7 +7,7 @@
   /* Large digital canvas — the overview table is wide (12 columns) and the fonts
      are large (3x the original sizes); A4 cannot hold it without wrapping, so we
      use one generous landscape sheet with comfortable left/right margins. */
-  @page { size: 640mm 450mm; margin: 22mm 32mm 24mm 32mm; }
+  @page { size: 720mm 450mm; margin: 22mm 30mm 24mm 30mm; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
@@ -82,17 +82,17 @@
 <h2>Fleet data-collection overview</h2>
 <table>
   <colgroup>
-    <col style="width:7%"><col style="width:10%"><col style="width:10.5%"><col style="width:6.5%">
-    <col style="width:9%"><col style="width:8.5%">
-    <col style="width:6%"><col style="width:6.5%"><col style="width:8%"><col style="width:8%">
-    <col style="width:10%"><col style="width:10%">
+    <col style="width:6%"><col style="width:9%"><col style="width:9.5%"><col style="width:6%">
+    <col style="width:7%"><col style="width:6.5%"><col style="width:6%">
+    <col style="width:5%"><col style="width:5.5%"><col style="width:6%"><col style="width:6.5%">
+    <col style="width:7.5%"><col style="width:7.5%"><col style="width:7.5%">
   </colgroup>
   <thead>
     <tr>
       <th>Vehicle</th><th class="l">Operator</th><th class="l">Make / Model</th><th>Energy type</th>
-      <th>Telematics data</th><th>SRF logger</th>
+      <th>Telematics data</th><th>SRF logger</th><th>Charger data</th>
       <th>Trips</th><th>Charges</th><th>Active days</th><th>Distance (km)</th>
-      <th>Latest telematics</th><th>Latest SRF logger</th>
+      <th>Latest telematics</th><th>Latest SRF logger</th><th>Latest charger</th>
     </tr>
   </thead>
   <tbody>
@@ -104,12 +104,14 @@
       <td class="c"><span class="etype {{ 'ev' if v.energy_type == 'EV' else 'diesel' }}">{{ v.energy_type }}</span></td>
       <td class="c{{ ' muted' if v.telematics == '—' else '' }}">{{ v.telematics }}</td>
       <td class="c{{ ' muted' if v.logger == '—' else '' }}">{{ v.logger }}</td>
+      <td class="c{{ ' muted' if v.charger == '—' else '' }}">{{ v.charger }}</td>
       <td class="c">{{ v.n_trips }}</td>
       <td class="c">{{ v.n_charges }}</td>
       <td class="c">{{ v.active_days }}</td>
       <td class="num">{{ v.distance }}</td>
       <td class="c lt-{{ v.latest_tel.cls }}">{{ v.latest_tel.text }}</td>
       <td class="c lt-{{ v.latest_log.cls }}">{{ v.latest_log.text }}</td>
+      <td class="c lt-{{ v.latest_chg.cls }}">{{ v.latest_chg.text }}</td>
     </tr>
   {% endfor %}
   </tbody>
@@ -127,7 +129,9 @@
   <i>after</i> the latest existing coverage, never overwriting any existing report or raw-data file
   (append-only). The data-availability dashboard is refreshed from the same database.
   <i>Telematics data</i> / <i>SRF logger</i> = number of legs in the reporting window backed by each
-  SRF data source; <i>Latest telematics</i> / <i>Latest SRF logger</i> = the most recent time each
+  SRF data source; <i>Charger data</i> = number of charge-point transactions
+  (<code>raw_charger/charger_transactions.csv</code>) recorded in the window;
+  <i>Latest telematics</i> / <i>Latest SRF logger</i> / <i>Latest charger</i> = the most recent time each
   source produced data (green = inside this window, amber = an earlier date, — = never seen).
   <div class="footer-src">JOLT — Joint Operators Logistics Trial · data-collection-monitor · generated {{ meta.generated_utc }} UTC</div>
 </div>

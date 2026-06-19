@@ -136,6 +136,8 @@ class VehicleResult:
     charged_kwh: float = 0.0
     latest_tel: datetime | None = None  # most recent telematics data ever (may predate window)
     latest_log: datetime | None = None  # most recent SRF logger data ever (may predate window)
+    n_charger: int = 0                  # charger transactions (charge-point records) in the window
+    latest_charger: datetime | None = None  # most recent charger transaction ever
 
     @property
     def new_data(self) -> bool:
@@ -212,6 +214,29 @@ def _latest_by_source(periods: dict[tuple[str, str], Path]):
             if len(m):
                 log = m.max()
     return tel, log
+
+
+def _charger_stats(vdir: Path, win_start: date, win_end: date):
+    """Charger-transaction collection for one vehicle, from
+    ``raw_charger/charger_transactions.csv`` (a distinct SRF data source from the
+    telematics / logger leg data). Returns (n_in_window, latest_ts): n_in_window counts
+    charge-point transactions whose ``start_time`` falls in [win_start, win_end];
+    latest_ts is the most recent transaction start ever (None if the file is absent /
+    empty / unreadable)."""
+    csv = vdir / "raw_charger" / "charger_transactions.csv"
+    if not csv.is_file():
+        return 0, None
+    try:
+        df = pd.read_csv(csv, usecols=["start_time"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not read %s: %s", csv, exc)
+        return 0, None
+    st = pd.to_datetime(df["start_time"], errors="coerce", utc=True).dropna()
+    if st.empty:
+        return 0, None
+    d = st.dt.tz_convert(None)  # naive UTC for date comparison / display
+    in_win = int(((d.dt.date >= win_start) & (d.dt.date <= win_end)).sum())
+    return in_win, d.max()
 
 
 # --------------------------------------------------------------------------- #
@@ -315,6 +340,8 @@ def _process_vehicle(
 
     # most-recent telematics / logger ever (may predate the window; None = never)
     res.latest_tel, res.latest_log = _latest_by_source(existing)
+    # charger-transaction collection (count in window + latest ever)
+    res.n_charger, res.latest_charger = _charger_stats(vdir, win_start, win_end)
 
     # --- final status ---
     if res.status not in ("error", "no_baseline"):
@@ -408,15 +435,15 @@ def _write_status(
         "",
         "## Per-vehicle (last run)",
         "",
-        "| Vehicle | Energy | Operator | Telematics | SRF logger | Trips | Charges | "
-        "Active days | Distance (km) | Latest telematics | Latest SRF logger | Status |",
-        "|---|---|---|---:|---:|---:|---:|---:|---:|---|---|---|",
+        "| Vehicle | Energy | Operator | Telematics | SRF logger | Charger | Trips | Charges | "
+        "Active days | Distance (km) | Latest telematics | Latest SRF logger | Latest charger | Status |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|---|---|",
     ]
     for r in results:
         lines.append(
             f"| {r.reg} | {r.energy_type} | {r.operator} | {r.n_telematics or '—'} | "
-            f"{r.n_logger or '—'} | {r.n_trips} | {r.n_charges} | {r.active_days} | "
-            f"{r.distance_km:,.0f} | {_fmt_dt(r.latest_tel)} | {_fmt_dt(r.latest_log)} | {r.status} |"
+            f"{r.n_logger or '—'} | {r.n_charger or '—'} | {r.n_trips} | {r.n_charges} | {r.active_days} | "
+            f"{r.distance_km:,.0f} | {_fmt_dt(r.latest_tel)} | {_fmt_dt(r.latest_log)} | {_fmt_dt(r.latest_charger)} | {r.status} |"
         )
     errs = [r for r in results if r.status == "error"]
     if errs:
@@ -440,12 +467,14 @@ def _build_context(
         "energy_type": r.energy_type,
         "telematics": str(r.n_telematics) if r.n_telematics else "—",
         "logger": str(r.n_logger) if r.n_logger else "—",
+        "charger": str(r.n_charger) if r.n_charger else "—",
         "n_trips": r.n_trips,
         "n_charges": r.n_charges,
         "active_days": r.active_days,
         "distance": f"{r.distance_km:,.0f}",
         "latest_tel": _latest_cell(r.latest_tel, win_start),
         "latest_log": _latest_cell(r.latest_log, win_start),
+        "latest_chg": _latest_cell(r.latest_charger, win_start),
     } for r in results]
 
     meta = {
@@ -515,6 +544,13 @@ def main() -> int:
                  for k, v in vj.items()}
     except Exception:  # noqa: BLE001
         pass
+    # surface watched vehicles missing from vehicles.json — their energy type would
+    # otherwise silently default to "EV" (this is what mislabelled diesel YT21EFD when
+    # its config was not yet present on the branch a run used).
+    missing_cfg = [r for r in vehicles if r not in fuels]
+    if missing_cfg:
+        log.warning("watched vehicles absent from vehicles.json (energy type defaults to EV — verify): %s",
+                    ", ".join(missing_cfg))
 
     now_dt = datetime.now(timezone.utc)
     end_date = datetime.strptime(args.end_date, "%Y-%m-%d").date() if args.end_date else now_dt.date()
@@ -567,10 +603,10 @@ def main() -> int:
     print(f"DATA-COLLECTION MONITOR — {generated_utc} UTC | v{version}")
     print(f"window {_iso(win_start)} → {_iso(end_date)} | cadence {cadence} | next run {next_due} UTC")
     print("-" * 78)
-    print(f"{'Vehicle':<9} {'type':<7} {'operator':<14} {'telem':>5} {'logr':>5} "
+    print(f"{'Vehicle':<9} {'type':<7} {'operator':<14} {'telem':>5} {'logr':>5} {'chgr':>5} "
           f"{'trips':>5} {'charg':>5} {'days':>4} {'dist km':>8}  status")
     for r in results:
-        print(f"{r.reg:<9} {r.energy_type:<7} {r.operator[:14]:<14} {r.n_telematics:>5} {r.n_logger:>5} "
+        print(f"{r.reg:<9} {r.energy_type:<7} {r.operator[:14]:<14} {r.n_telematics:>5} {r.n_logger:>5} {r.n_charger:>5} "
               f"{r.n_trips:>5} {r.n_charges:>5} {r.active_days:>4} {r.distance_km:>8,.0f}  {r.status}")
     print("-" * 78)
     print(f"{n_new}/{len(results)} vehicles with new data | {n_err} error(s) | digest: {pdf_name}")

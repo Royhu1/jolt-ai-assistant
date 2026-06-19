@@ -8,7 +8,8 @@ description: |
   never overwrites an existing report or its raw data (append-only). It then refreshes
   the data-availability dashboard and emits a fixed-template PDF "data collection digest"
   (a single fleet data-collection overview table: operator, energy type, telematics /
-  SRF-logger leg counts + last-seen times, trips, charges, active days, distance) for the
+  SRF-logger leg + charger-transaction counts + last-seen times, trips, charges, active
+  days, distance) for the
   most-recent window into data_collection_reports/, and updates MONITOR_STATUS.md (which
   shows the active loop cadence / last run / next due).
   Triggers on:
@@ -132,21 +133,22 @@ any `.xlsx` open in Excel (a locked workbook is skipped on read with a warning).
 
 PDF content: **a single "whole-fleet data-collection overview table"** (no summary cards, no
 per-vehicle detail sections; title bar centred, the time range in red). One row per vehicle,
-12 columns: **Vehicle / Operator / Make-Model / Energy type (EV·Diesel) / Telematics data /
-SRF logger / Trips / Charges / Active days / Distance (km) / Latest telematics / Latest SRF
-logger**.
+14 columns: **Vehicle / Operator / Make-Model / Energy type (EV·Diesel) / Telematics data /
+SRF logger / Charger data / Trips / Charges / Active days / Distance (km) / Latest telematics /
+Latest SRF logger / Latest charger**.
 - *Telematics data* / *SRF logger* = the number of legs **within the window** supported by SRF
   FPS telematics / SRF logger respectively (count of non-empty `Telematics Link` / `SRF Logger
-  Link` in the Report sheet).
-- *Latest telematics* / *Latest SRF logger* = the **most recent data time across the whole
-  database** for that source (newest files scanned first): **green** = falls within this
-  window, **amber** = the last time was before the window (possibly long ago), **grey "—"** =
-  that source has never been collected.
+  Link` in the Report sheet); *Charger data* = the number of charge-point transactions in the
+  window (rows of `raw_charger/charger_transactions.csv` whose `start_time` falls in the window).
+- *Latest telematics* / *Latest SRF logger* / *Latest charger* = the **most recent data time
+  across the whole database** for that source (newest files scanned first): **green** = falls
+  within this window, **amber** = the last time was before the window (possibly long ago),
+  **grey "—"** = that source has never been collected.
 - *Energy type* is taken from vehicles.json `fuel_type` (DIESEL → Diesel, otherwise EV);
   *Operator* is taken from `plot_config.json` `company_assignment` (incl. `round_robin` matched
   by date range against the window-end day).
-- Layout: font sizes are **3×** the base version, so a large landscape canvas (≈640×450 mm,
-  with left/right margins) is used so the 12 columns do not wrap and the whole fleet fits
+- Layout: font sizes are **3×** the base version, so a large landscape canvas (≈720×450 mm,
+  with left/right margins) is used so the 14 columns do not wrap and the whole fleet fits
   (a digital PDF, mainly for on-screen reading, header repeated per page, some columns centred).
 
 ## 6. Discipline

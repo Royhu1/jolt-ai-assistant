@@ -18,7 +18,7 @@ SRF telematics (live) + `excel_report_database/<version>/` · **Out:**
 3. **Read window** — collect trip/charge detail within the lookback window (cadence-derived,
    default 7 days).
 4. **Refresh dashboard** — regenerate `excel_report_database/<version>/data_dashboard.html`.
-5. **Digest** — build the single 12-column whole-fleet overview table → HTML → headless-Chrome
+5. **Digest** — build the single 14-column whole-fleet overview table → HTML → headless-Chrome
    PDF (`build_digest_pdf.py`) → `data_collection_digest_<start>_<end>.pdf`.
 6. **Status** — rewrite `MONITOR_STATUS.md` (cadence / last run / next due / per-vehicle
    "new data this time?"); echo cadence + next-due in the reply.
