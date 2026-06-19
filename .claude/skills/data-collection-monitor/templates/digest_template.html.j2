@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ meta.title }}</title>
+<style>
+  /* Large digital canvas — the overview table is wide (12 columns) and the fonts
+     are large (3x the original sizes); A4 cannot hold it without wrapping, so we
+     use one generous landscape sheet with comfortable left/right margins. */
+  @page { size: 640mm 450mm; margin: 22mm 32mm 24mm 32mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: #1f2a37; font-size: 31px; line-height: 1.4;
+  }
+
+  /* ---- header (centred) ---- */
+  .header { text-align: center; border-bottom: 7px solid #0b3d61; padding-bottom: 18px; margin-bottom: 18px; }
+  h1 { font-size: 62px; margin: 0 0 8px 0; color: #0b3d61; letter-spacing: .5px; }
+  .sub { color: #5b6b7b; font-size: 31px; }
+  .win { color: #c0392b; font-weight: 700; }            /* reporting-window dates in red */
+  .meta-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 46px;
+               margin-top: 16px; font-size: 28px; color: #34465a; }
+  .meta-grid b { color: #0b3d61; }
+
+  h2 { font-size: 41px; margin: 8px 0 14px 0; color: #0b3d61; text-align: center; }
+
+  /* ---- table ---- */
+  table { width: 100%; border-collapse: collapse; margin: 8px 0; page-break-inside: auto;
+          table-layout: fixed; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  th { background: linear-gradient(180deg, #134e7a 0%, #0b3d61 100%); color: #fff;
+       text-align: center; padding: 12px 10px; font-size: 26px; font-weight: 600;
+       overflow-wrap: break-word; border-right: 1px solid #24608a; }
+  th.l { text-align: left; }
+  td { padding: 11px 12px; border-bottom: 2px solid #e4e9ef; font-size: 27px;
+       vertical-align: middle; overflow-wrap: break-word; }
+  td.c { text-align: center; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr:nth-child(even) td { background: #f1f7fc; }
+  tbody tr:hover td { background: #e7f1fa; }
+  td.reg { font-weight: 700; color: #0b3d61; text-align: center; }
+  td.op { color: #2b3a4a; }
+  .muted { color: #9aa6b2; }
+
+  /* energy-type pill */
+  .etype { display: inline-block; padding: 3px 16px; border-radius: 16px;
+           font-weight: 700; font-size: 24px; }
+  .etype.ev { background: #e3f6ea; color: #0a7d3d; }
+  .etype.diesel { background: #fdecd2; color: #b3600a; }
+
+  /* latest-data recency colouring */
+  .lt-fresh { color: #0a7d3d; font-weight: 600; }       /* data seen inside the window */
+  .lt-stale { color: #b3600a; font-weight: 600; }       /* last seen before the window */
+  .lt-none  { color: #9aa6b2; }                         /* source never produced data */
+
+  .legend { text-align: center; margin: 14px 0 0 0; font-size: 24px; color: #5b6b7b; }
+  .legend span { margin: 0 14px; }
+  .dot { display: inline-block; width: 18px; height: 18px; border-radius: 50%;
+         vertical-align: middle; margin-right: 6px; }
+  .note { margin-top: 22px; padding-top: 14px; border-top: 2px solid #d7e0ea;
+          color: #6b7886; font-size: 24px; }
+  .footer-src { color: #9aa6b2; font-size: 22px; margin-top: 6px; text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>{{ meta.title }}</h1>
+  <div class="sub">Reporting window <span class="win">{{ meta.window_start }} &rarr; {{ meta.window_end }}</span>
+    &middot; cadence: {{ meta.cadence }} ({{ meta.lookback_days }}-day lookback)</div>
+  <div class="meta-grid">
+    <span><b>Generated (UTC):</b> {{ meta.generated_utc }}</span>
+    <span><b>Toolkit version:</b> {{ meta.version }}</span>
+    <span><b>Vehicles watched:</b> {{ meta.n_vehicles }}</span>
+    <span><b>Next run (UTC):</b> {{ meta.next_due }}</span>
+  </div>
+</div>
+
+<h2>Fleet data-collection overview</h2>
+<table>
+  <colgroup>
+    <col style="width:7%"><col style="width:10%"><col style="width:10.5%"><col style="width:6.5%">
+    <col style="width:9%"><col style="width:8.5%">
+    <col style="width:6%"><col style="width:6.5%"><col style="width:8%"><col style="width:8%">
+    <col style="width:10%"><col style="width:10%">
+  </colgroup>
+  <thead>
+    <tr>
+      <th>Vehicle</th><th class="l">Operator</th><th class="l">Make / Model</th><th>Energy type</th>
+      <th>Telematics data</th><th>SRF logger</th>
+      <th>Trips</th><th>Charges</th><th>Active days</th><th>Distance (km)</th>
+      <th>Latest telematics</th><th>Latest SRF logger</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for v in fleet %}
+    <tr>
+      <td class="reg">{{ v.reg }}</td>
+      <td class="op">{{ v.operator }}</td>
+      <td>{{ v.model }}</td>
+      <td class="c"><span class="etype {{ 'ev' if v.energy_type == 'EV' else 'diesel' }}">{{ v.energy_type }}</span></td>
+      <td class="c{{ ' muted' if v.telematics == '—' else '' }}">{{ v.telematics }}</td>
+      <td class="c{{ ' muted' if v.logger == '—' else '' }}">{{ v.logger }}</td>
+      <td class="c">{{ v.n_trips }}</td>
+      <td class="c">{{ v.n_charges }}</td>
+      <td class="c">{{ v.active_days }}</td>
+      <td class="num">{{ v.distance }}</td>
+      <td class="c lt-{{ v.latest_tel.cls }}">{{ v.latest_tel.text }}</td>
+      <td class="c lt-{{ v.latest_log.cls }}">{{ v.latest_log.text }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<div class="legend">
+  <span><span class="dot" style="background:#0a7d3d"></span>data in this window</span>
+  <span><span class="dot" style="background:#b3600a"></span>last seen before this window</span>
+  <span><span class="dot" style="background:#9aa6b2"></span>— never collected</span>
+</div>
+
+<div class="note">
+  <b>Method.</b> For each watched vehicle the monitor extends the canonical report database
+  ({{ meta.version }}) forward in time using jolt_toolkit — generating reports only for periods
+  <i>after</i> the latest existing coverage, never overwriting any existing report or raw-data file
+  (append-only). The data-availability dashboard is refreshed from the same database.
+  <i>Telematics data</i> / <i>SRF logger</i> = number of legs in the reporting window backed by each
+  SRF data source; <i>Latest telematics</i> / <i>Latest SRF logger</i> = the most recent time each
+  source produced data (green = inside this window, amber = an earlier date, — = never seen).
+  <div class="footer-src">JOLT — Joint Operators Logistics Trial · data-collection-monitor · generated {{ meta.generated_utc }} UTC</div>
+</div>
+
+</body>
+</html>

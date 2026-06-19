@@ -1,0 +1,161 @@
+# =============================================================================
+# JOLT_Report .gitignore
+# Goal: commit ONLY source code + documentation. Never commit data, generated
+# artefacts, large binaries (PDF/PPTX/figures), secrets, or machine-local files.
+# =============================================================================
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# --- Virtual environments ----------------------------------------------------
+venv/
+env/
+ENV/
+.venv
+
+# --- IDE / editor ------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- Secrets / credentials (NEVER commit) ------------------------------------
+.env
+.env.local
+*.pem
+*.key
+
+# --- Logs --------------------------------------------------------------------
+*.log
+
+# --- Data files (raw + derived) ----------------------------------------------
+# All tabular/binary data stays out of the repo; only code + docs are tracked.
+*.csv
+*.xlsx
+*.xls
+*.parquet
+*.pkl
+*.npz
+*.npy
+*.mat
+*.db
+*.sqlite
+
+# --- Large binaries: documents / slides / archives / media -------------------
+# Reference PDFs (often third-party / copyrighted), generated report PDFs,
+# slide decks and archives are not source — keep them out.
+*.pdf
+*.pptx
+*.ppt
+*.pptm
+*.7z
+*.zip
+*.rar
+*.gz
+*.tar
+
+# --- Caches ------------------------------------------------------------------
+.cache/
+*.cache
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# --- OS junk -----------------------------------------------------------------
+.DS_Store
+Thumbs.db
+
+# --- Claude Code: share project config (skills/agents/commands/rules);
+#     ignore only personal / machine-local / runtime parts -------------------
+.claude/settings.local.json
+.claude/sessions/
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+.claude/claudian-settings.json
+.claude/agent-memory/
+# generate-pdf-report local references (external copyrighted PDFs + regenerable
+# style-baseline snapshots) — skill code/SKILL.md/templates are shared, this is not
+.claude/skills/generate-pdf-report/references/
+
+# --- Machine-local / private working notes -----------------------------------
+CLAUDE.local.md
+
+# --- Changelogs: keep weekly changelog_*.md, ignore other scratch ------------
+changelogs/*
+!changelogs/changelog_*.md
+
+# --- Generated / data directories (kept out of git) --------------------------
+# Versioned report database (raw + xlsx data) + recycle bin + deprecated figures
+excel_report_database/*
+!excel_report_database/.gitkeep
+archive/*
+!archive/.gitkeep
+# Data-collection-monitor outputs (skill itself is shared, its outputs are not)
+data_collection_reports/
+
+# --- Temp / scratch ----------------------------------------------------------
+*.tmp
+*.bak
+Untitled.md
+_batch_debug.sh
+tmp/
+# One-off / throwaway scripts (local, delete after use; never committed)
+_tmp_*.py
+_patch_*.py
+tools_*.py
+bett_dd*.txt
+tools_*_out.txt
+# Loose root-level scratch/debug scripts (not part of the toolkit in src/)
+/all_segments.py
+/detailed_analysis.py
+/discharge_analysis.py
+/trip_analysis.py
+/test_segmentation.py
+/test_segmentation2.py
+
+# --- Obsidian ----------------------------------------------------------------
+.obsidian/
+
+# --- Research / analysis / presentation workspaces ---------------------------
+# Keep code (.py/.md) under research_projects/; ignore figures, results, raw data.
+research_projects/**/figures/
+research_projects/**/results/
+research_projects/**/data/
+research_projects/parameter_identify/results/
+cache/
+# Quick-validation scratch space + slide-deck workspace + academic paper workspace
+data_analysis_workspace/
+monthly_presentation/
+publication_workspace/
+
+# --- Holding area (items not yet slotted into the blueprint; not source) ------
+unarchived/
+
+# --- generate-pdf-report briefing outputs (skill code is shared, outputs not) -
+pdf_report_workspace/output/
+pdf_report_workspace/cache/
+
+# --- Localised README copies (Chinese, local reading only; English is canonical)
+README.zh.md
+*.zh.md

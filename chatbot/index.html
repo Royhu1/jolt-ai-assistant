@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JOLT 车队助手 · Fleet Assistant</title>
+  <link rel="preconnect" href="data:," />
+  <link rel="stylesheet" href="assets/styles.css" />
+  <!-- 知识库（由 build_kb.py 生成的 JS 包装版，file:// 双击亦可加载） -->
+  <script src="data/fleet_kb.js"></script>
+</head>
+<body>
+  <div id="app" class="app">
+
+    <!-- ───────────────── 侧栏 ───────────────── -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark">⚡</div>
+        <div class="brand-text">
+          <div class="brand-title">JOLT 车队助手</div>
+          <div class="brand-sub">Electric HGV Fleet Assistant</div>
+        </div>
+      </div>
+
+      <button class="btn-new" id="btnNew">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" fill="none"/>
+        </svg>
+        <span id="btnNewText">New chat</span>
+      </button>
+
+      <div class="conv-label" id="convLabel">History</div>
+      <div class="conv-list" id="convList"><!-- JS 填充 --></div>
+
+      <div class="sidebar-foot">
+        <div class="appearance">
+          <div class="appr-label" id="apprLabel">Appearance</div>
+          <div class="appr-row">
+            <button class="appr-btn" id="themeToggle">
+              <span id="themeToggleText">🌙 Dark</span>
+            </button>
+            <div class="fs-control" id="fsControl">
+              <button class="fs-btn" data-fs="down" title="Smaller">A−</button>
+              <button class="fs-btn" data-fs="up" title="Larger">A+</button>
+            </div>
+          </div>
+        </div>
+        <div class="status-card" id="statusCard">
+          <div class="status-row">
+            <span class="dot" id="statusDot"></span>
+            <span class="status-text" id="statusText">Checking…</span>
+          </div>
+          <div class="fleet-mini" id="fleetMini"></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ───────────────── 主区 ───────────────── -->
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn only-mobile" id="btnMenu" title="菜单">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 6h16M4 12h16M4 18h16"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+        </button>
+        <div class="topbar-title" id="chatTitle">New conversation</div>
+        <div class="mode-switch" id="modeSwitch" title="Answer engine / 回答引擎">
+          <button class="mode-opt" data-mode="claude" id="modeClaude">
+            <span class="mode-ico">⚡</span> <span class="mode-label">Claude (sub)</span>
+          </button>
+          <button class="mode-opt active" data-mode="offline" id="modeOffline">
+            <span class="mode-ico">◐</span> <span class="mode-label">Offline rules</span>
+          </button>
+        </div>
+        <div class="lang-switch" id="langSwitch" title="Language / 语言">
+          <button class="lang-opt active" data-lang="en">EN</button>
+          <button class="lang-opt" data-lang="zh">中</button>
+        </div>
+      </header>
+
+      <div class="chat-scroll" id="chatScroll">
+        <!-- 欢迎屏 / 消息流由 JS 注入 -->
+      </div>
+
+      <div class="composer-wrap">
+        <div class="composer">
+          <textarea id="input" rows="1" placeholder="Ask anything… e.g. energy difference between YK73WFN and KY24LHT"
+                    autocomplete="off"></textarea>
+          <button class="send-btn" id="btnSend" title="发送 (Enter)">
+            <svg viewBox="0 0 24 24" width="20" height="20"><path
+              d="M4 12l16-8-6 8 6 8z" fill="currentColor"/></svg>
+          </button>
+        </div>
+        <div class="composer-hint" id="composerHint">
+          Enter to send · Shift+Enter for newline
+        </div>
+      </div>
+    </main>
+
+    <!-- 移动端侧栏遮罩 -->
+    <div class="scrim" id="scrim"></div>
+  </div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "_comment": "Watch-list for the data-collection-monitor skill. Default = the full configured fleet (17 vehicles, matching src/jolt_toolkit/configs/vehicles.json). Edit `vehicles` to narrow the watch list; `cadence`/`lookback_days` are defaults used on the FIRST loop run (overridable per run via --cadence/--window-days).",
+  "cadence": "weekly",
+  "lookback_days": 7,
+  "vehicles": [
+    "AV24LXJ",
+    "AV24LXK",
+    "AV24LXL",
+    "EV73SAL",
+    "YK73WFN",
+    "CMZ6260",
+    "KY24LHT",
+    "N88GNW",
+    "EX74JXW",
+    "EX74JXY",
+    "YN25RSY",
+    "TA70WTL",
+    "T88RNW",
+    "WU70GLV",
+    "YN75NMA",
+    "LN25NKE",
+    "YT21EFD"
+  ]
+}

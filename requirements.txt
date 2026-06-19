@@ -1,0 +1,40 @@
+# JOLT 项目依赖
+
+# 核心依赖
+pydantic>=2.0.0
+
+# 数据处理
+pandas>=2.0.0
+numpy>=1.24.0
+
+# HTTP 请求
+requests>=2.31.0
+httpx>=0.24.0
+
+# 文件锁 (用于天气缓存)
+filelock>=3.12.0
+
+# 环境变量
+python-dotenv>=1.0.0
+
+# 报告生成
+openpyxl>=3.1.0
+xlsxwriter>=3.1.0
+
+# 可视化（可选）
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# 日志
+loguru>=0.7.0
+
+# 测试（开发依赖）
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+
+# 代码质量（开发依赖）
+black>=23.0.0
+isort>=5.12.0
+flake8>=6.0.0
+mypy>=1.5.0

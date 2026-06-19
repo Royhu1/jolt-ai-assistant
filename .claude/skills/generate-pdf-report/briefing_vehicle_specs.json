@@ -1,0 +1,8 @@
+{
+  "_README": "Per-vehicle briefing overrides for generate_pdf_report.py (kept in the skill, not vehicles.json, for self-containment). For artics whose lightest GVM cluster is the bobtail tractor, set 'unladen_band_t': [lo, hi] (and optionally 'laden_min_t') to define the UNLADEN operating band by AI judgement, grounded in the observed distribution: unladen = data points in [lo, hi) (tractor + empty trailer), laden = GVM >= laden_min (default hi), bobtail (< lo) excluded. Omit to fall back to KDE light/heavy clustering. 'unladen_mass_t' can pin the unladen marker mass explicitly. 'note' records the judgement + provenance.",
+  "EX74JXW": {
+    "unladen_band_t": [14, 20],
+    "laden_min_t": 20,
+    "note": "Scania 23P, type ARTIC, rated GVW 42 t (SRF weightClass=42, 518 kWh). Tractor solo (bobtail) ~12 t — the ~10-14 t data points — is NOT 'unladen'. UNLADEN = tractor + empty trailer ~16-17 t = the 14-20 t data points; LADEN = loaded operation, GVM >= 20 t (median ~24-25 t); full = 42 t rated GVW (observed GVM tops out ~36 t, so 42 t is a dashed projection). Bands set by AI judgement of the artic configuration, grounded in the observed GVM distribution."
+  }
+}

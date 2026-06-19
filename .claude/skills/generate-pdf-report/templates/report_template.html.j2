@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  JOLT — Industry PDF Report TEMPLATE (Jinja2) · A4 PORTRAIT (2 pages)
+  ============================================================================
+  Rendered by generate_pdf_report.py:
+      excel_report_database/<ver>/<REG>/*.xlsx  ->  context  ->  this template
+      ->  HTML  ->  headless-Chrome --print-to-pdf  ->  PDF
+  Page 1 = operations dashboard + plain-English Summary.
+  Page 2 = 2x2 grid of square (1:1) charts + plain-English Conclusions.
+  Both pages are fixed A4 portrait (210x297 mm); content is laid out to fit one
+  page each (no dynamic height injection).
+  ============================================================================
+-->
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>{{ operator }} — {{ reg }} — JOLT Report</title>
+<style>
+  :root {
+    --navy:#15173f; --navy-2:#2a2c6e; --accent:#18c29c; --accent-2:#14a886;
+    --positive:#2ecc71; --ink:#1b1c3a; --muted:#6b6c85; --line:#e4e5ef;
+    --page-bg:#f5f6fb; --chip-bg:#eef0fa; --na:#a7a9bd; --pad:11mm;
+  }
+  @page { size:A4; margin:0; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { background:#fff; }
+  body {
+    font-family:"Segoe UI","Inter",Arial,sans-serif;
+    color:var(--ink); -webkit-print-color-adjust:exact; print-color-adjust:exact;
+    font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased;
+  }
+  .num { font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1; }
+  .na { color:var(--na); font-weight:600; }
+  .page {
+    position:relative; width:210mm; height:297mm; background:var(--page-bg);
+    overflow:hidden; page-break-after:always; display:flex; flex-direction:column;
+  }
+  .page:last-child { page-break-after:auto; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:11px;
+          box-shadow:0 2px 6px rgba(21,23,63,.06); }
+  .pos { color:var(--positive); font-weight:800; }
+
+  /* ---------------- PAGE 1 — operations dashboard ---------------- */
+  .page--ops { padding:0 var(--pad) 7mm; }
+  .ops-header {
+    display:flex; align-items:center; justify-content:space-between;
+    background:linear-gradient(110deg,var(--navy-2) 0%,var(--navy) 72%);
+    margin:0 calc(-1*var(--pad)) 0; padding:7mm var(--pad) 7mm; color:#fff;
+    border-bottom-left-radius:16px; border-bottom-right-radius:16px;
+  }
+  .ops-header h1 { font-size:33px; font-weight:800; letter-spacing:.2px; }
+  .ops-header__sub { font-size:13px; font-weight:600; letter-spacing:1px;
+                     color:#c9cbef; margin-top:7px; white-space:nowrap; }
+  .ops-header__logos { display:flex; gap:10px; align-items:center; }
+  .logo-ph { width:108px; height:42px; display:flex; align-items:center; justify-content:center;
+    gap:6px; background:rgba(255,255,255,.08); border:1.4px dashed rgba(255,255,255,.5);
+    border-radius:8px; color:rgba(255,255,255,.82); font-size:12px; font-weight:800;
+    letter-spacing:1.5px; }
+  .logo-ph svg { width:16px; height:16px; opacity:.85; }
+
+  .timeline { display:grid; grid-template-columns:1fr 54px 1fr 54px 1fr;
+              align-items:center; margin:7mm 6mm 4mm; }
+  .stage { position:relative; text-align:center; padding:4px 8px; }
+  .stage__tag { position:absolute; top:-16px; left:50%; transform:translateX(-50%);
+    font-size:11px; font-weight:800; letter-spacing:1px; color:var(--accent-2); }
+  .stage__icon { width:50px; height:50px; margin:0 auto 7px; display:flex;
+    align-items:center; justify-content:center; background:var(--chip-bg);
+    border-radius:50%; color:var(--navy); }
+  .stage__icon svg { width:26px; height:26px; }
+  .stage__time { font-size:21px; font-weight:800; color:var(--navy); }
+  .stage__label { font-size:13px; color:var(--muted); margin-top:5px; line-height:1.3; }
+  .arrow { display:flex; align-items:center; justify-content:center; }
+  .arrow svg { width:54px; height:22px; }
+
+  .operating-band { text-align:center; font-size:14.5px; font-weight:800;
+    letter-spacing:.8px; color:var(--navy); background:var(--chip-bg);
+    border-radius:8px; padding:12px; margin:0 12mm; white-space:nowrap; }
+
+  .summary-strip { display:grid; grid-template-columns:repeat({{ summary|length }},1fr);
+    padding:12px 0; margin-top:5mm; }
+  .summary-cell { text-align:center; border-right:1px solid var(--line); padding:2px 12px; }
+  .summary-cell:last-child { border-right:none; }
+  .summary-cell__k { display:block; font-size:13.5px; color:var(--muted); font-weight:600;
+                     letter-spacing:.3px; }
+  .summary-cell__v { display:block; font-size:31px; font-weight:800; color:var(--navy); margin-top:6px; }
+
+  .ops-bottom { display:grid; grid-template-columns:1fr 1fr 0.86fr; gap:5mm; margin-top:6mm;
+                align-items:stretch; }
+  .ops-bottom > .card { height:92mm; }
+  .stat-card { padding:14px 17px 13px; display:flex; flex-direction:column; }
+  .stat-card__title { font-size:16px; font-weight:800; letter-spacing:.2px; color:var(--navy);
+    text-align:center; padding-bottom:9px; margin-bottom:6px; border-bottom:2px solid var(--chip-bg);
+    display:flex; align-items:center; justify-content:center; gap:7px; white-space:nowrap; }
+  .stat-card__title svg { width:18px; height:18px; color:var(--accent-2); }
+  .stat-list { list-style:none; display:flex; flex-direction:column; justify-content:space-around; flex:1; }
+  .stat-list li { display:flex; justify-content:space-between; align-items:baseline;
+    font-size:16.5px; padding:6px 0; border-bottom:1px dashed #eef0f6; }
+  .stat-list li:last-child { border-bottom:none; }
+  .stat-list li span { color:var(--muted); }
+  .stat-list li b { color:var(--navy); font-weight:800; white-space:nowrap; margin-left:8px; }
+  .map-card { padding:0; overflow:hidden; position:relative; }
+  .map-card img { width:100%; height:100%; object-fit:cover; display:block; }
+  .map-card__cap { position:absolute; bottom:5px; right:6px; font-size:11px;
+    color:var(--muted); font-style:italic; background:rgba(255,255,255,.45);
+    padding:1px 5px; border-radius:4px; opacity:.6; }
+
+  /* page-1 plain-English Summary block (fills the rest of the page) */
+  .ops-summary { margin-top:5mm; padding:14px 22px 16px; flex:1; display:flex; flex-direction:column; }
+  .ops-summary__title { font-size:18px; font-weight:800; letter-spacing:.6px; color:var(--navy);
+    text-transform:uppercase; padding-bottom:8px; margin-bottom:8px;
+    border-bottom:2px solid var(--chip-bg); }
+  .ops-summary ul { list-style:none; display:flex; flex-direction:column;
+    justify-content:space-around; flex:1; }
+  .ops-summary li { position:relative; padding-left:24px; font-size:16.5px; line-height:1.55;
+    margin:6px 0; color:var(--ink); }
+  .ops-summary li::before { content:""; position:absolute; left:0; top:7px; width:9px; height:9px;
+    border-radius:50%; background:var(--accent); }
+  .ops-footer { text-align:right; margin-top:8px; font-size:11.5px;
+    font-style:italic; color:var(--muted); }
+
+  /* ---------------- PAGE 2 — performance analysis ---------------- */
+  .page--analysis { padding:0 0 7mm; }
+  .analysis-header { background:linear-gradient(110deg,var(--navy-2) 0%,var(--navy) 72%);
+    color:#fff; padding:7mm var(--pad); display:flex; align-items:baseline;
+    justify-content:space-between; }
+  .analysis-header h2 { font-size:26px; font-weight:800; }
+  .analysis-header span { font-size:13px; color:#c9cbef; font-weight:600; letter-spacing:.5px; }
+
+  .analysis-grid { display:grid; grid-template-columns:1fr 1fr; grid-auto-rows:84mm;
+    gap:5mm; padding:5mm var(--pad) 3mm; }
+  .chart-cell { background:#fff; border:1px solid var(--line); border-radius:10px;
+    padding:6px 8px 4px; display:flex; flex-direction:column; overflow:hidden; }
+  /* reserved 2-line title height -> equal title block across cells -> chart boxes align */
+  .chart-cell__title { font-size:17px; font-weight:800; color:var(--navy); line-height:1.18;
+    text-align:center; min-height:44px; padding:1px 2px 3px;
+    display:flex; align-items:center; justify-content:center; }
+  .chart-cell__body { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; }
+  .chart-img { max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; display:block; }
+
+  .analysis-conclusion { background:var(--navy); color:#eef0fa; border-radius:11px;
+    margin:3mm var(--pad) 0; padding:13px 22px 15px; flex:1; display:flex; flex-direction:column; }
+  .analysis-conclusion h3 { font-size:18px; font-weight:800; letter-spacing:.6px;
+    text-transform:uppercase; color:#fff; padding-bottom:8px; margin-bottom:6px;
+    border-bottom:1px solid rgba(255,255,255,.18); }
+  .analysis-conclusion ul { list-style:none; display:flex; flex-direction:column;
+    justify-content:space-around; flex:1; }
+  .analysis-conclusion li { position:relative; padding-left:24px; font-size:15.5px; line-height:1.5;
+    margin:5px 0; }
+  .analysis-conclusion li::before { content:""; position:absolute; left:0; top:7px; width:9px;
+    height:9px; border-radius:50%; background:var(--accent); }
+  .analysis-conclusion em { color:#fff; font-style:normal; font-weight:800; }
+  .analysis-footer { text-align:right; padding:5px var(--pad) 6mm; font-size:11px;
+    font-style:italic; color:var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- ===================== PAGE 1 ===================== -->
+<section class="page page--ops">
+  <header class="ops-header">
+    <div>
+      <h1>{{ operator }}{% if reg %} &nbsp;·&nbsp; {{ reg }}{% endif %}</h1>
+      <p class="ops-header__sub">{{ vehicle_model }} &nbsp;·&nbsp; {{ period_label }}</p>
+    </div>
+    <div class="ops-header__logos">
+      {% for _ in range(3) %}
+      <span class="logo-ph">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15l-5-5L5 21"/></svg>LOGO
+      </span>
+      {% endfor %}
+    </div>
+  </header>
+
+  <section class="timeline">
+    {% for s in timeline %}
+    <div class="stage">
+      {% if s.tag %}<span class="stage__tag">{{ s.tag }}</span>{% endif %}
+      <div class="stage__icon">{{ s.icon }}</div>
+      <div class="stage__time">{{ s.time }}</div>
+      <div class="stage__label">{{ s.label }}</div>
+    </div>
+    {% if not loop.last %}
+    <div class="arrow"><svg viewBox="0 0 52 22"><defs><linearGradient id="ag{{ loop.index }}" x1="0" x2="1"><stop offset="0" stop-color="#18c29c"/><stop offset="1" stop-color="#14a886"/></linearGradient></defs><path d="M0 7h36V2l16 9-16 9v-5H0z" fill="url(#ag{{ loop.index }})"/></svg></div>
+    {% endif %}
+    {% endfor %}
+  </section>
+
+  <div class="operating-band">{{ operating_days }}</div>
+
+  <section class="summary-strip card">
+    {% for c in summary %}
+    <div class="summary-cell"><span class="summary-cell__k">{{ c.k }}</span><span class="summary-cell__v {{ 'na' if c.na }}">{{ c.v }}</span></div>
+    {% endfor %}
+  </section>
+
+  <section class="ops-bottom">
+    <div class="card stat-card">
+      <h3 class="stat-card__title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M19 9l-5 5-4-4-3 3"/></svg>
+        {{ perf_title }}
+      </h3>
+      <ul class="stat-list">
+        {% for r in perf_rows %}<li><span>{{ r.k }}</span><b class="{{ r.cls }}">{{ r.v }}</b></li>{% endfor %}
+      </ul>
+    </div>
+    <div class="card stat-card">
+      <h3 class="stat-card__title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
+        {{ charge_title }}
+      </h3>
+      <ul class="stat-list">
+        {% for r in charge_rows %}<li><span>{{ r.k }}</span><b class="{{ r.cls }}">{{ r.v }}</b></li>{% endfor %}
+      </ul>
+    </div>
+    <div class="card map-card">
+      <img src="{{ map_img }}" alt="route">
+      <span class="map-card__cap">{{ map_caption }}</span>
+    </div>
+  </section>
+
+  <section class="card ops-summary">
+    <h3 class="ops-summary__title">{{ summary_title }}</h3>
+    <ul>{% for s in summary_points %}<li>{{ s }}</li>{% endfor %}</ul>
+  </section>
+
+  <div class="ops-footer">{{ source_ops }}</div>
+</section>
+
+<!-- ===================== PAGE 2 ===================== -->
+<section class="page page--analysis">
+  <header class="analysis-header">
+    <h2>{{ analysis_title }}</h2>
+    <span>{{ analysis_sub }}</span>
+  </header>
+
+  <div class="analysis-grid">
+    {% for c in charts_grid %}
+    <div class="chart-cell">
+      <div class="chart-cell__title">{{ c.title }}</div>
+      <div class="chart-cell__body"><img class="chart-img" src="{{ c.img }}" alt="{{ c.title }}"></div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <section class="analysis-conclusion">
+    <h3>{{ conclusion_title }}</h3>
+    <ul>{% for b in conclusion_points %}<li>{{ b }}</li>{% endfor %}</ul>
+  </section>
+
+  <div class="analysis-footer">{{ source_analysis }}</div>
+</section>
+
+</body>
+</html>

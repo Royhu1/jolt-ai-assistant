@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jolt-toolkit"
+version = "2.2.4"
+description = "JOLT EV telematics toolkit — report generation, plotting, and parameter identification"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "xlsxwriter>=3.1.0",
+    "openpyxl>=3.1.0",
+    "filelock>=3.12.0",
+    "geopy",
+    "scikit-learn",
+    "srf_client",
+    "matplotlib>=3.7.0",
+    "scipy>=1.10.0",
+    "tqdm>=4.65.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.5.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["jolt_toolkit*"]
+
+[tool.setuptools.package-data]
+# Vendored offline uPlot assets inlined into the dashboard drill-down detail
+# pages (see report_generator/assets/uplot/PROVENANCE.txt). Shipped so non-editable
+# installs can still render detail pages without a network fetch.
+"jolt_toolkit.report_generator" = [
+    "assets/uplot/*.js",
+    "assets/uplot/*.css",
+    "assets/uplot/*.txt",
+]

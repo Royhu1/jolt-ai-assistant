@@ -1,0 +1,60 @@
+{
+  "vehicle": {
+    "reg": "YK73WFN",
+    "srf_reg": "YK73 WFN",
+    "vehicleId": 116,
+    "make": "Volvo",
+    "model": "FM Electric",
+    "max_torque_nm": 2400,
+    "nominal_kwh": 540
+  },
+  "paths": {
+    "logger_dir": "research_projects/parameter_identify/data/YK73WFN",
+    "srf_raw_dir": "cache/srf_raw",
+    "results_dir": "research_projects/regen_analysis/results",
+    "figures_dir": "research_projects/regen_analysis/results/figures",
+    "tables_dir": "research_projects/regen_analysis/results/tables"
+  },
+  "logger_cols": {
+    "time": "UnixTime",
+    "speed": "Spd_Kmph_y",
+    "brake_pedal": "BrkPedalPos",
+    "brake_switch": "BrakeSwitch_CCVS",
+    "engine_speed": "EngSpd",
+    "engine_torque_pct": "EngTrq",
+    "mass": "MassKg",
+    "soc": "soc_pct",
+    "elevation": "elevation"
+  },
+  "telematics_cols": {
+    "vehicle_id": "vehicleId",
+    "datetime": "eventDatetime",
+    "recup_wh": "electric_energy_recuperation_watthours",
+    "recup_sec": "electric_energy_recuperation_seconds",
+    "speed": "wheel_based_speed",
+    "mass": "gross_combination_vehicle_weight",
+    "soc": "electricBatteryLevelPercent"
+  },
+  "physics": {
+    "g": 9.81,
+    "rho": 1.225,
+    "eta_dt": 0.9,
+    "eta_regen": 0.9,
+    "crr": 0.007189,
+    "cda": 3.8134
+  },
+  "window_filter": {
+    "min_duration_s": 1800,
+    "max_duration_s": 5400,
+    "min_logger_coverage": 0.8,
+    "min_recup_delta_wh": 0
+  },
+  "calibration": {
+    "crr": 0.007189,
+    "cda": 3.8134,
+    "eta_total": 0.95,
+    "r_squared": -0.1633,
+    "n_samples": 351903,
+    "mass_median_kg": 19680.0
+  }
+}

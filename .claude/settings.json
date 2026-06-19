@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-changelog.sh\"",
+            "timeout": 10,
+            "statusMessage": "检查 changelog.md 是否已更新..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-readme-on-version-bump.sh\"",
+            "timeout": 10,
+            "statusMessage": "检查版本变更后 README 是否已更新..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-root-readme-on-new-files.sh\"",
+            "timeout": 10,
+            "statusMessage": "检查新增文件后根 README 是否已更新..."
+          }
+        ]
+      }
+    ]
+  }
+}
