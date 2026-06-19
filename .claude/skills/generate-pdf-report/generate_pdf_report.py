@@ -273,17 +273,20 @@ def _add_load_markers(ax, lp, predict, x_data_max):
     """
     lo, hi = ax.get_ylim()
     rng = hi - lo
-    # Stagger the labels vertically: the Unladen and Laden markers are close, so put Unladen
-    # higher and Laden / Full lower to avoid the text overlapping. (EP/Range rise with mass, so
-    # the lower band is the emptier region for the labels.)
-    for mt, lab, col, yf in [(lp["unladen"], "Unladen", "#3a3f55", 0.17),
-                             (lp["laden"], "Laden", "#3a3f55", 0.045),
-                             (lp["full"], "Full", "#c0392b", 0.045)]:
-        if mt is None or not np.isfinite(mt):
-            continue
+    # Stagger the labels vertically so adjacent markers never overlap regardless of spacing:
+    # sort by mass and alternate a high/low level. Lowest mass (Unladen) lands on the high level
+    # ("above"); the labels sit in the lower, emptier band (EP/Range rise with mass).
+    marks = [(mt, lab, col) for mt, lab, col in
+             [(lp["unladen"], "Unladen", "#3a3f55"),
+              (lp["laden"], "Laden", "#3a3f55"),
+              (lp["full"], "Full", "#c0392b")]
+             if mt is not None and np.isfinite(mt)]
+    marks.sort(key=lambda m: m[0])
+    levels = [0.17, 0.045]
+    for i, (mt, lab, col) in enumerate(marks):
         ax.axvline(mt, ls=(0, (4, 3)), color=col, lw=1.4, alpha=0.85, zorder=3)
-        ax.text(mt, lo + rng * yf, f"{lab}\n{mt:.0f} t", ha="center", va="bottom", fontsize=14,
-                color=col, linespacing=0.95, zorder=6,
+        ax.text(mt, lo + rng * levels[i % 2], f"{lab}\n{mt:.0f} t", ha="center", va="bottom",
+                fontsize=14, color=col, linespacing=0.95, zorder=6,
                 bbox=dict(boxstyle="round,pad=0.12", fc="white", ec="none", alpha=0.78))
     if np.isfinite(x_data_max) and lp["full"] > x_data_max:
         xe = np.linspace(x_data_max, lp["full"], 40)
@@ -1198,20 +1201,19 @@ def main():
     conclusion_points = []
     if has_un and pd.notna(m_un):
         conclusion_points.append(
-            f"Unladen (~{m_un:.0f} t): energy use {_pep(ep_un)}{_psd(ep_un_sd)} kWh/km, "
+            f"Unladen (~{m_un:.0f} t): energy performance {_pep(ep_un)}{_psd(ep_un_sd)} kWh/km, "
             f"range {_prn(rng_un)}{_prsd(rng_un_sd)} km.")
     conclusion_points.append(
-        f"Laden (~{m_la:.0f} t): energy use {_pep(ep_la)}{_psd(ep_la_sd)} kWh/km, "
+        f"Laden (~{m_la:.0f} t): energy performance {_pep(ep_la)}{_psd(ep_la_sd)} kWh/km, "
         f"range {_prn(rng_la)}{_prsd(rng_la_sd)} km.")
     conclusion_points.append(
-        f"Fully laden ({m_full:.0f} t, projected to rated GVW): energy use {_pep(ep_fl)}{_psd(ep_fl_sd)} "
-        f"kWh/km, range {_prn(rng_fl)}{_prsd(rng_fl_sd)} km.")
+        f"Fully laden ({m_full:.0f} t, projected to rated GVW): energy performance "
+        f"{_pep(ep_fl)}{_psd(ep_fl_sd)} kWh/km, range {_prn(rng_fl)}{_prsd(rng_fl_sd)} km.")
     if pd.notna(gvm_slope):
         conclusion_points.append(
-            f"Each extra tonne of load adds ~{gvm_slope:.2f} kWh/km; projected range falls from "
-            f"~{_prn(rng_un)} km unladen to ~{_prn(rng_fl)} km at {m_full:.0f} t.")
+            f"Each extra tonne of load adds ~{gvm_slope:.2f} kWh/km.")
     conclusion_points.append(
-        f"Temperature (laden trips, {laden_gmin:.0f}–{laden_gmax:.0f} t): energy use changes "
+        f"Temperature (laden trips, {laden_gmin:.0f}–{laden_gmax:.0f} t): energy performance changes "
         f"~{abs(t_per10):.2f} kWh/km per 10 °C colder (R²={t_r2:.2f}) — {temp_sens}.")
 
     # page-1 summary: concise plain-English takeaways for partners. Kept to a high-level overview
@@ -1230,7 +1232,7 @@ def main():
         _missing.append("energy recuperated")
     if _missing:
         summary_points.append(
-            f"Data channels: {' and '.join(_missing)} are not reported by this vehicle "
+            f"Data channels: {' and '.join(_missing)} are not reported by this vehicle telematics "
             f"(shown as “—”).")
 
     # ---- 人工核实：把简报中出现的每个数字汇成清单，写核实工作簿（Excel 公式独立复算）----

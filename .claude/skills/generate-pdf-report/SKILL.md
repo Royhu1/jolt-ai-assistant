@@ -119,122 +119,113 @@ was conditional on **anonymisation**. Add `--anon`:
 
 ## 4. Layout and rendering conventions (finalised, do not revert)
 
-- **Single large-font layout, PDF = HTML preview**: on-screen and print share one layout
-  (font sizes are 2× the original 16:9 version; page/card content auto-fits its height). A
-  script at the end of the template measures each `.page`'s actual height after load and
-  injects named `@page ops/analysis` sizes (headless Chrome prints after load) — **never**
-  restore the fixed 720px 16:9 page.
-- **Parameterised axes** (constants at the top of `generate_pdf_report.py`, so all reports
-  are comparable across vehicles/periods; never hardcode per figure): EP axis
-  `EP_MIN/EP_MAX` = 0–3 kWh/km; GVM axis `GVM_XLIM` = 0–45 t + `GVM_XTICKS` (0..40 step 10);
-  temperature axis `TEMP_XLIM` = −5–30 °C + `TEMP_XTICKS` (0..30 step 10).
-- **Charts**: scatter + fit + ±1σ shaded band; figsize 5.6×3.2 in, font sizes (global
-  rcParams) ticks **17** / axis labels **18** / legend **13** pt (reduced from 21/23/15 on
-  2026-06-16, to stop axis labels being clipped by the figure edge under fixed axes); **axis
-  titles in Title Case** (each word capitalised, e.g. "Gross Vehicle Mass (t)", "Ambient
-  Temperature (°C)"; units and abbreviations such as kWh/km, SoC kept as-is); **chart titles
-  are rendered by HTML** (template `.chart-panel__title`), not drawn into the PNG.
-- **The three scatter plots' axes are pinned and aligned** (EP-vs-GVM / Range-vs-GVM /
-  EP-vs-temp): use a fixed axes box `SCATTER_AXBOX` (`_save(..., box=SCATTER_AXBOX)`,
-  replacing the old `tight_layout`+`top=0.88`) → the plot box is pixel-consistent across
-  figures, edges aligned; `_finish_scatter` then adapts to the **number of significant digits
-  in the y ticks** (≥3 digits like Range's 200/400 are scaled down one order, ≥4 digits are
-  rotated vertical), so all figures share the same left margin without clipping. The two bar
-  charts (daily energy / SoC) still use `tight_layout`. `_scatter_fit` and Range's
-  `curve_fit` both have a "≥3 points and x/y have variance" guard + try/except to avoid
-  crashing on degenerate data.
-- **Range vs GVM uses a reciprocal-model fit**: `recip_model(x, k, a, c) = c / (k·x + a)`
-  (scipy `curve_fit`). The model is invariant under common scaling of (k,a,c) (a scale
-  degree of freedom) → after fitting it must be **normalised by pinning c = battery
-  capacity**, so that k·x+a returns to the dimension of the EP linear formula (self-consistent
-  with the linear slope of the EP-vs-GVM figure). The other scatter plots use a linear fit.
-- **Page-2 figure order** (5 rows): EP vs GVM → Range vs GVM → EP vs ambient temperature →
-  Daily traction energy → Charging start SoC.
-- **Route map**: the named version uses the HERE Map Image v3 real basemap (`style=lite.day`),
-  the anonymised version uses CARTO light_nolabels (no place names); start/end points are
-  Web Mercator pixel-georeferenced. The basemap request size `MAP_PX_W/H` (740×1060 portrait)
-  **must match the aspect ratio of the map card's display window** — the card uses
-  object-fit:cover, so a mismatched ratio crops the sides; **start/end points are not
-  distinguished** (uniform red dot #e74c3c, no legend); the copyright note is **bottom-right**,
-  semi-transparent ("map © HERE" / "© OpenStreetMap © CARTO", "indicative" when falling back
-  to a schematic).
+- **Two fixed A4-portrait pages** (210×297 mm). `@page { size:A4; margin:0 }`; each `.page` is
+  `210mm × 297mm`, `overflow:hidden`, laid out with flexbox to fit one page — **no dynamic
+  `@page` height injection** (the old 1280×720 16:9 / measure-and-inject scheme is retired, do
+  not restore it). Both pages share the same **~11 mm side / ~7 mm bottom margins**; the navy
+  headers are full-bleed.
+- **Page 1 (operations dashboard)**: full-bleed header → timeline → operating band → 4-cell
+  summary strip → 3-card row (Vehicle Performance / Charging Sessions / route map, ~92 mm tall)
+  → **Summary** card (plain-English bullets, see §5) → source footer.
+- **Page 2 — four figures in a 2×2 grid** + a **Conclusions** block (the daily-traction-energy
+  figure was removed). Grid cells, in order:
+  1. Energy Performance vs Gross Vehicle Mass
+  2. Projected Range vs Gross Vehicle Mass
+  3. Energy Performance vs Ambient Temperature (**restricted to the laden cluster** to control
+     for mass; the title states the laden mass range, e.g. "(laden, ≥ 20 t)")
+  4. Charging Start State of Charge
+- **Chart titles are HTML** (`.chart-cell__title`), **spelled out (no GVM/SoC abbreviations)**
+  and **larger than the matplotlib axis labels**; a 2-line title height is reserved so every
+  cell's plot box starts at the same y.
+- **Charts are square (figsize 4.6×4.6 in)** with **no legend and no ±1σ shaded band** — the
+  partner figures show only the scatter, the fit/trend line, the dashed extrapolation to 42 t,
+  and the load markers. The slope / R² / σ are still computed for the Conclusions text, not drawn.
+  Global rcParams: axis labels **16** / ticks **15** pt (kept smaller than the HTML titles).
+- **All four charts share one fixed axes box** `SCATTER_AXBOX` (`_save(..., box=SCATTER_AXBOX)`)
+  so their plot-box top/bottom edges align across the grid; `_finish_scatter` shrinks the y-tick
+  font when it has ≥3 digits (e.g. Range's 200/400). `_scatter_fit` / the Range `curve_fit` keep
+  the "≥3 points + variance" guard + try/except for degenerate data.
+- **Parameterised axes** (top of `generate_pdf_report.py`, never hardcode per figure): EP
+  `EP_MIN/EP_MAX` = 0–3 kWh/km; GVM `GVM_XLIM` = 0–45 t + `GVM_XTICKS`; temperature `TEMP_XLIM` =
+  −5–30 °C + `TEMP_XTICKS`; full-laden reference `FULL_LADEN_T` = 42 t.
+- **Load markers** (`_add_load_markers`): on the EP-vs-GVM and Range-vs-GVM charts, vertical
+  dashed lines + labels mark **Unladen / Laden / Full (42 t)**, and the fit is **extended dashed
+  from the observed-data max out to 42 t**. Labels auto-stagger (sorted by mass, alternating a
+  high/low level) so adjacent labels never overlap; the lowest mass (Unladen) sits on the high
+  level. The 42 t marker is labelled a projection when observed GVM never reaches it.
+- **Range vs GVM uses a reciprocal-model fit** `recip_model(x,k,a,c)=c/(k·x+a)` (scipy
+  `curve_fit`), **normalised to c = battery capacity** so k·x+a matches the EP linear slope; the
+  other charts use a linear fit.
+- **Route map**: named = HERE `lite.day`; anonymised = CARTO `light_nolabels` (no place names);
+  start/end points Web Mercator pixel-georeferenced, uniform red dot #e74c3c, no legend;
+  `MAP_PX_W/H` (740×1060 portrait) must match the map card aspect (object-fit:cover); copyright
+  note bottom-right ("map © HERE" / "© OpenStreetMap © CARTO", "indicative" on schematic fallback).
 
-## 5. Commentary style guide — core responsibility
+## 5. Conclusions & Summary — core responsibility
 
-Each page-2 figure has a dark commentary box, **3–4 bullets, fixed structure**:
+The page-2 **Conclusions** block and the page-1 **Summary** block are the subjective deliverable.
+Both are plain-English, partner-facing, **British English**, concise, with **every number inlined
+from the pipeline (no manual entry)** and **no inference unsupported by the data**. Use
+**"energy performance"** (matching the figures), not "energy use". Glossary: gross vehicle mass
+(GVM); EP = energy performance (kWh/km); Range = effective battery capacity ÷ EP (state capacity).
 
-1. **Coverage**: data span + sample size + median, e.g.
-   "GVM spans 10–42 t over 109 trips (median 19.6 t)."
-2. **Fit**: slope/equation + R², e.g. "Fit slope +0.029 kWh/km per tonne (R²=0.51)." or
-   "Reciprocal fit: Range = 352 / (0.028·GVM + 0.68) (R²=0.53)."
-3. (+4.) **Comparison groups**: a paired two lines, format strictly
-   `<Label>: For <condition>, Average <metric> = <value> <unit>.`
+### Page-2 Conclusions (load points + load sensitivity + temperature)
+Report at three load points, each with a **±1 standard deviation** in brackets:
 
-> **2026-06-10 partner-review ruling** (the style baseline; every future comparison bullet
-> must follow this two-line format):
-> - "Lighter GVM cluster: For GVM < 19 t, Average EP = 1.16 kWh/km."
-> - "Heavier GVM cluster: For GVM ≥ 19 t, Average EP = 1.79 kWh/km."
-> - "Coldest trips: For T < 5 °C, Average EP = 1.63 kWh/km."
-> - "Warmest trips: For T > 15 °C, Average EP = 1.27 kWh/km."
->
-> Rationale: operator/OEM readers want conclusions readable at a glance — condition and value
-> split onto explicit lines beats a prose sentence. Any future comparison (e.g. dry/wet)
-> follows the same format.
->
-> **2026-06-16 update**: the light/heavy grouping **defaults** from a fixed 1/3 quantile to an
-> **adaptive split at the density valley of the actual GVM distribution** (`_gvm_cluster_split`:
-> Gaussian KDE, take the valley between the two highest-density peaks as the threshold; ≤ is
-> the light cluster, > is the heavy cluster; for a single peak / insufficient sample fall back
-> to the median) — HGV gross mass is often multi-modal (empty/laden), and the density valley
-> fits the visual cluster boundary better than a fixed quantile or 2-means (with a large
-> sample-size imbalance, 2-means pulls the boundary toward the big cluster and wrongly merges
-> edge points, so it is not used). The threshold is computed inline per vehicle and period;
-> the two-line format is unchanged.
-> **Exception (`LEGACY_TERTILE_REGS`, currently includes `YK73WFN`)**: keep the original
-> **fixed 1/3 tertile** wording ("Lightest/Heaviest 1/3 of trips: For GVM </> X t", X = the
-> 33%/67% quantile) — YK73WFN is the partner style baseline, so its analysis wording stays
-> unchanged. To add a vehicle that should keep tertiles, just add the registration to that set.
+- **Unladen (~M t)**, **Laden (~M t)**, **Fully laden (42 t, projected to rated GVW)** →
+  `energy performance X (±s) kWh/km, range Y (±s) km`.
+- **Range = capacity ÷ that point's EP** (state the capacity); ± propagated as `range·σ_EP/EP`.
+  A cluster's range is `capacity ÷ cluster-mean EP`, **never** the mean of per-trip cap/EP (the
+  latter is dominated by low-EP trips and inverts heavy>light); the per-trip scatter still plots
+  cap/EP.
+- One **load-sensitivity** line (`Each extra tonne of load adds ~m kWh/km`).
+- One **temperature** line: `Temperature (laden trips, lo–hi t): energy performance changes
+  ~X kWh/km per 10 °C colder (R²=…) — <largely / moderately / noticeably temperature-sensitive>`.
+  Temperature is fitted on the **laden cluster only** (mass held roughly constant); the bullet
+  states the laden **mass range**.
 
-General rules:
+### Load-point masses & EP basis (data + judgement) — `_compute_load_points`
+Masses combine the GVM distribution with judgement. Priority **band > single-group >
+legacy-tertile > KDE**:
 
-- **British English**; state facts concisely, draw no inference unsupported by data; **every
-  number must come from the pipeline computation (inlined in an f-string), no manual entry**.
-- **Glossary**: gross vehicle mass / **GVM** (not GVW, vehicle gross weight, total mass);
-  EP = energy performance (kWh/km); ambient temperature; Range = effective battery capacity ÷
-  EP (state the capacity value).
-- **A cluster/comparison-group Average range = capacity ÷ that cluster's average EP** (**not**
-  the mean of per-segment range cap/EP): the latter is dominated by low-EP segments, is
-  self-inconsistent with the EP commentary, and produces the counter-intuitive reversal
-  "heavy cluster range > light cluster"; the former is monotone with the cluster EP and is
-  always consistent with the EP commentary direction (low EP → high range). The per-segment
-  scatter plot is still drawn with per-segment cap/EP.
-- Light/heavy comparison is one of three (per vehicle, priority SINGLE_GROUP > LEGACY_TERTILE
-  > default clustering):
-  - **Default**: an **adaptive density-valley split** of the actual GVM distribution
-    (`_gvm_cluster_split`: the valley between the two highest Gaussian-KDE peaks) → light/heavy
-    two-cluster comparison.
-  - `LEGACY_TERTILE_REGS` (includes YK73WFN): fixed 1/3 tertiles (the partner style baseline).
-  - `SINGLE_GROUP_REGS` (includes YN25RSY=17t): the vehicle runs mostly laden, clustering is
-    meaningless → **no clustering**, just one line "Laden operation (GVM > threshold t):
-    Average EP/range = … over N trips (outliers excluded)", where the mean is the
-    **IQR(1.5×)-outlier-trimmed average** (`_outlier_trimmed_mean`), and range = capacity ÷
-    that mean.
-  - The cold/warm comparison uses <5 °C / >15 °C (unless the user specifies otherwise).
-- **Valid-trip filter**: a driving segment with distance < **3 km** (or missing distance) is
-  invalid (too short / a residual segment) and excluded from all analysis. **The OPERATING
-  PERIOD (page-header span), active days, and all KPIs/scatter are based only on valid
-  trips** — i.e. the operating period is the real span determined by valid events, not the
-  nominal bounds of the report-period argument (constant `MIN_TRIP_KM`).
-- EP cleaning: a valid trip with EP ∉ **[0.3, 3]** kWh/km is treated as implausible and
-  excluded from scatter/fit/commentary statistics (the 0.3 lower bound excludes the very-low
-  EP from too-short / residual segments — otherwise the full-charge range projection 600/EP
-  is dragged to a spurious value of thousands of km; the figure y-axis is still fixed 0–3).
+- **Band mode** (`briefing_vehicle_specs.json` `unladen_band_t`=[lo,hi], opt. `laden_min_t`):
+  for an **artic whose lightest GVM cluster is the bobtail tractor** (not a real unladen mass).
+  Unladen = data points in [lo,hi) (tractor + empty trailer); laden = GVM ≥ laden_min (default
+  hi); bobtail (< lo) excluded. e.g. **EX74JXW = [14,20], laden_min 20** (bobtail ~12 t).
+- **Single-group** (`SINGLE_GROUP_REGS`, e.g. **YN25RSY = 17 t**): laden = GVM > threshold;
+  **no unladen point** (runs mostly laden); laden EP = IQR(1.5×)-trimmed mean.
+- **Legacy tertile** (`LEGACY_TERTILE_REGS`, e.g. **YK73WFN**): unladen = lightest tertile,
+  laden = heaviest tertile (the partner style baseline).
+- **Default**: KDE density-valley split (`_gvm_cluster_split`) — laden = denser cluster,
+  unladen = lighter cluster.
+
+**EP basis**: laden EP = mean of the laden data points (ample data; ± within-cluster std).
+Unladen EP = mean of the unladen data points **except in band mode**, where the band is sparse
+→ the **EP-vs-GVM trend evaluated at the unladen mass** (± fit σ). Fully-laden (42 t) has no data
+→ always the **trend extrapolated** (± fit σ); drawn dashed + labelled "projected" when observed
+GVM never reaches 42 t.
+
+### Page-1 Summary (≤3 bullets, no duplication of page 2)
+1. Fleet-overview line (active days, distance, ~km/day, total energy, mean EP).
+2. Charging behaviour (sessions, median start SoC, mean end SoC).
+3. **Data-availability note** (adaptive): the channels this vehicle does **not** report — e.g.
+   "Data channels: charged energy (AC/DC) and energy recuperated are not reported by this vehicle
+   telematics (shown as '—')." Omitted when every channel is reported (then 2 bullets).
+The load / range / temperature detail lives on page 2 and is **not** repeated in the Summary.
+
+### Cleaning (unchanged)
+- **Valid-trip filter** (`MIN_TRIP_KM` = 3 km): drop driving legs with distance < 3 km (or
+  missing). The OPERATING PERIOD (page-header span), active days and all stats use only valid
+  trips — the period is the real span of valid events, not the nominal `<period>` argument.
+- **EP cleaning** (`EP_CLEAN_MIN/MAX` = 0.3 / 3): EP outside [0.3, 3] kWh/km is dropped from
+  scatter / fit / conclusion stats (0.3 lower bound kills the spurious thousand-km range from
+  too-short residual legs); the EP y-axis stays fixed 0–3.
 
 ## 6. Field applicability (do not fabricate N/A fields)
 
 | Category | Fields |
 |------|------|
-| ✅ Real pipeline data | active days, trip/charge segment counts, total distance, mean/max daily distance, total energy, average EP, regen recovered kWh, AC/DC charging, start/end SoC, average GVM, EP-vs-GVM/temperature, Range-vs-GVM, daily energy, SoC distribution, route (lat/lon) |
+| ✅ Real pipeline data | active days, trip/charge segment counts, total distance, mean/max daily distance, total energy, average EP, regen recovered kWh, AC/DC charging, start/end SoC, average GVM, EP-vs-GVM, Range-vs-GVM, EP-vs-temperature (laden cluster), SoC distribution, route (lat/lon) |
 | ⚠️ Partially available | regen recovery (**EVs with a counter (Volvo/Renault) now use the raw_telematics counter for full coverage**, ≈20%; vehicles with no counter, Scania/Mercedes/diesel, still N/A → "—"), net payload (only GVM, must subtract tare) |
 | ✗ N/A (operator commercial data) | customer count, cargo type, charging cost/rebate, CO₂ and fuel saving (needs a diesel baseline), fixed shifts |
 
@@ -252,14 +243,15 @@ applicable — **never fabricated**.
 
 **AI side (mandatory on every generation)**:
 
-1. Screenshot the HTML with headless Chrome (`--screenshot --window-size=1280,<tall enough>`),
-   inspect by eye at native resolution, region by region.
-2. Render each PDF page to PNG with PyMuPDF (`doc[i].get_pixmap(dpi=120)`), confirm two pages,
-   content auto-fits height, consistent with the HTML.
-3. Cross-check commentary numbers against the figures (slope sign, legend n, sanity of
-   comparison values).
-4. Compare against `references/style_baseline_YK73WFN_20250306_20250522.pdf` (the authoritative
-   style baseline).
+1. Render each PDF page to PNG with PyMuPDF (`doc[i].get_pixmap(dpi=150)`), confirm **two
+   A4-portrait pages** (595×842 pt = 210×297 mm) and that no content is clipped (page-1 Summary +
+   footer present; page-2 Conclusions + footer present with a bottom margin).
+2. Inspect region by region: page-1 cards/summary fill the page without large empty bands; the
+   page-2 2×2 chart **boxes are top/bottom aligned**, load markers don't overlap, titles aren't
+   clipped.
+3. Cross-check the Conclusions / Summary numbers against the figures (slope sign, the load-point
+   values vs the markers, sanity of unladen < laden < full).
+4. Compare against `references/style_baseline_*.pdf` (the authoritative style baseline).
 
 **Manual verification (before external delivery, done by a human)**: each generation
 automatically ships a `verification_<REG>_<period>.xlsx` verification workbook —
@@ -290,7 +282,8 @@ automatically ships a `verification_<REG>_<period>.xlsx` verification workbook �
 
 - **This skill is the self-contained, sole owner of industrial PDF-briefing development**:
   layout, chart specs, commentary style, KPI/statistics computation basis, and the generator
-  code `generate_pdf_report.py` / `build_pdf.py` / `templates/` / style baseline `references/`
+  code `generate_pdf_report.py` / `build_pdf.py` / `templates/` / `briefing_vehicle_specs.json`
+  (per-vehicle unladen-band / mass overrides) / style baseline `references/`
   are all maintained by this skill, with all knowledge recorded in this SKILL.md. **All
   briefing chart/layout/commentary/naming/statistics changes are made within this skill, not
   routed to the `jolt-toolkit-dev` agent.**
