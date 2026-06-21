@@ -218,6 +218,7 @@
   },
   "renault_speed": {
     "branch": "speed",
+    "mass_agg": "iqr_median",
     "charge_params": {
       "plateau_window_min": 60,
       "min_soc_rise": 5.0,
