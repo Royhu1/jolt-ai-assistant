@@ -1,9 +1,13 @@
-"""In-place patch of the ``Graphs`` worksheet on existing 2.2.3 reports.
+"""Re-chart existing reports: rebuild the ``Graphs`` worksheet in place.
 
-The 2.2.3 reports were generated before the chart styling was unified, so each
-file's ``Graphs`` charts auto-scaled their axes and plotted every row (including
-charge / Stop / NaN rows and energy-performance outliers). This script rebuilds
-the ``Graphs`` worksheet of every 2.2.3 report so that:
+Originally written for the 2.2.3 reports (whose ``Graphs`` charts pre-dated the
+unified styling and auto-scaled their axes / plotted every row), this is a
+version-neutral RE-CHART tool: it rebuilds the ``Graphs`` worksheet of any
+existing report from the current shared ``CHART_SPECS`` so the embedded charts
+pick up the latest FIXED axes (e.g. EP 0–3 kWh/km, mass 0–45000 kg, temperature
+−5..30 °C) WITHOUT re-running the pipeline — the cheap way to update
+already-generated reports after an axis / styling change. It rebuilds the
+``Graphs`` worksheet so that:
 
   - axes are FIXED constants shared across all vehicles / reports, and
   - scatter + linear trendline are computed on filtered (driving-leg, in-range)
@@ -27,12 +31,21 @@ Safety:
 
 Usage (from repo root, with ``PYTHONPATH=src`` or an editable install):
 
-    python .claude/skills/generate-excel-report/patch_graphs_2_2_3.py [--dry-run] [--version 2.2.3] [--glob PATTERN]
+    # re-chart a whole report-database version subdir (optionally one REG):
+    python .claude/skills/generate-excel-report/patch_graphs_2_2_3.py --version 2.2.6 [--glob REG]
+
+    # re-chart an explicit directory (recursively) or a single xlsx file:
+    python .claude/skills/generate-excel-report/patch_graphs_2_2_3.py excel_report_database/2.2.6/YK73WFN
+    python .claude/skills/generate-excel-report/patch_graphs_2_2_3.py path/to/jolt_report_REG_start_end.xlsx
 
 Options:
+  PATH          optional explicit xlsx file or directory to re-chart. When given,
+                it overrides --version (the version DB-root is not used); a
+                directory is searched recursively for jolt_report_*.xlsx.
   --dry-run     report what would change, write nothing.
-  --version     report-database version subdir to patch (default 2.2.3).
-  --glob        only patch files whose path matches this substring (e.g. a REG).
+  --version     report-database version subdir to re-chart (default 2.2.3); used
+                only when PATH is omitted.
+  --glob        only re-chart files whose path matches this substring (e.g. a REG).
 """
 
 from __future__ import annotations
@@ -393,7 +406,7 @@ def _rebuild_graphs(xlsx_path: Path, headers: tuple, rows: list) -> tuple[int, i
 
 
 def _iter_target_files(version: str, glob_filter: str | None):
-    """Yield 2.2.3 report xlsx paths, excluding existing .bak copies."""
+    """Yield report xlsx paths under a version DB-root, excluding .bak copies."""
     root = DB_ROOT / version
     if not root.exists():
         print(f"[error] no such version dir: {root}", file=sys.stderr)
@@ -407,30 +420,71 @@ def _iter_target_files(version: str, glob_filter: str | None):
         yield p
 
 
+def _iter_path_files(path: Path, glob_filter: str | None):
+    """Yield report xlsx paths under an explicit file or directory ``path``.
+
+    A single ``.xlsx`` file is yielded directly; a directory is searched
+    recursively for ``jolt_report_*.xlsx`` (excluding any ``.bak`` copies). This
+    lets the re-chart tool target an arbitrary location (e.g. a tmp copy for
+    verification, or one report-database REG dir) independent of the version
+    DB-root used when ``PATH`` is omitted.
+    """
+    if not path.exists():
+        print(f"[error] no such path: {path}", file=sys.stderr)
+        return
+    if path.is_file():
+        if path.suffix.lower() == ".xlsx" and (
+            not glob_filter or glob_filter in str(path)
+        ):
+            yield path
+        return
+    for p in sorted(path.rglob("jolt_report_*.xlsx")):
+        parts = {seg.lower() for seg in p.parts}
+        if ".bak" in parts:
+            continue
+        if glob_filter and glob_filter not in str(p):
+            continue
+        yield p
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help=(
+            "optional explicit xlsx file or directory to re-chart; overrides "
+            "--version (a directory is searched recursively)."
+        ),
+    )
     ap.add_argument(
         "--dry-run", action="store_true", help="report what would change, write nothing"
     )
     ap.add_argument(
         "--version",
         default="2.2.3",
-        help="report-database version subdir (default 2.2.3)",
+        help="report-database version subdir (default 2.2.3); used only when PATH is omitted",
     )
     ap.add_argument(
         "--glob",
         default=None,
-        help="only patch files whose path contains this substring",
+        help="only re-chart files whose path contains this substring",
     )
     args = ap.parse_args()
 
-    files = list(_iter_target_files(args.version, args.glob))
+    if args.path:
+        files = list(_iter_path_files(Path(args.path), args.glob))
+        source = str(args.path)
+    else:
+        files = list(_iter_target_files(args.version, args.glob))
+        source = args.version
     if not files:
         print("no matching files found.")
         return 1
 
     print(
-        f"found {len(files)} report(s) under {args.version}"
+        f"found {len(files)} report(s) under {source}"
         f"{' matching ' + args.glob if args.glob else ''}."
     )
     patched = 0

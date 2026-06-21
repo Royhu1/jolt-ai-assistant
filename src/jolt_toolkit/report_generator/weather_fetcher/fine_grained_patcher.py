@@ -57,7 +57,11 @@ from filelock import FileLock
 from openpyxl import load_workbook
 from tqdm import tqdm
 
-from jolt_toolkit.report_generator.report_builder import HEADERS, DIESEL_HEADERS
+from jolt_toolkit.report_generator.report_builder import (
+    HEADERS,
+    DIESEL_HEADERS,
+    is_trip_leg,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -481,7 +485,8 @@ class FineGrainedWeatherPatcher:
         self._stat_cache_hits = 0
         self._stat_failures = 0
 
-        # 1. 扫描需要补全的行（只处理 trip-like leg：含 Trip / In Transit）
+        # 1. 扫描需要补全的行：仅补全 **行驶 / trip 行**（is_trip_leg），充电 / Stop
+        #    行不需要天气、查询只会浪费 OpenWeather 配额，直接跳过。
         weather_cols = (
             self._col_idx['temp'], self._col_idx['pressure'],
             self._col_idx['humidity'], self._col_idx['wind_speed'],
@@ -495,13 +500,18 @@ class FineGrainedWeatherPatcher:
                     continue
 
             leg_type = ws.cell(row_idx, self._col_idx['leg_type']).value
+            # 仅补全行驶 / trip 行；充电段与 Stop 行在收集采样点之前就跳过。
+            # is_trip_leg 是与图表 driving_only 过滤共用的 trip 定义。
+            if not is_trip_leg(leg_type):
+                continue
             t_s = _to_utc_dt(ws.cell(row_idx, self._col_idx['start_time']).value)
             t_e = _to_utc_dt(ws.cell(row_idx, self._col_idx['end_time']).value)
             if t_s is None or t_e is None:
                 continue
 
-            # 充电 / Stop leg：raw_telematics 里没有移动 GPS 序列，fallback
-            # 用 origin/dest 两点（与旧 patcher 一致）。
+            # trip 行内再分两种采样方式：标 "Trip"/"Transit" 的有连续 GPS 轨迹，走
+            # 多点采样；其余 trip 行（Outbound/Return/In House）退回 origin/dest 两
+            # 端点（charge/Stop 已在上面被跳过，不会到这里）。
             is_moving = isinstance(leg_type, str) and \
                 ('Trip' in leg_type or 'Transit' in leg_type)
 
@@ -628,11 +638,13 @@ class FineGrainedWeatherPatcher:
         """
         为一条 trip 收集采样点。
 
-        移动 leg：从 raw_telematics 切 [t_s, t_e] 时间窗，按
+        移动 leg（标 Trip / Transit）：从 raw_telematics 切 [t_s, t_e] 时间窗，按
         ``min_sample_interval_s`` 下采样。若一个点都没有，fallback 到
         origin / dest 两端点。
 
-        非移动 leg（充电 / Stop）：直接用 origin / dest 两端点（如果有）。
+        其余 trip 行（Outbound / Return / In House，缺 Trip/Transit 标签）：直接用
+        origin / dest 两端点（如果有）。充电 / Stop 行不会进到这里——它们已在
+        ``patch_file`` 扫描阶段被 ``is_trip_leg`` 跳过。
         """
         t_s, t_e = task['t_s'], task['t_e']
         origin = task['origin']

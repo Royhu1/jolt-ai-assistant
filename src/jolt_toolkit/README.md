@@ -239,9 +239,9 @@ python -m jolt_toolkit.report_generator.rerender_inspect --version 2.2.5 --db-ro
 | `report_generator/rerender_inspect.py` | Standalone CLI to **re-render `inspect_*.html`** for a report-database version **without regenerating figures** — re-runs `report_builder._write_html_viewer` against the on-disk validation figures + `<stem>.boxes.json` sidecars (skips `*_finetuned`, owned by report-finetuner). Delegating to the in-package viewer means it always emits the current v2.2.6 interactive renderer (`renderInteractive`, reading both the `{boxes, segments, soc_axis}` dict sidecar and legacy flat-list sidecars). CLI: `python -m jolt_toolkit.report_generator.rerender_inspect --version <X.Y.Z> --db-root <root> [--reg <REG>]` |
 | `report_generator/charger_patcher.py` | `ChargerPatcher` — charger data patching tool; fetches charger events from the SRF API and patches the Charger Link into the xlsx |
 | `report_generator/logger_patcher.py` | `LoggerPatcher` — Logger data patching tool; fetches Logger legs from the SRF API and patches the Logger Link and weather columns into the xlsx |
-| `report_generator/weather_patcher.py` | `WeatherPatcher` — **coarse** (default) standalone weather patching tool; patches weather columns and weather type (Weather Type, e.g. Clear/Clouds/Rain) into an existing xlsx via the OpenWeather API by averaging the **origin + destination** of each leg (quota-friendly; used when there is no Logger data) |
+| `report_generator/weather_patcher.py` | `WeatherPatcher` — **coarse** (default) standalone weather patching tool; patches weather columns and weather type (Weather Type, e.g. Clear/Clouds/Rain) into an existing xlsx via the OpenWeather API by averaging the **origin + destination** of each leg (quota-friendly; used when there is no Logger data). **Patches driving / trip rows ONLY** (`is_trip_leg`): charge + Stop rows are skipped before their coordinates are collected, so they consume no API calls (≈ halves the unique-location lookups) |
 | `report_generator/weather_patch.py` | **Unified weather-patch entry point.** `patch_weather(target, *, mode="coarse", …)` + a `python -m jolt_toolkit.report_generator.weather_patch` CLI. The single place where the default strategy lives: **`mode="coarse"` (default)** → `WeatherPatcher`; **`mode="fine"` (explicit opt-in only, `--fine-grained`)** → `FineGrainedWeatherPatcher`. Default is coarse because fine-grained's per-GPS-point sampling (~17k calls/vehicle, ~220k fleet-wide) trips the OpenWeather subscription into HTTP 429; the origin/dest average is close enough for the standard path |
-| `report_generator/weather_fetcher/fine_grained_patcher.py` | **v2.2.3** `FineGrainedWeatherPatcher` — **fine-grained, explicit opt-in only** weather patching: in-trip raw_telematics GPS multi-sampling + 60 s down-sampling + sin/cos circular wind-direction averaging (fixes the old patcher's 359°/1° → 180° arithmetic-mean bug) + `(lat:.2f, lon:.2f, hour_bucket)` ~1 km × 1 h quantised cache key; Stop / Charge rows fall back to the origin/dest two endpoints. **Not the default** (high API volume → 429); reach it via `patch_weather(..., mode="fine")` |
+| `report_generator/weather_fetcher/fine_grained_patcher.py` | **v2.2.3** `FineGrainedWeatherPatcher` — **fine-grained, explicit opt-in only** weather patching: in-trip raw_telematics GPS multi-sampling + 60 s down-sampling + sin/cos circular wind-direction averaging (fixes the old patcher's 359°/1° → 180° arithmetic-mean bug) + `(lat:.2f, lon:.2f, hour_bucket)` ~1 km × 1 h quantised cache key. Like the coarse patcher it patches **driving / trip rows ONLY** (`is_trip_leg`); charge + Stop rows are skipped (they need no weather and would waste quota). **Not the default** (high API volume → 429); reach it via `patch_weather(..., mode="fine")` |
 | `scripts/refresh_inspect_html.py` | internal maintenance script: scans `excel_report_database/<ver>/` to regenerate the inspect HTML viewer for existing xlsx (without re-running the SRF API) |
 | `scripts/backfill_propulsion_energy.py` | **v2.2.3** internal maintenance script: backfills the `Propulsion Energy (kWh)` column into legacy EV xlsx (line-interpolated differencing of RFMS snapshots) |
 | `scripts/patch_ep_exclude_aux.py` | **v2.2.4** post-hoc patch script: appends the `EP_exclude_aux` column = `(propulsion − recuperation) / distance` to existing EV xlsx. Preferentially reads the existing `Propulsion Energy` / `Recuperation Energy` columns in the xlsx, and falls back to recomputing from `raw_telematics/raw_*.csv` when missing/empty. base only, skips `*_finetuned.xlsx`, idempotent overwrite |
@@ -794,12 +794,12 @@ the three explanatory variables used in the paper:
 
 EV charts (y = Energy Performance, 0–3 kWh/km):
 1. EP vs Vehicle Mass (x 0–45000 kg)
-2. EP vs Average Temperature (x −5…35 °C)
+2. EP vs Average Temperature (x −5…30 °C)
 3. EP vs Average Speed (x 0–90 km/h)
 
 Diesel charts (y = Fuel Consumption, 0–60 L/100km):
 1. Fuel cons. vs Vehicle Mass (x 0–45000 kg)
-2. Fuel cons. vs Average Temperature (x −5…35 °C)
+2. Fuel cons. vs Average Temperature (x −5…30 °C)
 3. Fuel cons. vs Average Speed (x 0–90 km/h)
 
 > The former EV `Battery Power vs Energy Change` / `SOC Change vs Energy Change`
@@ -808,8 +808,10 @@ Diesel charts (y = Fuel Consumption, 0–60 L/100km):
 > Speed}` set, matching the paper口径.
 
 **Fixed axes** — every axis `min`/`max`/`major_unit` is a constant (never
-per-file autoscaling). Energy Performance (0–3) and Vehicle Mass (0–45000) match
-the paper plotting constants (`PERF_YLIM` / `MASS_XLIM`); all other axes were
+per-file autoscaling). Energy Performance (0–3), Vehicle Mass (0–45000) and
+ambient Temperature (−5…30) match the fixed PDF-briefing / paper conventions
+(`PERF_YLIM` / `MASS_XLIM` / `TEMP_XLIM`), so the Excel charts use the same
+scales the PDF briefing does; the remaining axes (speed, fuel consumption) were
 fixed from robust fleet-wide percentiles (1st/99th over the whole 2.2.3 set),
 documented inline in each spec.
 
@@ -907,13 +909,21 @@ the degraded look can never drift between the generator and the patch script. Th
 note is **not** an xlsxwriter textbox / openpyxl drawing (openpyxl has no clean
 textbox API).
 
-> **Maintenance:** existing 2.2.3 reports were rebuilt to this spec in place by
-> `.claude/skills/generate-excel-report/patch_graphs_2_2_3.py` (openpyxl,
-> backs up to `.bak/`, rewrites only `Graphs` + `GraphsData`, leaves
-> `Report`/`Definitions`/`Finetune Log` and `=NA()` formulas / hyperlinks
-> untouched). It imports the same `CHART_SPECS` + `CHART_STYLE` so the two render
-> paths never drift. Files open in Excel are skipped (close them and re-run with
-> `--glob <REG>`).
+> **Re-chart tool (any version):**
+> `.claude/skills/generate-excel-report/patch_graphs_2_2_3.py` (openpyxl) rebuilds
+> the `Graphs` + `GraphsData` sheets of existing reports **from the current
+> `CHART_SPECS` + `CHART_STYLE`**, WITHOUT re-running the pipeline — the cheap way
+> to update already-generated reports after an axis / styling change (e.g. the
+> temperature axis −5…35 → −5…30). Originally written for the 2.2.3 in-place
+> styling pass, it is version-neutral: pass a report-database version
+> (`--version 2.2.6 [--glob REG]`) **or** an explicit file / directory
+> (`patch_graphs_2_2_3.py excel_report_database/2.2.6/<REG>`). It backs each file
+> up to `.bak/`, leaves `Report`/`Definitions`/`Finetune Log` and `=NA()` formulas
+> / hyperlinks untouched, and imports the same shared config so the generator and
+> patch paths never drift. NB: because weather is a **post-hoc** step for non-Logger
+> EVs, their Temperature chart is a "no data" note at generation time — re-chart
+> them **after** the weather backfill so the Temperature chart is drawn with data.
+> Files open in Excel are skipped (close them and re-run).
 
 ### Definitions worksheet
 

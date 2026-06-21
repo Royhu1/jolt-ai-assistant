@@ -29,6 +29,8 @@ from filelock import FileLock
 from openpyxl import load_workbook
 from tqdm import tqdm
 
+from jolt_toolkit.report_generator.report_builder import is_trip_leg
+
 logger = logging.getLogger(__name__)
 
 # ── Excel 列索引 (1-based, openpyxl 约定) ────────────────────────────────
@@ -191,6 +193,10 @@ class WeatherPatcher:
     读取已生成的 xlsx 报告文件，通过 OpenWeather timemachine API
     获取出发地和目的地的历史天气数据，取平均值写入报告。
 
+    仅补全 **行驶 / trip 行**（``is_trip_leg`` 判定）：充电段与 Stop 行不需要
+    天气，且查询它们只会白白消耗 OpenWeather 配额，因此在收集坐标之前就被跳过
+    （根本不进入唯一位置集合）。
+
     Args:
         cache_file:  缓存文件路径（默认 ./cache/.weather_cache.json）
         precision:   坐标缓存精度（小数位数，默认 6）
@@ -214,8 +220,9 @@ class WeatherPatcher:
         """
         补全单个 xlsx 报告的天气数据。
 
-        读取 Report 工作表中每行的坐标和时间，查询 OpenWeather API，
-        将温度/气压/湿度/风速/风向写入对应列。
+        读取 Report 工作表中 **行驶 / trip 行** 的坐标和时间（充电 / Stop 行被
+        跳过，见类 docstring），查询 OpenWeather API，将温度/气压/湿度/风速/风向
+        写入对应列。
 
         Returns:
             补全的行数。
@@ -238,6 +245,14 @@ class WeatherPatcher:
         total_rows = ws.max_row - 1  # 减去标题行
         for row_idx in tqdm(range(2, ws.max_row + 1), desc="扫描天气行",
                             total=total_rows, leave=False):  # 跳过标题行
+            # Weather is backfilled on driving / trip rows ONLY. Charge and Stop
+            # rows do not need weather, and querying them would only waste
+            # OpenWeather quota, so skip any non-trip row before its coordinates
+            # are ever collected (kept out of the unique-location set entirely).
+            # ``is_trip_leg`` is the shared trip definition used by the chart
+            # ``driving_only`` filter, so both agree on what a trip is.
+            if not is_trip_leg(ws.cell(row_idx, _COL_LEG_TYPE).value):
+                continue
             if not any(_cell_needs_patch(ws.cell(row_idx, c)) for c in _WEATHER_COLS):
                 continue
 

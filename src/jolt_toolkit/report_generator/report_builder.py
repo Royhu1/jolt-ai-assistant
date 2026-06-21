@@ -168,13 +168,15 @@ DIESEL_HEADERS = (
 # Every axis is a FIXED constant (never per-file autoscaling), so the same chart
 # type uses the exact same scale on all vehicles and all reports. Basis for each
 # bound is documented inline:
-#   - Energy Performance y-axis 0–3 and Vehicle Mass x-axis 0–45000 come from the
-#     paper plotting constants (PERF_YLIM / MASS_XLIM in plot-figure SKILL).
-#   - All other axes were fixed from robust fleet-wide percentiles over the
-#     entire 2.2.3 report set (1st/99th percentile of driving-leg values, then
-#     rounded outwards to a clean tick), so ~99 % of real data fits in-frame and
-#     the rare telematics spikes (e.g. speed 5299 km/h, power 96 MW) are clipped
-#     rather than blowing up the scale.
+#   - Energy Performance y-axis 0–3, Vehicle Mass x-axis 0–45000 and the ambient
+#     Temperature x-axis −5..30 follow the FIXED PDF-briefing / paper conventions
+#     (PERF_YLIM / MASS_XLIM / TEMP_XLIM in generate_pdf_report + plot-figure
+#     SKILL), so the Excel charts use the same scales the PDF briefing does.
+#   - The remaining axes (speed, fuel consumption) were fixed from robust
+#     fleet-wide percentiles over the entire 2.2.3 report set (1st/99th percentile
+#     of driving-leg values, then rounded outwards to a clean tick), so ~99 % of
+#     real data fits in-frame and the rare telematics spikes (e.g. speed 5299 km/h,
+#     power 96 MW) are clipped rather than blowing up the scale.
 #
 # Each spec is a dict with:
 #   x_hdr / y_hdr           — column headers (must exist in HEADERS/DIESEL_HEADERS).
@@ -424,9 +426,12 @@ CHART_SPECS_EV: tuple[dict, ...] = (
         "title": "EP vs Average Temperature (°C)",
         "series_name": "EP",
         "empty_note": "No temperature data available for this vehicle",
-        # x: fleet temp p1≈-0.1 / p99≈26.9 (min -5.2, max 33.2) → -5..35.
+        # x: ambient temperature −5..30 °C — the fixed PDF-briefing convention
+        # (generate_pdf_report TEMP_XLIM = (-5, 30)), so the Excel and PDF temp
+        # axes match. Fleet temp p1≈-0.1 / p99≈26.9 (rare spikes above 30 °C are
+        # clipped to the frame, exactly as the PDF does via set_xlim).
         "x_min": -5,
-        "x_max": 35,
+        "x_max": 30,
         "x_major": 5,
         "y_min": 0,
         "y_max": 3,
@@ -484,9 +489,11 @@ CHART_SPECS_DIESEL: tuple[dict, ...] = (
         "title": "Fuel cons. vs Average Temperature (°C)",
         "series_name": "Fuel cons.",
         "empty_note": "No temperature data available for this vehicle",
-        # x: fleet temp p1≈-0.8 / p99≈29.7 → -5..35 (shared with EV temp axis).
+        # x: ambient temperature −5..30 °C — shared with the EV temp axis and the
+        # fixed PDF-briefing convention (TEMP_XLIM = (-5, 30)). Fleet temp
+        # p1≈-0.8 / p99≈29.7; rare spikes above 30 °C are clipped to the frame.
         "x_min": -5,
-        "x_max": 35,
+        "x_max": 30,
         "x_major": 5,
         "y_min": 0,
         "y_max": 60,
@@ -544,6 +551,23 @@ def _leg_is_stop(leg_type) -> bool:
     return bool(
         leg_type and isinstance(leg_type, str) and leg_type.strip().lower() == "stop"
     )
+
+
+def is_trip_leg(leg_type) -> bool:
+    """True if a Leg Type denotes a driving / trip segment.
+
+    The single shared definition of a "trip" (driving) row: a non-blank Leg Type
+    that is neither a charge segment (:func:`_leg_is_charge`) nor a Stop
+    (:func:`_leg_is_stop`) — i.e. one of "In House" / "Round Trip" / "Outbound" /
+    "Return" / "In Transit" (see :func:`_get_leg_type`). Public because the
+    weather patchers import it: weather is backfilled on trip rows ONLY (charge
+    and Stop rows do not need weather and would only waste OpenWeather quota), so
+    the patchers and the chart ``driving_only`` filter agree on what counts as a
+    driving row.
+    """
+    if not leg_type or not isinstance(leg_type, str) or not leg_type.strip():
+        return False
+    return not _leg_is_charge(leg_type) and not _leg_is_stop(leg_type)
 
 
 def _filtered_chart_points(rows, col_idx_by_header: dict, spec: dict):
