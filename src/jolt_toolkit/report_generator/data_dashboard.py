@@ -191,6 +191,17 @@ CHARGER_SIGNAL_COLS = (
     "Average Charging (kW)",
 )
 
+# Per-event metric columns — read per leg row so the drill-down detail pages can
+# label each trip / charge event (inspect.html style: dSOC / dkWh / C / EP).
+# These live in EV HEADERS only; DIESEL_HEADERS omits them, so for diesel reports
+# the column lookup misses and the metric simply stays blank on the label.
+SOC_CHANGE_COL = "SOC Change (%)"
+ENERGY_CHANGE_COL = "Energy Change (kWh)"
+ENERGY_AC_COL = "Energy Charged AC (kWh)"
+ENERGY_DC_COL = "Energy Charged DC (kWh)"
+ENERGY_PERF_COL = "Energy Performance (kWh/km)"
+BATTERY_CAP_COL = "Battery Capacity (kWh)"
+
 # Defensive: keep the signal column names in lock-step with report_builder.
 assert START_COL in HEADERS and START_COL in DIESEL_HEADERS
 assert END_COL in HEADERS and END_COL in DIESEL_HEADERS
@@ -199,6 +210,13 @@ assert DISTANCE_COL in HEADERS and DISTANCE_COL in DIESEL_HEADERS
 assert LOGGER_LINK_COL in HEADERS and LOGGER_LINK_COL in DIESEL_HEADERS
 assert all(c in HEADERS for c in EV_LOGGER_COLS)
 assert all(c in HEADERS for c in CHARGER_SIGNAL_COLS)
+assert all(
+    c in HEADERS
+    for c in (
+        SOC_CHANGE_COL, ENERGY_CHANGE_COL, ENERGY_AC_COL,
+        ENERGY_DC_COL, ENERGY_PERF_COL, BATTERY_CAP_COL,
+    )
+)
 
 REPORT_SHEET = "Report"
 
@@ -293,6 +311,22 @@ def _iso_key(value) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _cell_num(row, i, n) -> float | None:
+    """Return a finite ``float`` for cell ``i`` of ``row`` (else ``None``).
+
+    Used to lift per-event metric columns (``SOC Change`` / ``Energy Change`` …)
+    off a report row. A missing index (``i is None`` — column absent, e.g. diesel),
+    an out-of-range cell, a non-numeric value, or ``NaN`` all yield ``None`` so the
+    drill-down label can simply omit that line.
+    """
+    if i is None or i >= n:
+        return None
+    v = row[i].value
+    if isinstance(v, (int, float)) and not (isinstance(v, float) and math.isnan(v)):
+        return float(v)
+    return None
 
 
 def _classify_leg(leg_type) -> str:
@@ -492,6 +526,14 @@ def read_report_legs(xlsx_path: Path) -> list[dict]:
         pedal_i = [idx[c] for c in EV_LOGGER_COLS if c in idx]
         # Charger columns only exist in EV reports; absent for diesel.
         charger_i = [idx[c] for c in CHARGER_SIGNAL_COLS if c in idx]
+        # Per-event metric columns (EV reports only; ``idx.get`` -> None for
+        # diesel, so _cell_num returns None and the metric is simply omitted).
+        soc_i = idx.get(SOC_CHANGE_COL)
+        echg_i = idx.get(ENERGY_CHANGE_COL)
+        ac_i = idx.get(ENERGY_AC_COL)
+        dc_i = idx.get(ENERGY_DC_COL)
+        ep_i = idx.get(ENERGY_PERF_COL)
+        cap_i = idx.get(BATTERY_CAP_COL)
 
         for row in ws.iter_rows(min_row=2):
             n = len(row)
@@ -529,6 +571,16 @@ def read_report_legs(xlsx_path: Path) -> list[dict]:
 
             end_val = row[end_i].value if (end_i is not None and end_i < n) else None
             sig = (_iso_key(start_cell.value), _iso_key(end_val), leg_class)
+            # Raw per-event metrics carried through to build_day_segments, which
+            # turns them into the drill-down info-label fields (dsoc/dkwh/cap/ep).
+            metrics = {
+                "dsoc": _cell_num(row, soc_i, n),
+                "energy_change": _cell_num(row, echg_i, n),
+                "ac": _cell_num(row, ac_i, n),
+                "dc": _cell_num(row, dc_i, n),
+                "ep": _cell_num(row, ep_i, n),
+                "cap": _cell_num(row, cap_i, n),
+            }
             legs.append(
                 {
                     "day": day,
@@ -536,6 +588,7 @@ def read_report_legs(xlsx_path: Path) -> list[dict]:
                     "cats": cats,
                     "leg_class": leg_class,
                     "distance_km": distance_km,
+                    "metrics": metrics,
                 }
             )
     finally:
@@ -589,6 +642,13 @@ def _collect_legs_by_reg(db_root: Path, version: str) -> dict[str, list[dict]]:
                     merged[sig]["cats"].update(leg["cats"])
                     if merged[sig]["distance_km"] is None:
                         merged[sig]["distance_km"] = leg["distance_km"]
+                    # Backfill any metric the first occurrence lacked (same
+                    # physical leg, but a short diagnostic file may omit columns).
+                    m0 = merged[sig].get("metrics") or {}
+                    for k, v in (leg.get("metrics") or {}).items():
+                        if m0.get(k) is None and v is not None:
+                            m0[k] = v
+                    merged[sig]["metrics"] = m0
                 else:
                     merged[sig] = leg
         if merged:
@@ -604,6 +664,82 @@ def _avail_from_legs(legs: list[dict]) -> dict[date, set[str]]:
     for leg in legs:
         avail[leg["day"]].update(leg["cats"])
     return dict(avail)
+
+
+def _parse_iso_dt(value) -> datetime | None:
+    """Parse a leg ``sig`` start/end value (datetime or ISO string) to datetime."""
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return None
+    s = value.strip().replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(s)
+    except ValueError:
+        try:
+            return datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            return None
+
+
+def build_day_segments(legs: list[dict]) -> dict[str, list[dict]]:
+    """Regroup already-parsed report legs into per-date trip / charge segments.
+
+    Reuses the leg records produced by :func:`read_report_legs` so segment
+    semantics stay single-sourced with the dashboard's leg classification: the
+    ISO start / end timestamps already live in ``leg["sig"][0]`` / ``[1]`` and
+    the class in ``leg["leg_class"]``. ``Stop`` legs are dropped.
+
+    Each segment is ``{"type": "trip"|"charge", "s": int, "e": int}`` plus the
+    finite per-event metrics for the drill-down info labels (inspect.html style;
+    any NaN field is omitted):
+
+    - ``dsoc`` — ``SOC Change (%)`` (signed; both classes).
+    - ``cap``  — ``Battery Capacity (kWh)``, the effective capacity ``C`` (both).
+    - ``dkwh`` — signed energy: a trip uses ``Energy Change (kWh)``; a charge uses
+      ``Energy Charged AC + DC (kWh)`` (the energy added).
+    - ``ep``   — ``Energy Performance (kWh/km)`` (trip only; NaN for charges).
+
+    ``s`` / ``e`` are seconds from that date's midnight — the same time base the
+    detail-page channel series use. A leg whose end crosses midnight is clamped
+    to ``86400`` on its start date. Imported by ``data_dashboard_detail`` so the
+    drill-down pages and the calendar share one definition of a segment.
+    """
+    out: dict[str, list[dict]] = defaultdict(list)
+    for leg in legs:
+        cls = leg.get("leg_class")
+        if cls not in ("trip", "charge"):
+            continue
+        start_dt = _parse_iso_dt(leg["sig"][0])
+        if start_dt is None:
+            continue
+        end_dt = _parse_iso_dt(leg["sig"][1]) or start_dt
+        day = start_dt.date()
+        midnight = datetime(day.year, day.month, day.day, tzinfo=start_dt.tzinfo)
+        s = int((start_dt - midnight).total_seconds())
+        e = int((end_dt - midnight).total_seconds())
+        s = max(0, min(s, 86400))
+        e = max(s, min(e, 86400))
+        seg = {"type": cls, "s": s, "e": e}
+        # Attach the finite per-event metrics (omit NaN fields). Trip shows the
+        # signed Energy Change + EP; charge shows the AC+DC energy added. dSOC and
+        # effective capacity (C) apply to both classes.
+        m = leg.get("metrics") or {}
+        if m.get("dsoc") is not None:
+            seg["dsoc"] = m["dsoc"]
+        if m.get("cap") is not None:
+            seg["cap"] = m["cap"]
+        if cls == "charge":
+            ac, dc = m.get("ac"), m.get("dc")
+            if ac is not None or dc is not None:
+                seg["dkwh"] = (ac or 0.0) + (dc or 0.0)
+        else:
+            if m.get("energy_change") is not None:
+                seg["dkwh"] = m["energy_change"]
+            if m.get("ep") is not None:
+                seg["ep"] = m["ep"]
+        out[day.isoformat()].append(seg)
+    return dict(out)
 
 
 # ── Raw-file (on-disk) availability scanning ─────────────────────────────────
@@ -750,18 +886,22 @@ def compute_vehicle_stats(
 
 
 def scan_report_database_full(
-    db_root: Path, version: str
+    db_root: Path, version: str, legs_by_reg: dict[str, list[dict]] | None = None
 ) -> dict[str, dict]:
     """Scan the database → ``{REG: {"avail", "avail_raw", "stats"}}``.
 
     Reads each workbook once (Events basis) and additionally scans each reg
     directory's raw files (Raw basis), returning both per-date availability maps
     and the computed stat block per vehicle (the structure the renderer embeds).
+    ``legs_by_reg`` may be supplied (already read elsewhere, e.g. for the
+    drill-down detail pages) to avoid re-reading every workbook.
     """
     cfg = _load_vehicles_cfg()
     root = db_root / version
+    if legs_by_reg is None:
+        legs_by_reg = _collect_legs_by_reg(db_root, version)
     out: dict[str, dict] = {}
-    for reg, legs in _collect_legs_by_reg(db_root, version).items():
+    for reg, legs in legs_by_reg.items():
         avail = _avail_from_legs(legs)
         avail_raw = scan_raw_availability(root / reg)
         out[reg] = {
@@ -944,6 +1084,9 @@ header.topbar .meta code {
 .cal-day.empty-day { background: transparent; }
 .cal-day.no-data { background: #f1f5f9; color: #475569; }
 .cal-day.has-data { color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
+/* Drill-down anchor wrapping a data-bearing cell (keeps the cell's own look). */
+.cal-link { text-decoration: none; color: inherit; display: inline-block; cursor: pointer; }
+.cal-link:hover .cal-day { outline: 2px solid rgba(17,24,39,.55); outline-offset: 1px; }
 .empty-note { color: #9ca3af; font-size: 13px; padding: 14px; }
 """
 
@@ -1017,8 +1160,11 @@ function monthList(first, last) {
 }
 
 // One Windows-10-style month block: title, Mo-first weekday row, day grid with
-// leading/trailing blanks so the 1st lands under the correct weekday.
-function monthBlock(y, m, avail, v) {
+// leading/trailing blanks so the 1st lands under the correct weekday. When the
+// vehicle has a drill-down page (v.hasDetail), each data-bearing cell is wrapped
+// in an <a> linking to detail_<reg>.html?date=…&mode=… (MODE is the current
+// basis; the calendar re-renders on toggle so the link stays in sync).
+function monthBlock(y, m, avail, v, reg) {
   // JS getDay(): 0=Sun..6=Sat → Monday-first index 0=Mon..6=Sun.
   const lead = (new Date(y, m, 1).getDay() + 6) % 7;
   const nDays = new Date(y, m + 1, 0).getDate();
@@ -1048,8 +1194,16 @@ function monthBlock(y, m, avail, v) {
         title += " · " + (named
           ? (DATA.operatorNames[named.c] || named.c) : "Outside assignment");
       }
-      h += '<div class="cal-day has-data" style="background:' + comboBackground(code)
-        + border + '" title="' + esc(title) + '">' + d + '</div>';
+      let cell = '<div class="cal-day has-data" style="background:'
+        + comboBackground(code) + border + '" title="' + esc(title) + '">'
+        + d + '</div>';
+      // Drill-down link: only when the vehicle has a detail page. The cell keeps
+      // its style / title / operator border; the anchor just adds the click.
+      if (v.hasDetail) {
+        const href = 'detail_' + reg + '.html?date=' + k + '&mode=' + MODE;
+        cell = '<a class="cal-link" href="' + href + '">' + cell + '</a>';
+      }
+      h += cell;
     }
   }
   const trail = (7 - ((lead + nDays) % 7)) % 7;
@@ -1188,7 +1342,7 @@ function renderCalendar(reg) {
   const months = monthList(DATA.firstMonth, DATA.lastMonth);
   if (!months.length) { el.innerHTML = '<div class="empty-note">No data.</div>'; return; }
   let h = '<div class="cal-grid">';
-  months.forEach(ym => { h += monthBlock(ym.y, ym.m, avail, v); });
+  months.forEach(ym => { h += monthBlock(ym.y, ym.m, avail, v, reg); });
   el.innerHTML = h + '</div>';
 }
 
@@ -1271,11 +1425,18 @@ def render_dashboard_html(
     *,
     version: str,
     source_path: Path,
+    detail_regs: set[str] | None = None,
 ) -> str:
-    """Render the scan result to a single self-contained interactive HTML doc."""
+    """Render the scan result to a single self-contained interactive HTML doc.
+
+    ``detail_regs`` is the set of registrations that have a ``detail_<REG>.html``
+    drill-down page (generated this run or already on disk); each such vehicle is
+    embedded with ``hasDetail: true`` so its calendar cells link to that page.
+    """
     regs = sorted(full.keys())
     if not regs:
         raise ValueError("No availability data to render.")
+    detail_regs = detail_regs or set()
 
     # Fleet-wide month axis spans BOTH bases of ALL vehicles, so toggling
     # between Events / Raw never re-flows the month blocks (only colours change).
@@ -1302,6 +1463,7 @@ def render_dashboard_html(
             "stats": full[reg]["stats"],
             "trial_type": op_vehicles.get(reg, {}).get("trial_type", "—"),
             "periods": op_vehicles.get(reg, {}).get("periods", []),
+            "hasDetail": reg in detail_regs,
             "avail": {
                 d.isoformat(): _combo_key(cats)
                 for d, cats in sorted(full[reg]["avail"].items())
@@ -1419,18 +1581,26 @@ def render_dashboard_html(
 
 # ── Orchestration + CLI ──────────────────────────────────────────────────────
 def generate_dashboard(
-    db_root: Path, version: str, out_path: Path
+    db_root: Path,
+    version: str,
+    out_path: Path,
+    *,
+    detail_regs: set[str] | None = None,
+    legs_by_reg: dict[str, list[dict]] | None = None,
 ) -> tuple[dict[str, dict], Path]:
     """Scan the database and write the dashboard HTML. Returns (full_scan, path).
 
     ``full_scan`` is ``{REG: {"avail", "avail_raw", "stats"}}`` (both bases), so
     callers can summarise the Events and Raw day counts side by side.
+    ``detail_regs`` flags vehicles with a drill-down detail page (calendar links);
+    ``legs_by_reg`` may be supplied to reuse already-read report legs.
     """
-    full = scan_report_database_full(db_root, version)
+    full = scan_report_database_full(db_root, version, legs_by_reg=legs_by_reg)
     if not full:
         raise ValueError(f"No reports found under {db_root / version}")
     html_doc = render_dashboard_html(
-        full, version=version, source_path=db_root / version
+        full, version=version, source_path=db_root / version,
+        detail_regs=detail_regs,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html_doc, encoding="utf-8")
@@ -1496,31 +1666,117 @@ def main(argv=None) -> int:
     ap.add_argument(
         "--out",
         default=None,
-        help="Output HTML path (default: <db-root>/<version>/data_dashboard.html)",
+        help=(
+            "Output HTML path (default: "
+            "<db-root>/<version>/dashboard/data_dashboard.html). The dashboard "
+            "and all detail_<REG>.html pages are written together in this folder."
+        ),
+    )
+    ap.add_argument(
+        "--details",
+        default="none",
+        help=(
+            "Generate per-vehicle drill-down detail pages: 'none' (default), "
+            "'all', or a comma-separated list of registrations (e.g. "
+            "YK73WFN,LN25NKE)."
+        ),
+    )
+    ap.add_argument(
+        "--fetch-uplot",
+        action="store_true",
+        help="Download the vendored uPlot JS/CSS from jsDelivr, then continue.",
     )
     args = ap.parse_args(argv)
 
     logging.basicConfig(format="%(levelname)-5s %(message)s", level=logging.INFO)
+
+    # One-off offline-asset fetch (the only network step in this module).
+    if args.fetch_uplot:
+        from jolt_toolkit.report_generator.data_dashboard_detail import fetch_uplot
+
+        dest = fetch_uplot()
+        LOG.info("uPlot assets refreshed under %s", dest)
 
     db_root = (
         Path(args.db_root)
         if args.db_root
         else _project_root() / "excel_report_database"
     )
+    # Dashboard + every detail_<REG>.html live together in a dedicated
+    # <version>/dashboard/ folder (out_dir). The raw-data SCAN still reads from
+    # <version>/<REG>/raw_* (the parent version dir) — only the OUTPUT moves here.
     out_path = (
         Path(args.out)
         if args.out
-        else db_root / args.version / "data_dashboard.html"
+        else db_root / args.version / "dashboard" / "data_dashboard.html"
     )
+    out_dir = out_path.parent
 
     LOG.info("Database root: %s", db_root)
     LOG.info("Version:       %s", args.version)
 
-    full, written = generate_dashboard(db_root, args.version, out_path)
+    # Read every vehicle's report legs once and reuse them for both the dashboard
+    # scan and the drill-down detail pages (segments come from these legs).
+    legs_by_reg = _collect_legs_by_reg(db_root, args.version)
+    if not legs_by_reg:
+        raise ValueError(f"No reports found under {db_root / args.version}")
+
+    # Resolve the --details request against the vehicles that actually have data.
+    detail_request = _parse_details_arg(args.details, sorted(legs_by_reg))
+    written_detail: dict[str, Path] = {}
+    if detail_request:
+        from jolt_toolkit.report_generator.data_dashboard_detail import (
+            write_detail_pages,
+        )
+
+        LOG.info("Generating %d detail page(s): %s",
+                 len(detail_request), ", ".join(detail_request))
+        written_detail = write_detail_pages(
+            db_root, args.version, detail_request,
+            out_dir=out_dir, legs_by_reg=legs_by_reg,
+        )
+
+    # hasDetail = detail pages written this run ∪ pages already on disk, so the
+    # calendar links stay live for previously-generated vehicles too.
+    existing_detail = {
+        p.stem[len("detail_"):]
+        for p in out_dir.glob("detail_*.html")
+    }
+    detail_regs = set(written_detail) | existing_detail
+
+    full, written = generate_dashboard(
+        db_root, args.version, out_path,
+        detail_regs=detail_regs, legs_by_reg=legs_by_reg,
+    )
     _print_summary(full)
     LOG.info("=" * 78)
+    if detail_regs:
+        LOG.info("Detail pages live for: %s", ", ".join(sorted(detail_regs)))
     LOG.info("Dashboard written: %s", written)
     return 0
+
+
+def _parse_details_arg(value: str, available: list[str]) -> list[str]:
+    """Resolve the ``--details`` argument to a concrete list of registrations.
+
+    ``none`` -> ``[]``; ``all`` -> every available reg; otherwise a comma list
+    (unknown regs are dropped with a warning).
+    """
+    v = (value or "none").strip()
+    if not v or v.lower() == "none":
+        return []
+    if v.lower() == "all":
+        return list(available)
+    avail = set(available)
+    out: list[str] = []
+    for reg in (r.strip() for r in v.split(",")):
+        if not reg:
+            continue
+        if reg in avail:
+            out.append(reg)
+        else:
+            LOG.warning("--details: %s not found in the database — skipped", reg)
+    return out
 
 
 if __name__ == "__main__":
