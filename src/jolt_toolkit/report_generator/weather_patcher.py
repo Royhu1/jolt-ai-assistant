@@ -134,19 +134,36 @@ class _KeyManager:
 # ── 天气缓存 ─────────────────────────────────────────────────────────────
 
 class _WeatherCache:
-    """JSON 文件缓存（filelock 线程安全）。"""
+    """JSON 文件缓存（filelock 线程安全）。
 
-    def __init__(self, cache_file: str | Path, precision: int = 6):
+    Cache-key quantisation mirrors ``FineGrainedWeatherPatcher._WeatherCache``:
+    the coordinate is rounded to ``precision`` decimal places (default 2 ≈ 1 km
+    grid) and the timestamp is floored to a ``time_bucket_s`` bucket (default
+    3600 s = 1 h, since the OpenWeather timemachine API is hourly). Weather only
+    varies on a city / hourly scale, so nearby same-hour points share a key and
+    reuse a single fetched value. The previous default (precision 6 ≈ 0.1 m plus
+    a raw per-second ``dt``) made virtually every point a unique key, so the
+    cache was never reused — every backfill re-fetched everything and burned
+    OpenWeather quota.
+    """
+
+    def __init__(self, cache_file: str | Path, precision: int = 2,
+                 time_bucket_s: int = 3600):
         self._path = Path(cache_file)
         self._lock_path = Path(str(cache_file) + '.lock')
         self._precision = precision
+        self._time_bucket_s = max(int(time_bucket_s), 1)
         if not self._path.exists():
             self._path.parent.mkdir(parents=True, exist_ok=True)
             with open(self._path, 'w', encoding='utf-8') as f:
                 json.dump({"cache": {}}, f)
 
     def _key(self, lat: float, lon: float, dt: int) -> str:
-        return f"{lat:.{self._precision}f},{lon:.{self._precision}f},{dt}"
+        # Quantise the coordinate to a ~``precision`` grid and floor the
+        # timestamp to a ``time_bucket_s`` bucket (hourly), so nearby /
+        # same-hour points share a key and reuse one fetched value.
+        dt_bucket = (int(dt) // self._time_bucket_s) * self._time_bucket_s
+        return f"{lat:.{self._precision}f},{lon:.{self._precision}f},{dt_bucket}"
 
     def get_batch(self, locations: list[tuple]) -> tuple[dict, list]:
         """返回 (hit_map, miss_list)。hit_map: {loc: weather_tuple}。"""
@@ -198,18 +215,24 @@ class WeatherPatcher:
     （根本不进入唯一位置集合）。
 
     Args:
-        cache_file:  缓存文件路径（默认 ./cache/.weather_cache.json）
-        precision:   坐标缓存精度（小数位数，默认 6）
-        max_workers: 并发请求数（默认 30）
+        cache_file:    缓存文件路径（默认 ./cache/.weather_cache.json）
+        precision:     坐标缓存精度（小数位数，默认 2，约 1 km 网格）。配合
+                       ``time_bucket_s`` 让邻近 / 同小时的点共享缓存 key，大幅
+                       提高跨日 / 跨车 backfill 的命中率（与 FineGrainedWeatherPatcher
+                       的 cache key 一致）。
+        time_bucket_s: 时间桶大小（秒，默认 3600，按小时聚合，因 OpenWeather
+                       timemachine 历史数据本身是小时粒度）。
+        max_workers:   并发请求数（默认 30）
     """
 
     API_URL = "https://api.openweathermap.org/data/3.0/onecall/timemachine"
 
     def __init__(self, cache_file: str | Path | None = None,
-                 precision: int = 6, max_workers: int = 30):
+                 precision: int = 2, time_bucket_s: int = 3600,
+                 max_workers: int = 30):
         cache_file = cache_file or os.environ.get(
             'WEATHER_CACHE_FILE', './cache/.weather_cache.json')
-        self._cache = _WeatherCache(cache_file, precision)
+        self._cache = _WeatherCache(cache_file, precision, time_bucket_s)
         self._keys = _KeyManager()
         self._lock = threading.Lock()
         self._max_workers = max_workers
