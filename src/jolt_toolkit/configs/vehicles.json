@@ -25,7 +25,7 @@
     "mass_agg": "iqr_median",
     "nominal_kwh": 360,
     "srf_capacity_kwh": 265,
-    "effective_capacity_kwh": 298.7,
+    "effective_capacity_kwh": 385.0,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -144,7 +144,7 @@
     "moving_energy_col": "electric_energy_wheelbased_speed_over_zero",
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
-    "min_cluster_gap_kg": 2000.0
+    "min_cluster_gap_kg": 5000.0
   },
   "N88GNW": {
     "srf_reg": "N88 GNW",
@@ -165,13 +165,13 @@
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
     "min_cluster_gap_kg": 2000.0,
-    "split_long_stops_min": 45
+    "split_long_stops_min": 15
   },
   "EX74JXW": {
     "srf_reg": "EX74 JXW",
     "nominal_kwh": 475,
     "srf_capacity_kwh": 518,
-    "effective_capacity_kwh": 475.8,
+    "effective_capacity_kwh": 488.2,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -218,6 +218,7 @@
     "make": "Mercedes-Benz",
     "model": "eActros 600",
     "pipeline": "mercedes_speed",
+    "prefer_logger_speed": true,
     "speed_col": "speed",
     "total_energy_col": "total_electric_energy_used",
     "mass_col": "gross_combination_vehicle_weight",
@@ -243,7 +244,9 @@
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
     "min_cluster_gap_kg": 2000.0,
-    "split_long_stops_min": 45
+    "split_long_stops_min": 45,
+    "min_stop_duration_min": 10,
+    "merge_by_mass": false
   },
   "T88RNW": {
     "srf_reg": "T88 RNW",
@@ -346,6 +349,8 @@
     "total_energy_col": "total_electric_energy_used",
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
-    "min_cluster_gap_kg": 2000.0
+    "min_cluster_gap_kg": 2000.0,
+    "split_long_stops_min": 45,
+    "merge_by_mass": false
   }
 }

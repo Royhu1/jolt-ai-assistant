@@ -779,7 +779,7 @@ def find_speed_trips(
     speed_threshold_kmh: float = 1.0,
     min_stop_duration_min: float = 5.0,
     min_trip_duration_min: float = 2.0,
-    trip_endpoint_anchor: str = 'first_motion',
+    trip_endpoint_anchor: str = 'zero_speed',
     max_extend_minutes: float = 5.0,
 ) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
     """
@@ -794,12 +794,14 @@ def find_speed_trips(
                             更短的零速间隔会被桥接（如红灯、短暂停车）
     min_trip_duration_min : 行程持续时间低于此值（分钟）则丢弃（噪声）
     trip_endpoint_anchor : trip 端点锚定策略：
-        - 'first_motion'（默认）：端点 = trip 内首/末个 v > speed_threshold_kmh 样本
-                                  （v2.2.3 之前的唯一行为，向后兼容）
-        - 'zero_speed'         ：split + merge + 过滤后，把端点外扩到最近的
-                                  v == 0 样本（不超过 max_extend_minutes 分钟）。
+        - 'zero_speed'（默认，v2.2.5 起）：split + merge + 过滤后，把端点外扩到
+                                  最近的 v == 0 样本（不超过 max_extend_minutes 分钟）。
                                   目的：让 trip 窗口完整覆盖低频遥测心跳上的
                                   零速尾巴，避免起止时刻落在 76 km/h 等瞬态点。
+                                  现为全车队标准。
+        - 'first_motion'（opt-out / legacy）：端点 = trip 内首/末个
+                                  v > speed_threshold_kmh 样本（v2.2.3 之前的唯一行为，
+                                  保留作向后兼容 / per-pipeline override）。
     max_extend_minutes  : zero_speed 模式下端点外扩的最大窗口（分钟）；超出则
                           静默回退到 first_motion 端点。仅当 anchor==zero_speed 时生效。
 
@@ -901,7 +903,7 @@ def find_discharge_segments_by_speed(
     moving_energy_col: str = MOVING_COL,
     nominal_kwh: float | None = None,
     trips: list[tuple] | None = None,
-    trip_endpoint_anchor: str = 'first_motion',
+    trip_endpoint_anchor: str = 'zero_speed',
     max_extend_minutes: float = 5.0,
 ) -> list[dict]:
     """
@@ -2336,8 +2338,16 @@ def _detect_cluster_transitions(
     """
     在 [t_start, t_end] 时间窗口内检测 mass_cluster 标签变化点。
 
-    当相邻有效质量读数的 mass_cluster 不同时，视为装卸货事件，
+    当相邻**行驶中**质量读数的 mass_cluster 不同时，视为装卸货事件，
     在该时间点处拆分放电段。
+
+    行驶读数限定（v2.2.5）
+    --------------------
+    切换点检测只扫描 ``mass_moving == True`` 的行：静止时的 J1939 GCVW 广播
+    不可靠，若纳入会在停车点制造假切点（碎段被 ``min_soc_drop`` 丢弃 → trip
+    丢失一段），或模糊真实的行驶质量变化。与 ``cluster_mass_data`` 的均值只用
+    行驶读数（v2.2.4）、``_get_seg_dominant_cluster`` 的行驶优先投票一致。
+    ``mass_moving`` 列缺失时（旧数据 / 旧调用路径）退回全部有效读数。
 
     可选的零速窗口过滤
     ------------------
@@ -2354,6 +2364,18 @@ def _detect_cluster_transitions(
     t_e = _to_utc(t_end)
     times = pd.to_datetime(df_raw[TIME_COL], errors='coerce', utc=True)
     mask = (times >= t_s) & (times <= t_e) & df_raw['mass_cluster'].notna()
+    # Scan only the "moving" (mass_moving == True) mass readings when detecting
+    # cluster-transition split points. A standstill J1939 GCVW broadcast is
+    # unreliable (loading/unloading transients, default/last-held values), so a
+    # stationary row assigned to a neighbouring cluster would otherwise either
+    # (a) fabricate a spurious split at a stop — yielding a tiny sub-segment that
+    # gets dropped by min_soc_drop, so a chunk of the trip goes missing — or
+    # (b) blur a genuine moving-mass change. This mirrors cluster_mass_data's
+    # moving-only cluster means (v2.2.4) and _get_seg_dominant_cluster's
+    # moving-first voting. If mass_moving is absent (legacy data / call path),
+    # fall back to the historical all-valid-readings behaviour.
+    if 'mass_moving' in df_raw.columns:
+        mask = mask & df_raw['mass_moving'].astype(bool)
     sub = df_raw.loc[mask, [TIME_COL, 'mass_cluster']].copy()
     sub[TIME_COL] = times[mask]
     sub = sub.sort_values(TIME_COL).reset_index(drop=True)
@@ -2821,6 +2843,98 @@ def merge_discharge_by_mass(
 
 
 # =============================================================================
+# 锚点非重叠强制（修正稀疏累计计数器导致的相邻段能量重复计入）
+# =============================================================================
+
+def _enforce_anchor_ordering(discharge_segs: list[dict], reg: str = '') -> int:
+    """强制相邻放电段的能量锚点不重叠（前段 anchor_end <= 后段 anchor_start）。
+
+    背景
+    ----
+    speed 分支中每个 trip 的能量用 ``_nearest_before(total_energy, trip_start)``
+    → ``_nearest_after(total_energy, trip_end)`` 计算。``total_energy`` 是稀疏读数的
+    累计计数器：若某 trip 结束后到下一个 trip 之间没有计数器读数，
+    ``_nearest_after(trip_end)`` 会跳到「下一个 trip 期间/之后」的读数，使本段能量
+    重复计入下一段的能量，并造成 ``anchor_end(i) > anchor_start(i+1)`` 的时间重叠
+    → ``delta_energy_kwh`` / ``effective_capacity_kwh`` / EP 被高估。
+
+    本后处理在 ``merge_discharge_by_mass`` + ``_recompute_anchors`` 之后、对**最终**
+    放电段运行：把重叠的前段 ``_anchor_end_time`` 钳到后段 ``_anchor_start_time``，
+    并据已是 kWh 的锚点相对值重算 ``delta_energy_kwh`` 与 ``effective_capacity_kwh``。
+    仅修改实际存在重叠的段（稀疏计数器场景）；计数器在间隔内有读数时无重叠 →
+    不改动。
+
+    锚点相对值与能量的关系（见 find_discharge_segments_by_speed）：
+        delta_energy_kwh = -(anchor_end_rel_kwh - anchor_start_rel_kwh)
+    （二者皆相对腿起点归零、单位 kWh；放电为负）。
+
+    原地修改 ``discharge_segs`` 内的段字典；返回被钳位的段数（供 regen 日志统计）。
+    """
+    if not discharge_segs or len(discharge_segs) < 2:
+        return 0
+
+    # 1. 防御性按 start_time 排序（仅用于确定相邻关系；段字典为共享引用，
+    #    原地修改会传回 discharge_segs，不改变调用方列表的原有顺序）。
+    segs = sorted(discharge_segs, key=lambda s: _to_utc(s['start_time']))
+
+    def _usable_anchor(s: dict) -> bool:
+        # soc_estimate 段没有真实计数器锚点（rel 为 NaN）→ 跳过
+        if s.get('energy_source') == 'soc_estimate':
+            return False
+        if s.get('_anchor_start_time') is None or s.get('_anchor_end_time') is None:
+            return False
+        a_sv = s.get('_anchor_start_rel_kwh', float('nan'))
+        a_ev = s.get('_anchor_end_rel_kwh', float('nan'))
+        try:
+            return bool(np.isfinite(a_sv) and np.isfinite(a_ev))
+        except (TypeError, ValueError):
+            return False
+
+    n_clamped = 0
+    for k in range(len(segs) - 1):
+        cur = segs[k]
+        nxt = segs[k + 1]
+        if not (_usable_anchor(cur) and _usable_anchor(nxt)):
+            continue
+
+        cur_end   = _to_utc(cur['_anchor_end_time'])
+        nxt_start = _to_utc(nxt['_anchor_start_time'])
+        if cur_end <= nxt_start:
+            continue  # 无重叠 → 不动（计数器在间隔内有读数的正常情形）
+
+        # 重叠 → 把前段 anchor_end 钳到后段 anchor_start，并据锚点相对值重算能量
+        new_end_rel = nxt['_anchor_start_rel_kwh']
+        new_delta   = -(new_end_rel - cur['_anchor_start_rel_kwh'])
+        if not (new_delta < 0):
+            # 钳位后不再是有效放电（锚点塌缩 / 病态）→ 保持原段不变，仅告警
+            logger.warning(
+                '[%s] anchor overlap clamp skipped (would collapse to '
+                'non-discharge): cur trip start=%s, anchor_end %s > next '
+                'anchor_start %s, new_delta=%.3f',
+                reg, cur.get('start_time'), cur_end, nxt_start, new_delta,
+            )
+            continue
+
+        cur['_anchor_end_time']    = nxt['_anchor_start_time']
+        cur['_anchor_end_rel_kwh'] = new_end_rel
+        cur['delta_energy_kwh']    = round(new_delta, 3)
+        dsoc_abs = abs(cur.get('delta_soc_pct') or 0.0)
+        if dsoc_abs > 0:
+            cur['effective_capacity_kwh'] = round(
+                abs(new_delta) / (dsoc_abs / 100.0), 1
+            )
+        n_clamped += 1
+        logger.info(
+            '[%s] anchor overlap clamped: cur trip start=%s, anchor_end %s → %s '
+            '(next anchor_start); delta_energy_kwh=%s, eff_cap=%s',
+            reg, cur.get('start_time'), cur_end, nxt_start,
+            cur['delta_energy_kwh'], cur.get('effective_capacity_kwh'),
+        )
+
+    return n_clamped
+
+
+# =============================================================================
 # 封装函数：同时运行充放电分段 + 可选生成验证图
 # =============================================================================
 def run_segment_detection(
@@ -2928,6 +3042,15 @@ def run_segment_detection(
         _speed_col = cfg.get('speed_col', 'wheel_based_speed')
         speed_p = dict(_pipeline_cfg.get('speed_params', {}))
         speed_p['speed_col'] = _speed_col
+        # Per-vehicle min_stop_duration_min override (vehicles.json): defaults to
+        # the pipeline speed_params value; a vehicle that needs a wider
+        # stop-bridge gap (e.g. TA70WTL's ~7-min pickup/drop pauses that should
+        # not split a single round) can raise it without touching the shared
+        # pipeline value (renault_speed also serves N88GNW / T88RNW). Only
+        # vehicles that set the key are affected.
+        _min_stop_override = cfg.get('min_stop_duration_min')
+        if _min_stop_override is not None:
+            speed_p['min_stop_duration_min'] = float(_min_stop_override)
         # 从车辆配置传递能量列和容量参数
         speed_p['total_energy_col'] = _tot_col
         speed_p['moving_energy_col'] = _mov_col
@@ -2937,17 +3060,23 @@ def run_segment_detection(
             speed_p.setdefault('cap_lo', cap_lo)
         if cap_hi:
             speed_p.setdefault('cap_hi', cap_hi)
-        # Trip 端点锚定策略（pipeline 顶层字段；默认 first_motion 保持向后兼容）
+        # Trip 端点锚定策略（pipeline 顶层字段）。v2.2.5 起 zero_speed 成为
+        # 全车队默认；pipeline 可显式设 trip_endpoint_anchor: "first_motion" 退回旧行为。
         # zero_speed 模式见 find_speed_trips() docstring。
-        _anchor = _pipeline_cfg.get('trip_endpoint_anchor', 'first_motion')
+        _anchor = _pipeline_cfg.get('trip_endpoint_anchor', 'zero_speed')
         _max_ext = float(_pipeline_cfg.get('max_extend_minutes', 5.0))
         speed_p['trip_endpoint_anchor'] = _anchor
         speed_p['max_extend_minutes']   = _max_ext
-        # 若遥测数据中无速度列，用 Logger 速度直接检测行程窗口
+        # 遥测速度不可用、或车辆配置 prefer_logger_speed 时，用 Logger 速度检测行程窗口。
+        # prefer_logger_speed: telematics speed 存在但不可靠（如 YN25RSY 几乎全零、仅零星
+        # 噪声，.any() 会误判为可用）→ 显式强制走可靠的 Logger 速度（与 diesel logger 范式
+        # 一致），避免落到 SOC 兜底切出跟随 SOC 下降的巨段。
+        _prefer_logger = bool(cfg.get('prefer_logger_speed', False))
         _has_tele_speed = (_speed_col in df_raw.columns and
                            pd.to_numeric(df_raw[_speed_col], errors='coerce')
                            .pipe(lambda s: s.notna() & (s > 0)).any())
-        if not _has_tele_speed and logger_speed_df is not None and not logger_speed_df.empty:
+        if (_prefer_logger or not _has_tele_speed) and \
+                logger_speed_df is not None and not logger_speed_df.empty:
             # 从 Logger 速度 DataFrame 构建行程检测用的 DataFrame
             _logger_spd_df = pd.DataFrame({
                 TIME_COL: logger_speed_df.index,
@@ -2963,7 +3092,10 @@ def run_segment_detection(
                 max_extend_minutes=_max_ext,
             )
             speed_p['trips'] = _logger_trips
-            logger.info('  速度数据: 遥测速度不可用，回退使用 Logger Speed'
+            _logger_reason = ('使用 Logger Speed（prefer_logger_speed）'
+                              if _prefer_logger else
+                              '遥测速度不可用，回退使用 Logger Speed')
+            logger.info(f'  速度数据: {_logger_reason}'
                         f' (检测到 {len(_logger_trips)} 个行程)')
         discharge_segs = find_discharge_segments_by_speed(df_raw, **speed_p)
         # Fallback：若速度分段无结果，回退到 SOC-based
@@ -3027,7 +3159,10 @@ def run_segment_detection(
         # 2. 在聚类标签变化处拆分放电段（装卸货事件）
         #    方案 B：切点附近 ±W/2 必须存在 v=0 样本，否则视为 CVW 噪声尖刺。
         #    W 沿用速度参数 min_stop_duration_min（与 zero_speed anchor 一致）。
-        _min_stop_min = float(_speed_p_top.get('min_stop_duration_min', 5.0))
+        # Honour the per-vehicle min_stop_duration_min override here too, so the
+        # zero-speed split window stays coherent with the trip-detection gap.
+        _min_stop_min = float(cfg.get('min_stop_duration_min',
+                                      _speed_p_top.get('min_stop_duration_min', 5.0)))
         _split_window_s = _min_stop_min * 60.0
         discharge_segs = split_discharge_by_mass(
             discharge_segs, df_raw,
@@ -3038,7 +3173,14 @@ def run_segment_detection(
         #    pipeline 顶层 `merge_by_mass: false` 可关闭此合并（保留 split）。
         #    用例：scania_speed_00 / scania_speed_01 / volvo_speed_03 等同质量
         #    cluster 整日不变的车辆，merge 会把所有 trip 合并成单段长 In Transit。
-        if _pipeline_cfg.get('merge_by_mass', True):
+        #    Per-vehicle override (vehicles.json `merge_by_mass`) wins over the
+        #    pipeline flag; both default to True. This lets a single vehicle on a
+        #    shared pipeline (e.g. TA70WTL on renault_speed) disable the merge
+        #    without affecting its pipeline siblings (N88GNW / T88RNW stay merge-ON).
+        _merge_by_mass = cfg.get(
+            'merge_by_mass', _pipeline_cfg.get('merge_by_mass', True)
+        )
+        if _merge_by_mass:
             # 长时间静止切分（opt-in）：vehicles.json 的 split_long_stops_min
             # （分钟）启用。仅配置了该键的车辆（目前 Nestlé: EV73SAL / YK73WFN）
             # 受影响；其它车 cfg.get(...) 为 None → merge 行为逐字不变。
@@ -3050,6 +3192,14 @@ def run_segment_detection(
             )
         # 4. 重新计算拆分后缺失的能量锚点（用于验证图标注）
         _recompute_anchors(discharge_segs, df_raw, _tot_col, _mov_col)
+
+    # ── 锚点非重叠强制 ────────────────────────────────────────────────────
+    # 对最终放电段（已经过 split / merge / _recompute_anchors）运行：把因稀疏累计
+    # 计数器导致的相邻段能量重复计入（anchor_end(i) > anchor_start(i+1)）钳正。
+    # 置于 split_by_mass 块之外、验证图之前 → speed / soc 两分支的最终段都覆盖。
+    _n_clamped = _enforce_anchor_ordering(discharge_segs, reg)
+    if _n_clamped:
+        logger.info('  锚点重叠修正: %d 段已钳位（%s %s）', _n_clamped, reg, suffix)
 
     if generate_validation_fig and out_dir is not None and _HAS_MPL:
         # Panel 3 列：优先使用 total_energy_col（若放电段实际使用了它）
