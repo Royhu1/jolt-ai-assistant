@@ -33,6 +33,7 @@ from jolt_toolkit.report_generator.segment_algorithms import (
     TIME_COL,
     MOVING_SPEED_THRESHOLD_KMH,
     _ANCHOR_PRIVATE_KEYS,
+    _agg_mass,
     VEHICLE_CONFIG,
 )
 from jolt_toolkit.report_generator.pedal_histogram import (
@@ -723,13 +724,18 @@ def _get_vehicle_mass(
     t_end,
     speed_col: str = _SPEED_COL,
     speed_threshold_kmh: float = MOVING_SPEED_THRESHOLD_KMH,
+    method: str = "mean",
 ) -> tuple[float, float]:
-    """返回 (mean_kg, cv) 或 (nan, nan)。
+    """返回 (mass_kg, cv) 或 (nan, nan)。
 
     v2.2.4: 优先只用**行驶中** (speed > ``speed_threshold_kmh``) 的质量样本计算
     leg 均值/CV —— 静止时的 J1939 GCVW 广播（装卸货瞬态 / 默认值）不可靠。
     当窗口内有 ≥2 个行驶样本时用行驶样本；否则回退到旧行为（窗口内全部 > 0 样本）。
     若速度列缺失，行为与旧版完全一致。
+
+    v2.2.6: 过滤口径不变，但末段聚合改由 ``_agg_mass`` 按 ``method`` 完成
+    （``mean`` / ``median`` / ``iqr_median``），供异常重量尖峰的稳健估计。默认
+    ``mean`` 与旧实现逐值一致（``sel.mean()`` / ``std/mean``）。
     """
     if _WEIGHT_COL not in df.columns:
         return nan, nan
@@ -747,11 +753,7 @@ def _get_vehicle_mass(
             valid = moving
 
     sel = vals[valid]
-    if len(sel) < 2:
-        return nan, nan
-    mu = float(sel.mean())
-    cv = float(sel.std() / mu) if mu > 0 else nan
-    return round(mu, 1), round(cv, 4)
+    return _agg_mass(sel, method)
 
 
 def _get_recuperation(df: pd.DataFrame, t_start, t_end) -> float:
@@ -1349,6 +1351,7 @@ def _seg_to_row(
     logger_acc_pedal_all: pd.DataFrame | None = None,
     logger_dec_pedal_all: pd.DataFrame | None = None,
     operator: str | None = None,
+    mass_agg: str = "mean",
 ) -> tuple:
     """
     将一个 segment dict 转换为一行 Excel 数据（HEADERS 顺序）。
@@ -1443,7 +1446,7 @@ def _seg_to_row(
         )
 
     # ── Vehicle mass ──────────────────────────────────────────────────────
-    veh_mass, veh_mass_cv = _get_vehicle_mass(df_leg, t_s, t_e)
+    veh_mass, veh_mass_cv = _get_vehicle_mass(df_leg, t_s, t_e, method=mass_agg)
     recuperation = _get_recuperation(df_leg, t_s, t_e)
     elevation_diff = _get_elevation_diff(df_leg, t_s, t_e, altitude_col)
 
@@ -2080,13 +2083,20 @@ def _write_html_viewer(
     rel = [f"validation_figures/{p.name}" for p in figs]
     labels = [p.stem for p in figs]  # e.g. validation_AV24LXK_2024-10-01_0000
 
-    # Per-figure interactive annotation overlay boxes. A figure produced with
+    # Per-figure interactive annotation overlay sidecar. A figure produced with
     # ``export_dsoc_overlay=True`` writes ``<stem>.boxes.json`` next to the PNG
     # (figure-fraction coordinates, origin top-left) carrying every panel's
     # rounded-bbox data label — dSOC, energy/charger-meter deltas, recuperation
-    # deltas, mass labels. Figures without a sidecar (legacy / baked-in text)
-    # yield an empty list and simply show no overlay.
-    boxes_per_fig: list[list] = []
+    # deltas, mass labels. Two shapes are accepted (the viewer auto-detects):
+    #   * **flat list** — legacy / diesel figures; rendered as ghosted-on-hover
+    #     ``.annot-box`` divs (the original behaviour, kept for back-compat with
+    #     not-yet-re-painted vehicles).
+    #   * **dict** ``{boxes, segments, soc_axis}`` (v2.2.6, EV figures) — drives
+    #     the hover redesign: default triangles-only, per-segment hover hotzones,
+    #     a pinned info box at the SOC panel's bottom-left, and label de-collision.
+    # Figures without a sidecar (legacy / baked-in text) yield an empty list and
+    # simply show no overlay.
+    boxes_per_fig: list = []
     for p in figs:
         sidecar = fig_dir / (p.stem + ".boxes.json")
         # Backward compat: figures painted by earlier builds (before the overlay
@@ -2095,16 +2105,16 @@ def _write_html_viewer(
         # of a not-yet-re-painted vehicle still shows its dSOC overlay.
         if not sidecar.exists():
             sidecar = fig_dir / (p.stem + ".dsoc.json")
-        boxes: list = []
+        data: list | dict = []
         if sidecar.exists():
             try:
                 with open(sidecar, encoding="utf-8") as fh:
                     loaded = json.load(fh)
-                if isinstance(loaded, list):
-                    boxes = loaded
+                if isinstance(loaded, (list, dict)):
+                    data = loaded
             except (json.JSONDecodeError, OSError):
-                boxes = []
-        boxes_per_fig.append(boxes)
+                data = []
+        boxes_per_fig.append(data)
 
     html_name = "inspect_" + report_name.replace(".xlsx", ".html")
     html_path = out_dir / html_name
@@ -2199,6 +2209,40 @@ def _write_html_viewer(
     opacity: 1; background: rgba(255, 255, 255, 0.97);
     border-color: rgba(0, 0, 0, 0.18); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
     z-index: 30;
+  }}
+  /* ── v2.2.6 hover redesign (dict-schema sidecars) ───────────────────────────
+     Default view = baked triangles + baked legends/titles only. Every per-segment
+     data label is hidden until its full-height hover hotzone is entered. */
+  /* Transparent per-segment hover catcher spanning the segment's x-range × the
+     full stage height. The ONLY element with pointer-events in this mode, so
+     value labels / the pinned box never steal the hover (no flicker). */
+  .hotzone {{
+    position: absolute; background: transparent; pointer-events: auto;
+    z-index: 1; cursor: pointer;
+  }}
+  /* Per-segment value label (Panel-2/3/4 energy + mass deltas): hidden by default,
+     revealed solid on hover. Non-interactive (the hotzone beneath handles hover). */
+  .val-box {{
+    position: absolute; font-family: monospace; font-size: 22px; font-weight: bold;
+    line-height: 1.15; white-space: pre; padding: 2px 7px; border-radius: 6px;
+    background: rgba(255, 255, 255, 0.97); border: 1px solid rgba(0, 0, 0, 0.18);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); pointer-events: none; z-index: 20;
+  }}
+  /* Pinned info box at the SOC panel's bottom-left — filled with the hovered
+     segment's dSOC / energy / capacity / EP block. */
+  .pinned-box {{
+    position: absolute; font-family: monospace; font-size: 22px; font-weight: bold;
+    line-height: 1.3; white-space: pre; padding: 8px 12px; border-radius: 8px;
+    background: rgba(255, 255, 255, 0.98); border: 1px solid rgba(0, 0, 0, 0.25);
+    box-shadow: 0 3px 14px rgba(0, 0, 0, 0.4); pointer-events: none; z-index: 25;
+  }}
+  /* Session-level label with no owning segment (e.g. the charger-meter total):
+     always visible but ghosted, so it does not depend on a hover. */
+  .static-box {{
+    position: absolute; font-family: monospace; font-size: 22px; font-weight: bold;
+    line-height: 1.15; white-space: pre; padding: 2px 7px; border-radius: 6px;
+    background: rgba(255, 255, 255, 0.55); pointer-events: none; z-index: 6;
+    opacity: 0.6;
   }}
 </style>
 </head>
@@ -2302,16 +2346,21 @@ function layout() {{
   renderBoxes(dispW, dispH);
 }}
 
-// Render the current figure's annotation boxes. Coordinates are figure-fraction
-// with origin at top-left; ha/va decide the CSS anchor transform so the div lines
-// up with where matplotlib would have drawn the (now externalised) text. After
-// each div is in the DOM we measure its rendered size and clamp it back inside the
-// [0..dispW] × [0..dispH] image rect, so edge-hugging labels (right-most trip end,
-// Panel-4 mass label, Panel-1 va=bottom box poking above the figure top) never
-// spill onto the toolbar or out of the image.
+// Render the current figure's annotation overlay. Dispatches on the sidecar
+// shape: a flat list → legacy ghosted-on-hover boxes (back-compat with diesel /
+// not-yet-re-painted vehicles); a dict → the v2.2.6 hover redesign.
 function renderBoxes(dispW, dispH) {{
   overlayEl.innerHTML = "";
-  const boxes = annotBoxes[cur] || [];
+  const entry = annotBoxes[cur];
+  if (!entry) return;
+  if (Array.isArray(entry)) {{ renderLegacy(entry, dispW, dispH); return; }}
+  renderInteractive(entry, dispW, dispH);
+}}
+
+// Legacy / diesel sidecar (flat list). Coordinates are figure-fraction with origin
+// top-left; ha/va decide the anchor transform. Each div is ghosted by default and
+// solid on hover, then clamped back inside the [0..dispW] × [0..dispH] image rect.
+function renderLegacy(boxes, dispW, dispH) {{
   for (const b of boxes) {{
     const d = document.createElement("div");
     d.className = "annot-box";
@@ -2321,7 +2370,6 @@ function renderBoxes(dispW, dispH) {{
     let top  = b.y * dispH;
     d.style.left = left + "px";
     d.style.top  = top + "px";
-    // CSS transform anchors the div on its (ha, va) corner relative to (left, top).
     let tx = "-50%", ty = "0";          // ha=center, va=top defaults
     if (b.ha === "left") tx = "0";
     else if (b.ha === "right") tx = "-100%";
@@ -2329,21 +2377,139 @@ function renderBoxes(dispW, dispH) {{
     else if (b.va === "center") ty = "-50%";
     d.style.transform = "translate(" + tx + ", " + ty + ")";
     overlayEl.appendChild(d);
-
-    // Clamp into the image rect. The transform shifts the rendered box by a fixed
-    // pixel amount (a fraction of its own measured size), so the rendered top-left
-    // corner is (left + txPx, top + tyPx). Re-pinning left/top so that corner sits
-    // within [0 .. disp - size] keeps the *whole* box inside on all four edges.
     const w = d.offsetWidth, h = d.offsetHeight;
     const txFrac = (b.ha === "right") ? -1 : (b.ha === "left") ? 0 : -0.5;
     const tyFrac = (b.va === "bottom") ? -1 : (b.va === "center") ? -0.5 : 0;
     const rx = left + txFrac * w;       // rendered left edge
     const ry = top  + tyFrac * h;       // rendered top edge
-    // Math.min handles the (rare) box-larger-than-rect case by pinning to 0.
     const newRx = Math.max(0, Math.min(rx, dispW - w));
     const newRy = Math.max(0, Math.min(ry, dispH - h));
     if (newRx !== rx) {{ left += newRx - rx; d.style.left = left + "px"; }}
     if (newRy !== ry) {{ top  += newRy - ry; d.style.top  = top  + "px"; }}
+  }}
+}}
+
+// v2.2.6 hover redesign (dict sidecar {{boxes, segments, soc_axis}}). Default view
+// shows only the baked triangles + legends/titles. A full-height hover hotzone per
+// segment reveals (a) the pinned info box at the SOC panel's bottom-left with that
+// segment's dSOC block, and (b) that segment's value labels (Panel-2/3/4 energy +
+// mass deltas) at their own coords — de-collided so none overlap or spill out.
+function renderInteractive(entry, dispW, dispH) {{
+  const boxes   = entry.boxes || [];
+  const segs    = entry.segments || [];
+  const socAxis = entry.soc_axis || null;
+  const PAD = 6;
+
+  // A box's anchored pixel top-left from its figure-fraction (x,y) + ha/va.
+  function anchorPx(b, w, h) {{
+    const left = b.x * dispW, top = b.y * dispH;
+    const txFrac = (b.ha === "right") ? -1 : (b.ha === "left") ? 0 : -0.5;
+    const tyFrac = (b.va === "bottom") ? -1 : (b.va === "center") ? -0.5 : 0;
+    return [left + txFrac * w, top + tyFrac * h];
+  }}
+  // Position a visible box at its anchor, clamped into the image rect.
+  function place(el) {{
+    const w = el.offsetWidth, h = el.offsetHeight;
+    const xy = anchorPx(el._box, w, h);
+    el.style.left = Math.max(0, Math.min(xy[0], dispW - w)) + "px";
+    el.style.top  = Math.max(0, Math.min(xy[1], dispH - h)) + "px";
+  }}
+
+  // Build value-label divs (hidden) + collect each segment's info-block text.
+  const segBoxes = {{}};      // seg -> [el, ...]  (value labels)
+  const infoBySeg = {{}};     // seg -> {{text, color}}  (Panel-1 dSOC block)
+  for (const b of boxes) {{
+    if (b.role === "info" && b.seg != null) {{
+      infoBySeg[b.seg] = {{ text: b.text, color: b.color }};
+      continue;  // info routes to the pinned box, not an inline div
+    }}
+    const d = document.createElement("div");
+    d.textContent = b.text;
+    d.style.color = b.color;
+    d._box = b;
+    if (b.seg == null) {{
+      // Session-level label (e.g. charger-meter total): always visible, ghosted.
+      d.className = "static-box";
+      overlayEl.appendChild(d);
+      place(d);
+    }} else {{
+      d.className = "val-box";
+      d.style.display = "none";
+      overlayEl.appendChild(d);
+      (segBoxes[b.seg] = segBoxes[b.seg] || []).push(d);
+    }}
+  }}
+
+  // One reusable pinned info box (filled per hover).
+  const pinned = document.createElement("div");
+  pinned.className = "pinned-box";
+  pinned.style.display = "none";
+  overlayEl.appendChild(pinned);
+
+  // Greedy vertical de-collision: push later boxes below earlier overlapping ones,
+  // then clamp every box back inside the image rect.
+  function decollide(els) {{
+    const items = els.map(el => ({{
+      el: el,
+      left: parseFloat(el.style.left) || 0,
+      top:  parseFloat(el.style.top)  || 0,
+      w: el.offsetWidth, h: el.offsetHeight,
+    }}));
+    items.sort((a, b) => (a.top - b.top) || (a.left - b.left));
+    const GAP = 2;
+    for (let i = 0; i < items.length; i++) {{
+      for (let j = 0; j < i; j++) {{
+        const a = items[j], b = items[i];
+        const ox = a.left < b.left + b.w && b.left < a.left + a.w;
+        const oy = a.top  < b.top + b.h  && b.top  < a.top + a.h;
+        if (ox && oy) b.top = a.top + a.h + GAP;
+      }}
+    }}
+    for (const it of items) {{
+      it.left = Math.max(0, Math.min(it.left, dispW - it.w));
+      it.top  = Math.max(0, Math.min(it.top,  dispH - it.h));
+      it.el.style.left = it.left + "px";
+      it.el.style.top  = it.top + "px";
+    }}
+  }}
+
+  function showSeg(seg) {{
+    const shown = [];
+    for (const el of (segBoxes[seg] || [])) {{
+      el.style.display = ""; place(el); shown.push(el);
+    }}
+    const info = infoBySeg[seg];
+    if (info && socAxis) {{
+      pinned.textContent = info.text;
+      pinned.style.color = info.color;
+      pinned.style.display = "";
+      const w = pinned.offsetWidth, h = pinned.offsetHeight;
+      let l = socAxis.x0 * dispW + PAD;
+      let t = socAxis.y1 * dispH - PAD - h;   // bottom-aligned to the SOC panel bottom
+      pinned.style.left = Math.max(0, Math.min(l, dispW - w)) + "px";
+      pinned.style.top  = Math.max(0, Math.min(t, dispH - h)) + "px";
+      shown.push(pinned);
+    }}
+    decollide(shown);
+  }}
+  function hideSeg(seg) {{
+    for (const el of (segBoxes[seg] || [])) el.style.display = "none";
+    pinned.style.display = "none";
+  }}
+
+  // Full-height hover hotzones (one per segment). Base (d/c) appended before
+  // overlay (od/oc) so a finetuned figure surfaces the finetuned segment on top.
+  for (const s of segs) {{
+    const hz = document.createElement("div");
+    hz.className = "hotzone";
+    hz.style.left   = (s.x0 * dispW) + "px";
+    hz.style.width  = Math.max(1, (s.x1 - s.x0) * dispW) + "px";
+    hz.style.top    = "0px";
+    hz.style.height = dispH + "px";
+    const segId = s.seg;
+    hz.addEventListener("mouseenter", () => showSeg(segId));
+    hz.addEventListener("mouseleave", () => hideSeg(segId));
+    overlayEl.appendChild(hz);
   }}
 }}
 

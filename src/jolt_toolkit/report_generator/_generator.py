@@ -25,6 +25,7 @@ from jolt_toolkit.report_generator.data_class import ServerData
 from jolt_toolkit.report_generator.data_fetcher import fetch_events
 from jolt_toolkit.report_generator.segment_algorithms import (
     run_segment_detection,
+    resolve_mass_agg,
     VEHICLE_CONFIG,
     PIPELINE_CONFIGS,
     SOC_COL,
@@ -207,6 +208,11 @@ class JOLTReportGenerator:
         soc_est_cap = eff_cap_kwh or srf_capacity_kwh or nominal_kwh
         altitude_col = cfg.get("altitude_col")
         speed_col = cfg.get("speed_col", "wheel_based_speed")
+        # v2.2.6: per-segment 质量聚合方法（vehicle > pipeline > 默认 'mean'）。
+        # 解析一次后透传给每个 _seg_to_row，使 Excel 列与校验图同口径稳健估计。
+        mass_agg = resolve_mass_agg(
+            reg, PIPELINE_CONFIGS.get(cfg.get("pipeline", "default_soc"))
+        )
         cap_lo = nominal_kwh * 0.5 if nominal_kwh else None
         cap_hi = nominal_kwh * 2.0 if nominal_kwh else None
 
@@ -490,6 +496,7 @@ class JOLTReportGenerator:
                     altitude_col=altitude_col,
                     speed_col=speed_col,
                     operator=op_code,
+                    mass_agg=mass_agg,
                 )
                 all_rows.append((seg["start_time"], list(row)))
 
@@ -507,6 +514,7 @@ class JOLTReportGenerator:
                     logger_acc_pedal_all=logger_acc_pedal_all,
                     logger_dec_pedal_all=logger_dec_pedal_all,
                     operator=op_code,
+                    mass_agg=mass_agg,
                 )
                 all_rows.append((seg["start_time"], list(row)))
 

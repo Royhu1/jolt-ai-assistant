@@ -22,6 +22,7 @@
   },
   "AV24LXK": {
     "srf_reg": "AV24 LXK",
+    "mass_agg": "iqr_median",
     "nominal_kwh": 360,
     "srf_capacity_kwh": 265,
     "effective_capacity_kwh": 298.7,

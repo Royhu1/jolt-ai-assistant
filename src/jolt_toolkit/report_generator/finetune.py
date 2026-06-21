@@ -66,6 +66,9 @@ from jolt_toolkit.report_generator.segment_algorithms import (
     ODO_COL,
     MASS_COL,
     RECUP_COL,
+    MOVING_SPEED_THRESHOLD_KMH,
+    _agg_mass,
+    resolve_mass_agg,
 )
 
 logger = logging.getLogger(__name__)
@@ -337,16 +340,31 @@ def _odometer_distance_km(df: pd.DataFrame) -> float | None:
     return d if d > 0 else None
 
 
-def _mass_mean(df: pd.DataFrame, mass_col: str) -> tuple[float | None, float | None]:
+def _mass_mean(df: pd.DataFrame, mass_col: str,
+               method: str = 'mean',
+               speed_col: str | None = None
+               ) -> tuple[float | None, float | None]:
+    """Aggregate the window's vehicle mass into ``(mass_kg, cv)``.
+
+    v2.2.6: mirrors ``report_builder._get_vehicle_mass`` — filter to valid (> 0)
+    and, when a ``speed_col`` is present, prefer moving-only samples (>= 2), then
+    aggregate by ``method`` via the shared ``_agg_mass``. Returns ``(None, None)``
+    (not nan) to keep the finetune row-rewrite contract.
+    """
     if mass_col not in df.columns:
         return None, None
-    vals = pd.to_numeric(df[mass_col], errors='coerce').dropna()
-    vals = vals[vals > 0]
-    if len(vals) < 2:
+    vals = pd.to_numeric(df[mass_col], errors='coerce')
+    valid = vals.notna() & (vals > 0)
+    if speed_col and speed_col in df.columns:
+        spd = pd.to_numeric(df[speed_col], errors='coerce')
+        moving = valid & spd.notna() & (spd > MOVING_SPEED_THRESHOLD_KMH)
+        if moving.sum() >= 2:
+            valid = moving
+    sel = vals[valid]
+    mass_kg, cv = _agg_mass(sel, method)
+    if not np.isfinite(mass_kg):
         return None, None
-    mu = float(vals.mean())
-    cv = float(vals.std() / mu) if mu > 0 else None
-    return round(mu, 1), round(cv, 4) if cv is not None else None
+    return mass_kg, (cv if np.isfinite(cv) else None)
 
 
 def _elev_diff(df: pd.DataFrame, alt_col: str | None) -> float | None:
@@ -388,6 +406,9 @@ def _recompute_leg_derived(row: list, headers: tuple,
     moving_energy_col = cfg.get('moving_energy_col')
     ac_col = cfg.get('ac_col')
     dc_col = cfg.get('dc_col')
+    # v2.2.6: 与报告同口径的稳健质量聚合（vehicle > pipeline > 默认 'mean'）
+    mass_agg = resolve_mass_agg(reg)
+    speed_col = cfg.get('speed_col', 'wheel_based_speed')
 
     def _set(name: str, value):
         c = _col_of(headers, name)
@@ -458,7 +479,8 @@ def _recompute_leg_derived(row: list, headers: tuple,
         status['rewritten'].append('Average Speed (km/h)')
 
     # Mass
-    mass_mean, mass_cv = _mass_mean(df_win, mass_col)
+    mass_mean, mass_cv = _mass_mean(df_win, mass_col,
+                                    method=mass_agg, speed_col=speed_col)
     if mass_mean is not None:
         _set('Vehicle Mass (kg)', mass_mean)
         status['rewritten'].append('Vehicle Mass (kg)')
@@ -1267,6 +1289,7 @@ def regenerate_figures(
     moving_col = cfg.get('moving_energy_col', MOVING_COL)
     mass_col = cfg.get('mass_col', MASS_COL)
     speed_col = cfg.get('speed_col', 'wheel_based_speed')
+    mass_agg = resolve_mass_agg(reg)  # v2.2.6: 图上质量与报告同口径稳健聚合
 
     # Derive [period_start, period_end] from xlsx name so we skip raw CSVs
     # outside the report's date range (a vehicle's raw_telematics/ folder is
@@ -1382,6 +1405,7 @@ def regenerate_figures(
                     mass_col=mass_col, speed_col=speed_col,
                     logger_speed_df=leg_logger_spd,
                     logger_mass_df=leg_logger_mass,
+                    mass_agg=mass_agg,
                 )
                 n_out += 1
                 n_plain += 1
@@ -1440,6 +1464,7 @@ def regenerate_figures(
                 logger_mass_df=leg_logger_mass,
                 overlay_charge_segs=ft_c_segs,
                 overlay_discharge_segs=ft_d_segs,
+                mass_agg=mass_agg,
             )
             n_out += 1
             n_overlay += 1
