@@ -122,12 +122,9 @@ class ValidationGenerator:
             重新生成的验证图数量。
         """
         report_dir = Path(report_dir)
-        raw_dir = report_dir / "raw_telematics"
-        if not raw_dir.exists():
-            logger.error("raw_telematics 目录不存在: %s", raw_dir)
-            return 0
 
-        # 从目录中找到报告文件以解析车辆（reg 在各周期一致，取首个即可）
+        # 从目录中找到报告文件以解析车辆（reg 在各周期一致，取首个即可）。
+        # 先解析 reg/cfg —— 柴油分支需要据此分流，且不依赖 raw_telematics。
         xlsx_files = sorted(report_dir.glob("jolt_report_*.xlsx"))
         if not xlsx_files:
             logger.error("未找到报告文件: %s", report_dir)
@@ -142,6 +139,27 @@ class ValidationGenerator:
         cfg = VEHICLE_CONFIG.get(reg)
         if cfg is None:
             logger.error("车辆 %s 未在 vehicles.json 中注册", reg)
+            return 0
+
+        # ── 柴油车：分流到独立的离线重画路径 ────────────────────────────────
+        # 下方 EV 分支依赖 SOC + ``nominal_kwh`` + ``run_segment_detection`` 的
+        # 电车分段，柴油 logger 管线都不适用（且柴油 cfg 没有 ``nominal_kwh``，
+        # 旧代码在此处 ``KeyError``）。柴油检测沿用 ``_generator`` 的判定
+        # （``fuel_type == "DIESEL"``），route 给 ``diesel_pipeline`` 的
+        # :func:`regenerate_diesel_validation` —— 它从本地 ``raw_logger_*`` CSV
+        # 重建 4 面板柴油图 + inspect HTML，并以 ``export_overlay=True`` 外置
+        # ``<png>.boxes.json`` 叠加（与 EV 的 ``export_dsoc_overlay`` 对齐）。
+        if str(cfg.get("fuel_type", "")).upper() == "DIESEL":
+            from jolt_toolkit.report_generator.diesel_pipeline import (
+                regenerate_diesel_validation,
+            )
+
+            return regenerate_diesel_validation(report_dir, reg=reg, cfg=cfg)
+
+        # ── 以下为电车（EV）路径 ────────────────────────────────────────────
+        raw_dir = report_dir / "raw_telematics"
+        if not raw_dir.exists():
+            logger.error("raw_telematics 目录不存在: %s", raw_dir)
             return 0
 
         reg_srf = cfg["srf_reg"]
@@ -230,11 +248,20 @@ class ValidationGenerator:
         return fig_count
 
     def regenerate_folder(self, base_dir: str | Path) -> dict[str, int]:
-        """批量重新生成 base_dir 下所有车辆子目录的验证图。"""
+        """批量重新生成 base_dir 下所有车辆子目录的验证图。
+
+        电车走 ``raw_telematics/``；柴油车从 ``raw_logger_*/`` 重画（见
+        :meth:`regenerate` 的柴油分支），故两类原始数据任一存在即处理 ——
+        否则混合车队里只有 raw_logger 的柴油车会被漏掉。
+        """
         base = Path(base_dir)
         results = {}
         for sub in sorted(base.iterdir()):
-            if sub.is_dir() and (sub / "raw_telematics").exists():
+            if not sub.is_dir():
+                continue
+            has_telematics = (sub / "raw_telematics").exists()
+            has_logger = any(sub.glob("raw_logger*"))
+            if has_telematics or has_logger:
                 results[sub.name] = self.regenerate(sub)
         return results
 

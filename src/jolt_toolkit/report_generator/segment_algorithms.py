@@ -96,6 +96,91 @@ VEHICLE_CONFIG: dict[str, dict[str, Any]] = _load_json('vehicles.json')
 PIPELINE_CONFIGS: dict[str, dict] = _load_json('pipelines.json')
 
 # =============================================================================
+# 每段质量聚合（可配置、稳健）
+# =============================================================================
+# Single source of truth shared by the three plain-mean sites that estimate a
+# segment's vehicle mass (Excel "Vehicle Mass (kg)" column, the validation-figure
+# Panel-4 annotation, and the finetune recompute). The aggregation method is a
+# configurable pipeline branch parameter (``mass_agg``), so a transient telematics
+# weight spike (e.g. a ~49000 kg reading on a true ~30 t trip) no longer inflates
+# the value. The default ``"mean"`` preserves the legacy behaviour bit-for-bit.
+
+_MASS_AGG_METHODS = ('mean', 'median', 'iqr_median')
+
+
+def _agg_mass(sel: 'pd.Series', method: str = 'mean') -> tuple[float, float]:
+    """Aggregate an already-filtered mass-sample series into ``(mass_kg, cv)``.
+
+    ``sel`` is expected to already be positive (> 0) and, where applicable,
+    restricted to moving-only samples (the caller owns the filtering, so that the
+    Excel column and the figure annotation share one definition).
+
+    method
+        ``"mean"``        — arithmetic mean (legacy default; identical to the
+                            pre-v2.2.6 behaviour, so non-opted-in vehicles are
+                            unchanged).
+        ``"median"``      — plain median (matches the diesel pipeline).
+        ``"iqr_median"``  — Tukey-fenced median: when the IQR is positive, keep
+                            inliers within ``[q1 - 1.5*iqr, q3 + 1.5*iqr]`` (only
+                            if >= 2 remain, otherwise keep all) and take the median
+                            of the kept set; when the IQR is zero (quantised GCW,
+                            more than half the readings identical) skip the fence
+                            because the median already ignores a minority spike.
+
+    ``cv`` is ``std / mean`` of the kept set (sample std, ddof=1), matching the
+    legacy reliability metric. Unknown ``method`` falls back to ``"mean"`` with a
+    warning. ``len(sel) < 2`` returns ``(nan, nan)``; ``mean <= 0`` yields a nan cv.
+    """
+    if sel is None or len(sel) < 2:
+        return np.nan, np.nan
+    m = (method or 'mean').lower()
+    if m not in _MASS_AGG_METHODS:
+        logger.warning("Unknown mass_agg method %r; falling back to 'mean'", method)
+        m = 'mean'
+
+    kept = sel
+    if m == 'iqr_median':
+        q1, q3 = sel.quantile([0.25, 0.75])
+        iqr = q3 - q1
+        if iqr > 0:
+            lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+            inliers = sel[(sel >= lo) & (sel <= hi)]
+            if len(inliers) >= 2:
+                kept = inliers
+        value = float(kept.median())
+    elif m == 'median':
+        value = float(kept.median())
+    else:  # 'mean'
+        value = float(kept.mean())
+
+    mu = float(kept.mean())
+    cv = float(kept.std() / mu) if mu > 0 else np.nan
+    return round(value, 1), round(cv, 4)
+
+
+def resolve_mass_agg(reg: str, pipeline_cfg: dict | None = None) -> str:
+    """Resolve the ``mass_agg`` method for ``reg``.
+
+    Precedence: vehicle-level (``vehicles.json``) > pipeline-level
+    (``pipelines.json``) > default ``"mean"``. When ``pipeline_cfg`` is not
+    supplied it is derived from the vehicle's configured pipeline, so a bare
+    ``resolve_mass_agg(reg)`` still honours a pipeline-level setting.
+    """
+    veh = VEHICLE_CONFIG.get(reg, {})
+    m = veh.get('mass_agg')
+    if m:
+        return str(m)
+    if pipeline_cfg is None:
+        pname = veh.get('pipeline', 'default_soc')
+        pipeline_cfg = PIPELINE_CONFIGS.get(pname)
+    if pipeline_cfg:
+        m = pipeline_cfg.get('mass_agg')
+        if m:
+            return str(m)
+    return 'mean'
+
+
+# =============================================================================
 # 充电分段检测
 # =============================================================================
 def find_charge_segments_by_soc(
@@ -694,7 +779,7 @@ def find_speed_trips(
     speed_threshold_kmh: float = 1.0,
     min_stop_duration_min: float = 5.0,
     min_trip_duration_min: float = 2.0,
-    trip_endpoint_anchor: str = 'first_motion',
+    trip_endpoint_anchor: str = 'zero_speed',
     max_extend_minutes: float = 5.0,
 ) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
     """
@@ -709,12 +794,14 @@ def find_speed_trips(
                             更短的零速间隔会被桥接（如红灯、短暂停车）
     min_trip_duration_min : 行程持续时间低于此值（分钟）则丢弃（噪声）
     trip_endpoint_anchor : trip 端点锚定策略：
-        - 'first_motion'（默认）：端点 = trip 内首/末个 v > speed_threshold_kmh 样本
-                                  （v2.2.3 之前的唯一行为，向后兼容）
-        - 'zero_speed'         ：split + merge + 过滤后，把端点外扩到最近的
-                                  v == 0 样本（不超过 max_extend_minutes 分钟）。
+        - 'zero_speed'（默认，v2.2.5 起）：split + merge + 过滤后，把端点外扩到
+                                  最近的 v == 0 样本（不超过 max_extend_minutes 分钟）。
                                   目的：让 trip 窗口完整覆盖低频遥测心跳上的
                                   零速尾巴，避免起止时刻落在 76 km/h 等瞬态点。
+                                  现为全车队标准。
+        - 'first_motion'（opt-out / legacy）：端点 = trip 内首/末个
+                                  v > speed_threshold_kmh 样本（v2.2.3 之前的唯一行为，
+                                  保留作向后兼容 / per-pipeline override）。
     max_extend_minutes  : zero_speed 模式下端点外扩的最大窗口（分钟）；超出则
                           静默回退到 first_motion 端点。仅当 anchor==zero_speed 时生效。
 
@@ -816,7 +903,7 @@ def find_discharge_segments_by_speed(
     moving_energy_col: str = MOVING_COL,
     nominal_kwh: float | None = None,
     trips: list[tuple] | None = None,
-    trip_endpoint_anchor: str = 'first_motion',
+    trip_endpoint_anchor: str = 'zero_speed',
     max_extend_minutes: float = 5.0,
 ) -> list[dict]:
     """
@@ -1108,8 +1195,10 @@ _DPI             = 150
 # the viewer CSS, not by these constants.
 _LABEL_FONT      = 20
 _TICK_FONT       = 16
-# Unified legend font across all four subplots — sits between tick (16) and label (20).
-_LEGEND_FONT     = 18
+# Unified legend font across all four subplots. v2.2.6: scaled to ~0.6x the
+# previous 18 pt so the baked-in legends sit more discreetly over the data lines
+# (axis titles ``_LABEL_FONT`` left unchanged — only the legends were requested).
+_LEGEND_FONT     = 11
 # Baked-text size for the rounded-bbox data labels — only used when they are NOT
 # externalised (``export_dsoc_overlay=False`` — e.g. the finetune comparison path).
 _DSOC_FONT       = 14
@@ -1140,7 +1229,7 @@ _TEXT_BBOX = dict(boxstyle='round,pad=0.15', fc='white', ec='none', alpha=0.75)
 def _overlay(ax, df_seg: pd.DataFrame, color: str, kwh_col: str | None = None,
              *, span_alpha: float = 0.12, line_alpha: float = 0.85,
              label_prefix: str = '', y_offset_frac: float = 0.0,
-             z_base: int = 1):
+             z_base: int = 1, seg_prefix: str = '', panel: int | None = None):
     """在 ax 上叠加分段区间（阴影 + 竖线 + 可选 SOC 标注）。
 
     参数
@@ -1217,9 +1306,13 @@ def _overlay(ax, df_seg: pd.DataFrame, color: str, kwh_col: str | None = None,
             text_body = '\n'.join(lines)
             if label_prefix:
                 text_body = f'{label_prefix} ' + text_body
-            ax.text(mid_t, y_pos, text_body,
-                    ha='center', va=va, fontsize=_DSOC_FONT, color=color,
-                    bbox=_TEXT_BBOX, zorder=8)
+            _t = ax.text(mid_t, y_pos, text_body,
+                         ha='center', va=va, fontsize=_DSOC_FONT, color=color,
+                         bbox=_TEXT_BBOX, zorder=8)
+            # v2.2.6: tag the Panel-1 dSOC block as the segment's ``info`` label so
+            # the interactive viewer can route it to the pinned info box on hover.
+            if seg_prefix and panel is not None:
+                _t.set_gid(f'{seg_prefix}{idx}|p{panel}|info')
 
 
 def _mark_anchors_stored(
@@ -1230,6 +1323,8 @@ def _mark_anchors_stored(
     label_prefix: str = '',
     y_offset_frac: float = 0.0,
     z_base: int = 5,
+    seg_prefix: str = '',
+    panel: int | None = None,
 ):
     """
     在能量子图上标注算法记录的锚点（▼▲）及 delta 虚线。
@@ -1248,7 +1343,7 @@ def _mark_anchors_stored(
     ylim = ax.get_ylim()
     y_span = ylim[1] - ylim[0] if ylim[1] > ylim[0] else 1.0
     y_shift = y_offset_frac * y_span
-    for _, row in df_seg.iterrows():
+    for idx, (_, row) in enumerate(df_seg.iterrows()):
         t_s_raw = row.get('_anchor_start_time')
         t_e_raw = row.get('_anchor_end_time')
         v_s = float(row.get('_anchor_start_rel_kwh', float('nan')))
@@ -1277,9 +1372,11 @@ def _mark_anchors_stored(
         text_body = f'{delta:+.1f}kWh'
         if label_prefix:
             text_body = f'{label_prefix} ' + text_body
-        ax.text(mid_t, v_s + y_shift, text_body,
-                ha='center', va='bottom', fontsize=13, color=color,
-                fontweight='bold', bbox=_TEXT_BBOX, zorder=z_base + 3)
+        _t = ax.text(mid_t, v_s + y_shift, text_body,
+                     ha='center', va='bottom', fontsize=13, color=color,
+                     fontweight='bold', bbox=_TEXT_BBOX, zorder=z_base + 3)
+        if seg_prefix and panel is not None:
+            _t.set_gid(f'{seg_prefix}{idx}|p{panel}|value')
 
 
 def _annotate_overlay_energy_delta(
@@ -1288,6 +1385,8 @@ def _annotate_overlay_energy_delta(
     label_prefix: str = '[FT]',
     y_offset_frac: float = 0.10,
     fontsize: float = 12.0,
+    seg_prefix: str = '',
+    panel: int | None = None,
 ):
     """在能量子图（Panel 2 AC+DC delta / Panel 3 Total Energy Used）上
     为 overlay segments 标注 ``[FT] ±X.X kWh``。
@@ -1304,7 +1403,7 @@ def _annotate_overlay_energy_delta(
     y_span = ylim[1] - ylim[0] if ylim[1] > ylim[0] else 1.0
     # overlay 标注放在段上方接近 y_max 的位置，向下偏移 y_offset_frac × span
     y_pos = ylim[1] - y_offset_frac * y_span
-    for _, row in df_seg.iterrows():
+    for idx, (_, row) in enumerate(df_seg.iterrows()):
         t_s = _to_utc(row['start_time'])
         t_e = _to_utc(row['end_time'])
         _raw_kwh = row.get('delta_energy_kwh')
@@ -1317,17 +1416,40 @@ def _annotate_overlay_energy_delta(
         if np.isnan(kwh):
             continue
         mid_t = t_s + (t_e - t_s) / 2
-        ax.text(mid_t, y_pos, f'{label_prefix} {kwh:+.1f} kWh',
-                ha='center', va='top', fontsize=fontsize, color=color,
-                fontweight='bold', bbox=_TEXT_BBOX, zorder=9)
+        _t = ax.text(mid_t, y_pos, f'{label_prefix} {kwh:+.1f} kWh',
+                     ha='center', va='top', fontsize=fontsize, color=color,
+                     fontweight='bold', bbox=_TEXT_BBOX, zorder=9)
+        if seg_prefix and panel is not None:
+            _t.set_gid(f'{seg_prefix}{idx}|p{panel}|value')
 
 
-def _export_overlay_boxes(fig) -> list[dict]:
+def _parse_box_gid(gid):
+    """Decode a label ``gid`` of the form ``"<seg>|p<panel>|<role>"`` into the
+    ``(seg, panel, role)`` triple used by the interactive viewer.
+
+    Returns ``(None, None, None)`` for any artist without a recognised gid
+    (legacy / diesel labels, charger-meter session totals), which the viewer
+    treats as always-visible, non-segment annotations.
+    """
+    if not gid or '|' not in gid:
+        return None, None, None
+    parts = gid.split('|')
+    if len(parts) != 3:
+        return None, None, None
+    seg, panel_tok, role = parts
+    try:
+        panel = int(panel_tok.lstrip('p'))
+    except (TypeError, ValueError):
+        panel = None
+    return (seg or None), panel, (role or None)
+
+
+def _export_overlay_boxes(fig, soc_ax=None, seg_specs=None):
     """Collect **every** rounded-bbox data label across all panels and map each to
     figure-fraction coordinates (origin **top-left**, matching how an ``<img>`` is
-    laid out in HTML), returning a JSON-serialisable list. The collected text
-    artists are **removed from the figure** so they are *not* baked into the saved
-    PNG — they live only as the interactive HTML overlay.
+    laid out in HTML). The collected text artists are **removed from the figure**
+    so they are *not* baked into the saved PNG — they live only as the interactive
+    HTML overlay.
 
     Detection is structural and future-proof: it walks ``fig.axes`` (primary axes
     *and* their twins) and picks out the text artists that carry a background patch
@@ -1338,7 +1460,21 @@ def _export_overlay_boxes(fig) -> list[dict]:
 
     Each output box carries ``x`` / ``y`` in [0, 1] (fraction of the saved PNG,
     from the left / top edge respectively), the alignment (``ha`` / ``va``) so the
-    viewer can anchor the div, the multi-line ``text`` and the CSS ``color``.
+    viewer can anchor the div, the multi-line ``text``, the CSS ``color`` and —
+    when the artist was drawn with a ``set_gid`` tag (v2.2.6) — the owning
+    ``seg`` / ``role`` / ``panel`` so the viewer can group a segment's labels.
+
+    Return shape (v2.2.6):
+      * ``soc_ax is None and seg_specs is None`` → a **flat list** of boxes
+        (legacy behaviour; the diesel figure and any other caller stay
+        byte-compatible and render via the viewer's back-compat path).
+      * otherwise → a **dict** ``{"boxes": [...], "segments": [...],
+        "soc_axis": {...}}`` driving the hover redesign, where:
+          - ``segments`` is ``[{seg, x0, x1}]`` — each segment's figure-fraction
+            x-range (full-height hover hotzones), mapped through the SAME
+            transData→figure transform as the boxes;
+          - ``soc_axis`` is the SOC panel's ``{x0, y0, x1, y1}`` in figure
+            fraction, **top-left origin** — the anchor for the pinned info box.
 
     Must be called AFTER ``fig.canvas.draw()`` and with a layout that matches the
     saved-PNG extent (i.e. saved WITHOUT ``bbox_inches='tight'``), otherwise the
@@ -1363,6 +1499,7 @@ def _export_overlay_boxes(fig) -> list[dict]:
                 continue
             if not (np.isfinite(fx) and np.isfinite(fy)):
                 continue
+            seg, panel, role = _parse_box_gid(t.get_gid())
             out.append({
                 'x': round(float(fx), 5),
                 # Flip vertically: matplotlib figure fraction is bottom-up, but an
@@ -1372,10 +1509,52 @@ def _export_overlay_boxes(fig) -> list[dict]:
                 'va': t.get_va(),
                 'text': t.get_text(),
                 'color': mcolors.to_hex(t.get_color()),
+                'seg': seg,
+                'role': role,
+                'panel': panel,
             })
             # Strip from the PNG; the box now lives only as an HTML overlay div.
             t.remove()
-    return out
+
+    # Legacy / diesel callers (no extras) get the flat list unchanged.
+    if soc_ax is None and seg_specs is None:
+        return out
+
+    # ── New schema: segment hotzone x-ranges + SOC-panel anchor box ──────────
+    segments: list[dict] = []
+    if seg_specs:
+        for segid, t_s, t_e in seg_specs:
+            try:
+                x_s = soc_ax.transData.transform(
+                    (mdates.date2num(t_s), 0.0))[0]
+                x_e = soc_ax.transData.transform(
+                    (mdates.date2num(t_e), 0.0))[0]
+                fx0 = inv.transform((x_s, 0.0))[0]
+                fx1 = inv.transform((x_e, 0.0))[0]
+            except (TypeError, ValueError):
+                continue
+            if not (np.isfinite(fx0) and np.isfinite(fx1)):
+                continue
+            if fx1 < fx0:
+                fx0, fx1 = fx1, fx0
+            segments.append({
+                'seg': segid,
+                'x0': round(float(fx0), 5),
+                'x1': round(float(fx1), 5),
+            })
+
+    soc_axis = None
+    if soc_ax is not None:
+        pos = soc_ax.get_position()  # figure-fraction Bbox, bottom-up origin
+        soc_axis = {
+            'x0': round(float(pos.x0), 5),
+            'x1': round(float(pos.x1), 5),
+            # Flip to top-left origin: top edge = 1 - y1, bottom edge = 1 - y0.
+            'y0': round(float(1.0 - pos.y1), 5),
+            'y1': round(float(1.0 - pos.y0), 5),
+        }
+
+    return {'boxes': out, 'segments': segments, 'soc_axis': soc_axis}
 
 
 def cluster_mass_data(
@@ -1542,6 +1721,7 @@ def plot_leg_validation(
     logger_mass_df: pd.DataFrame | None = None,
     charger_meter_df: pd.DataFrame | None = None,
     mass_from_logger: bool = False,
+    mass_agg: str = 'mean',
     *,
     overlay_charge_segs: list[dict] | None = None,
     overlay_discharge_segs: list[dict] | None = None,
@@ -1625,9 +1805,11 @@ def plot_leg_validation(
     ax1.scatter(soc_rows[TIME_COL], soc_rows[SOC_COL],
                 color='#555555', s=6, alpha=0.6, zorder=2)
     if not df_d.empty:
-        _overlay(ax1, df_d, _DISCHARGE_COLOR, kwh_col='delta_energy_kwh')
+        _overlay(ax1, df_d, _DISCHARGE_COLOR, kwh_col='delta_energy_kwh',
+                 seg_prefix='d', panel=1)
     if not df_c.empty:
-        _overlay(ax1, df_c, _CHARGE_COLOR,    kwh_col='delta_energy_kwh')
+        _overlay(ax1, df_c, _CHARGE_COLOR,    kwh_col='delta_energy_kwh',
+                 seg_prefix='c', panel=1)
     # Overlay (finetuned) — 用不同色相 + 更深 alpha + 纵向错开 annotations
     if _has_overlay:
         if not df_od.empty:
@@ -1635,13 +1817,15 @@ def plot_leg_validation(
                      kwh_col='delta_energy_kwh',
                      span_alpha=0.40, line_alpha=0.95,
                      label_prefix=overlay_label_prefix,
-                     y_offset_frac=0.10, z_base=2)
+                     y_offset_frac=0.10, z_base=2,
+                     seg_prefix='od', panel=1)
         if not df_oc.empty:
             _overlay(ax1, df_oc, overlay_color_charge,
                      kwh_col='delta_energy_kwh',
                      span_alpha=0.40, line_alpha=0.95,
                      label_prefix=overlay_label_prefix,
-                     y_offset_frac=0.10, z_base=2)
+                     y_offset_frac=0.10, z_base=2,
+                     seg_prefix='oc', panel=1)
     # ── Panel 1 右轴：Speed ──────────────────────────────────────────────
     ax1_speed = ax1.twinx()
     _tele_speed_plotted = False
@@ -1699,7 +1883,7 @@ def plot_leg_validation(
         _overlay(ax2, df_d, _DISCHARGE_COLOR)
     if not df_c.empty:
         _overlay(ax2, df_c, _CHARGE_COLOR)
-        _mark_anchors_stored(ax2, df_c, _CHARGE_COLOR)
+        _mark_anchors_stored(ax2, df_c, _CHARGE_COLOR, seg_prefix='c', panel=2)
     if _has_overlay:
         if not df_od.empty:
             _overlay(ax2, df_od, overlay_color_discharge,
@@ -1716,11 +1900,13 @@ def plot_leg_validation(
                     ax2, df_oc, overlay_color_charge,
                     label_prefix=overlay_label_prefix,
                     y_offset_frac=0.05, z_base=6,
+                    seg_prefix='oc', panel=2,
                 )
             else:
                 _annotate_overlay_energy_delta(
                     ax2, df_oc, overlay_color_charge,
                     label_prefix=overlay_label_prefix, y_offset_frac=0.10,
+                    seg_prefix='oc', panel=2,
                 )
     ax2.set_ylabel('AC+DC Delta\n(kWh)', fontsize=_LABEL_FONT)
     ax2.set_ylim(bottom=0)
@@ -1764,7 +1950,7 @@ def plot_leg_validation(
                  label='Total Energy Used')
     if not df_d.empty:
         _overlay(ax3, df_d, _DISCHARGE_COLOR)
-        _mark_anchors_stored(ax3, df_d, _DISCHARGE_COLOR)
+        _mark_anchors_stored(ax3, df_d, _DISCHARGE_COLOR, seg_prefix='d', panel=3)
     if not df_c.empty:
         _overlay(ax3, df_c, _CHARGE_COLOR)
     if _has_overlay:
@@ -1779,11 +1965,13 @@ def plot_leg_validation(
                     ax3, df_od, overlay_color_discharge,
                     label_prefix=overlay_label_prefix,
                     y_offset_frac=0.05, z_base=6,
+                    seg_prefix='od', panel=3,
                 )
             else:
                 _annotate_overlay_energy_delta(
                     ax3, df_od, overlay_color_discharge,
                     label_prefix=overlay_label_prefix, y_offset_frac=0.10,
+                    seg_prefix='od', panel=3,
                 )
         if not df_oc.empty:
             _overlay(ax3, df_oc, overlay_color_charge,
@@ -1807,7 +1995,7 @@ def plot_leg_validation(
         if not df_d.empty and '_anchor_start_time' in df_d.columns:
             recup_idx = pd.DatetimeIndex(t_recup, tz='UTC')
             recup_s = pd.Series(v_recup, index=recup_idx)
-            for _, row in df_d.iterrows():
+            for _ridx, (_, row) in enumerate(df_d.iterrows()):
                 t_s_raw = row.get('_anchor_start_time')
                 t_e_raw = row.get('_anchor_end_time')
                 if t_s_raw is None or t_e_raw is None:
@@ -1829,10 +2017,13 @@ def plot_leg_validation(
                                      color=_RECUP_PLOT_COLOR, zorder=5,
                                      edgecolors='white', linewidths=1.0)
                         mid_t = t_s_a + (t_e_a - t_s_a) / 2
-                        ax3r.text(mid_t, re, f'{delta_recup:+.1f}kWh',
-                                  ha='center', va='bottom', fontsize=12,
-                                  color=_RECUP_PLOT_COLOR, fontweight='bold',
-                                  bbox=_TEXT_BBOX, zorder=8)
+                        _t = ax3r.text(mid_t, re, f'{delta_recup:+.1f}kWh',
+                                       ha='center', va='bottom', fontsize=12,
+                                       color=_RECUP_PLOT_COLOR, fontweight='bold',
+                                       bbox=_TEXT_BBOX, zorder=8)
+                        # recup delta belongs to the same discharge segment as the
+                        # Panel-3 anchor (shares the ``d{idx}`` id across panels).
+                        _t.set_gid(f'd{_ridx}|p3|value')
                 except (IndexError, KeyError):
                     pass
         # 统一左右 Y 轴刻度：以 Total Energy Used（左轴）的范围为主，
@@ -1878,42 +2069,70 @@ def plot_leg_validation(
         if not df_oc.empty:
             _overlay(ax4, df_oc, overlay_color_charge,
                      span_alpha=0.40, line_alpha=0.95, z_base=2)
-    # ── 每个分段的聚类平均质量（虚线 + 标注）──────────────────────────────────
+    # ── 每个分段的平均质量（虚线 + 标注）──────────────────────────────────────
+    # v2.2.6: the Panel-4 segment mass now uses the SAME filter + aggregation as
+    # the Excel "Vehicle Mass (kg)" column (report_builder._get_vehicle_mass):
+    # window -> valid (>0) -> moving-only (speed > MOVING_SPEED_THRESHOLD_KMH,
+    # falling back to all-valid when fewer than two moving samples), then `_agg_mass`
+    # by the resolved `mass_agg` method. This keeps the figure annotation consistent
+    # with the report value and, for vehicles configured with a robust method
+    # (median / iqr_median), drops a transient GCW spike. The old `mass_cluster`
+    # filter is no longer needed: the robust median already ignores a few
+    # tractor-only low readings.
+    def _telemetry_mass(t_s, t_e):
+        """Return the filtered positive (moving-preferred) telemetry mass Series
+        for a segment window, or ``None`` when fewer than two samples remain."""
+        if mass_col not in df_raw.columns:
+            return None
+        _times = pd.to_datetime(df_raw[TIME_COL], errors='coerce', utc=True)
+        _win = (_times >= t_s) & (_times <= t_e)
+        _vals = pd.to_numeric(df_raw.loc[_win, mass_col], errors='coerce')
+        _valid = _vals.notna() & (_vals > 0)
+        if speed_col in df_raw.columns:
+            _spd = pd.to_numeric(df_raw.loc[_win, speed_col], errors='coerce')
+            _moving = _valid & _spd.notna() & (_spd > MOVING_SPEED_THRESHOLD_KMH)
+            if _moving.sum() >= 2:
+                _valid = _moving
+        _sel = _vals[_valid]
+        return _sel if len(_sel) >= 2 else None
+
     _mean_mass_tele = False
     _mean_mass_logger = False
-    for _df_seg, _col in ((df_d, _DISCHARGE_COLOR), (df_c, _CHARGE_COLOR)):
-        for _, row in _df_seg.iterrows():
+    for _df_seg, _col, _seg_pfx in ((df_d, _DISCHARGE_COLOR, 'd'),
+                                    (df_c, _CHARGE_COLOR, 'c')):
+        for _midx, (_, row) in enumerate(_df_seg.iterrows()):
             t_s = _to_utc(row['start_time'])
             t_e = _to_utc(row['end_time'])
             _seg_mass = None
             _from_logger = False
-            # 优先使用遥测质量的聚类均值
-            if 'mass_cluster' in df_raw.columns and mass_col in df_raw.columns:
-                _times = pd.to_datetime(df_raw[TIME_COL], errors='coerce', utc=True)
-                _m_mask = (_times >= t_s) & (_times <= t_e) & df_raw['mass_cluster'].notna()
-                _m_vals = pd.to_numeric(df_raw.loc[_m_mask, mass_col], errors='coerce')
-                _m_vals = _m_vals[_m_vals.notna() & (_m_vals > 0)]
-                if not _m_vals.empty:
-                    _seg_mass = float(_m_vals.mean())
+            # 优先使用遥测质量（与 Excel 列同口径过滤 + mass_agg 聚合）
+            _sel = _telemetry_mass(t_s, t_e)
+            if _sel is not None:
+                _mkg, _ = _agg_mass(_sel, mass_agg)
+                if np.isfinite(_mkg):
+                    _seg_mass = float(_mkg)
                     _from_logger = mass_from_logger
-            # 回退：若聚类数据不可用，使用 Logger 质量均值
+            # 回退：若遥测质量不可用，使用 Logger CVW（同样 mass_agg 聚合）
             if _seg_mass is None and logger_mass_df is not None and not logger_mass_df.empty:
                 _log_slice = logger_mass_df.loc[t_s:t_e]
                 if not _log_slice.empty:
                     _log_vals = pd.to_numeric(_log_slice.iloc[:, 0], errors='coerce').dropna()
                     _log_vals = _log_vals[_log_vals > 0]
-                    if not _log_vals.empty:
-                        _seg_mass = float(_log_vals.mean())
-                        _from_logger = True
+                    if len(_log_vals) >= 2:
+                        _mkg, _ = _agg_mass(_log_vals, mass_agg)
+                        if np.isfinite(_mkg):
+                            _seg_mass = float(_mkg)
+                            _from_logger = True
             if _seg_mass is not None:
                 _ls = ':' if _from_logger else '--'
                 ax4.plot([t_s, t_e], [_seg_mass, _seg_mass],
                          color=_col, lw=4.0, linestyle=_ls, alpha=0.9, zorder=5)
-                ax4.text(t_s + (t_e - t_s) / 2, _seg_mass,
-                         f' {_seg_mass / 1000:.1f} t',
-                         ha='center', va='bottom', fontsize=14,
-                         color=_col, fontweight='bold',
-                         bbox=_TEXT_BBOX, zorder=8)
+                _t = ax4.text(t_s + (t_e - t_s) / 2, _seg_mass,
+                              f' {_seg_mass / 1000:.1f} t',
+                              ha='center', va='bottom', fontsize=14,
+                              color=_col, fontweight='bold',
+                              bbox=_TEXT_BBOX, zorder=8)
+                _t.set_gid(f'{_seg_pfx}{_midx}|p4|value')
                 if _from_logger:
                     _mean_mass_logger = True
                 else:
@@ -1928,25 +2147,21 @@ def plot_leg_validation(
         _y4_span = _y4_lim[1] - _y4_lim[0] if _y4_lim[1] > _y4_lim[0] else 10000.0
         _y4_line_shift = 0.03 * _y4_span   # 线向上抬 ~3% 避免盖住 base
         _y4_text_shift = 0.08 * _y4_span   # 文字再抬 ~5% 避免压到原始 t 标注
-        for _df_ov, _ov_col in ((df_od, overlay_color_discharge),
-                                 (df_oc, overlay_color_charge)):
+        for _df_ov, _ov_col, _ov_pfx in ((df_od, overlay_color_discharge, 'od'),
+                                         (df_oc, overlay_color_charge, 'oc')):
             if _df_ov is None or _df_ov.empty:
                 continue
-            for _, row in _df_ov.iterrows():
+            for _midx, (_, row) in enumerate(_df_ov.iterrows()):
                 t_s = _to_utc(row['start_time'])
                 t_e = _to_utc(row['end_time'])
                 _seg_mass = None
                 _from_logger = False
-                if 'mass_cluster' in df_raw.columns and mass_col in df_raw.columns:
-                    _times = pd.to_datetime(df_raw[TIME_COL],
-                                             errors='coerce', utc=True)
-                    _m_mask = ((_times >= t_s) & (_times <= t_e)
-                               & df_raw['mass_cluster'].notna())
-                    _m_vals = pd.to_numeric(df_raw.loc[_m_mask, mass_col],
-                                             errors='coerce')
-                    _m_vals = _m_vals[_m_vals.notna() & (_m_vals > 0)]
-                    if not _m_vals.empty:
-                        _seg_mass = float(_m_vals.mean())
+                # 与 base 段同口径：window -> valid -> moving -> mass_agg 聚合
+                _sel = _telemetry_mass(t_s, t_e)
+                if _sel is not None:
+                    _mkg, _ = _agg_mass(_sel, mass_agg)
+                    if np.isfinite(_mkg):
+                        _seg_mass = float(_mkg)
                         _from_logger = mass_from_logger
                 if (_seg_mass is None and logger_mass_df is not None
                         and not logger_mass_df.empty):
@@ -1955,9 +2170,11 @@ def plot_leg_validation(
                         _log_vals = pd.to_numeric(
                             _log_slice.iloc[:, 0], errors='coerce').dropna()
                         _log_vals = _log_vals[_log_vals > 0]
-                        if not _log_vals.empty:
-                            _seg_mass = float(_log_vals.mean())
-                            _from_logger = True
+                        if len(_log_vals) >= 2:
+                            _mkg, _ = _agg_mass(_log_vals, mass_agg)
+                            if np.isfinite(_mkg):
+                                _seg_mass = float(_mkg)
+                                _from_logger = True
                 if _seg_mass is None:
                     continue
                 _ls = ':' if _from_logger else '--'
@@ -1968,11 +2185,12 @@ def plot_leg_validation(
                          alpha=0.9, zorder=6)
                 # 文字位置比线再高一点，避免覆盖原始段的 t 标注
                 _label_y = min(_seg_mass + _y4_text_shift, _y4_lim[1])
-                ax4.text(t_s + (t_e - t_s) / 2, _label_y,
-                         f'{overlay_label_prefix} {_seg_mass / 1000:.1f} t',
-                         ha='center', va='bottom', fontsize=12.0,
-                         color=_ov_col, fontweight='bold',
-                         bbox=_TEXT_BBOX, zorder=9)
+                _t = ax4.text(t_s + (t_e - t_s) / 2, _label_y,
+                              f'{overlay_label_prefix} {_seg_mass / 1000:.1f} t',
+                              ha='center', va='bottom', fontsize=12.0,
+                              color=_ov_col, fontweight='bold',
+                              bbox=_TEXT_BBOX, zorder=9)
+                _t.set_gid(f'{_ov_pfx}{_midx}|p4|value')
     ax4.set_ylabel('Vehicle Mass\n(kg)', fontsize=_LABEL_FONT)
     ax4.set_ylim(0, 50000)
     ax4.set_yticks(range(0, 50001, 10000))
@@ -2031,12 +2249,27 @@ def plot_leg_validation(
         # the final, laid-out axes positions, then collect + strip all bbox data
         # labels before saving so they are externalised rather than baked in.
         fig.canvas.draw()
-        boxes = _export_overlay_boxes(fig)
+        # v2.2.6: build the per-segment hotzone specs (id + time range) so the
+        # exporter can map each segment to a figure-fraction x-range. The ids match
+        # the ``set_gid`` tags on every panel's labels (``d``/``c`` base, ``od``/``oc``
+        # overlay), so one hover reveals a segment's labels across all panels.
+        seg_specs = []
+        for _sd, _spfx in ((df_d, 'd'), (df_c, 'c'), (df_od, 'od'), (df_oc, 'oc')):
+            if _sd is None or _sd.empty:
+                continue
+            for _i, (_, _r) in enumerate(_sd.iterrows()):
+                try:
+                    seg_specs.append((f'{_spfx}{_i}',
+                                      _to_utc(_r['start_time']),
+                                      _to_utc(_r['end_time'])))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        result = _export_overlay_boxes(fig, soc_ax=ax1, seg_specs=seg_specs)
         plt.savefig(out_path, dpi=_DPI)
         sidecar = out_path.with_suffix('.boxes.json')
-        if boxes:
+        if result['boxes']:
             with open(sidecar, 'w', encoding='utf-8') as fh:
-                _json.dump(boxes, fh, ensure_ascii=False)
+                _json.dump(result, fh, ensure_ascii=False)
         elif sidecar.exists():
             # Stale sidecar from a previous run with labels → remove it so the
             # viewer does not overlay boxes onto a now-empty figure.
@@ -2105,8 +2338,16 @@ def _detect_cluster_transitions(
     """
     在 [t_start, t_end] 时间窗口内检测 mass_cluster 标签变化点。
 
-    当相邻有效质量读数的 mass_cluster 不同时，视为装卸货事件，
+    当相邻**行驶中**质量读数的 mass_cluster 不同时，视为装卸货事件，
     在该时间点处拆分放电段。
+
+    行驶读数限定（v2.2.5）
+    --------------------
+    切换点检测只扫描 ``mass_moving == True`` 的行：静止时的 J1939 GCVW 广播
+    不可靠，若纳入会在停车点制造假切点（碎段被 ``min_soc_drop`` 丢弃 → trip
+    丢失一段），或模糊真实的行驶质量变化。与 ``cluster_mass_data`` 的均值只用
+    行驶读数（v2.2.4）、``_get_seg_dominant_cluster`` 的行驶优先投票一致。
+    ``mass_moving`` 列缺失时（旧数据 / 旧调用路径）退回全部有效读数。
 
     可选的零速窗口过滤
     ------------------
@@ -2123,6 +2364,18 @@ def _detect_cluster_transitions(
     t_e = _to_utc(t_end)
     times = pd.to_datetime(df_raw[TIME_COL], errors='coerce', utc=True)
     mask = (times >= t_s) & (times <= t_e) & df_raw['mass_cluster'].notna()
+    # Scan only the "moving" (mass_moving == True) mass readings when detecting
+    # cluster-transition split points. A standstill J1939 GCVW broadcast is
+    # unreliable (loading/unloading transients, default/last-held values), so a
+    # stationary row assigned to a neighbouring cluster would otherwise either
+    # (a) fabricate a spurious split at a stop — yielding a tiny sub-segment that
+    # gets dropped by min_soc_drop, so a chunk of the trip goes missing — or
+    # (b) blur a genuine moving-mass change. This mirrors cluster_mass_data's
+    # moving-only cluster means (v2.2.4) and _get_seg_dominant_cluster's
+    # moving-first voting. If mass_moving is absent (legacy data / call path),
+    # fall back to the historical all-valid-readings behaviour.
+    if 'mass_moving' in df_raw.columns:
+        mask = mask & df_raw['mass_moving'].astype(bool)
     sub = df_raw.loc[mask, [TIME_COL, 'mass_cluster']].copy()
     sub[TIME_COL] = times[mask]
     sub = sub.sort_values(TIME_COL).reset_index(drop=True)
@@ -2590,6 +2843,98 @@ def merge_discharge_by_mass(
 
 
 # =============================================================================
+# 锚点非重叠强制（修正稀疏累计计数器导致的相邻段能量重复计入）
+# =============================================================================
+
+def _enforce_anchor_ordering(discharge_segs: list[dict], reg: str = '') -> int:
+    """强制相邻放电段的能量锚点不重叠（前段 anchor_end <= 后段 anchor_start）。
+
+    背景
+    ----
+    speed 分支中每个 trip 的能量用 ``_nearest_before(total_energy, trip_start)``
+    → ``_nearest_after(total_energy, trip_end)`` 计算。``total_energy`` 是稀疏读数的
+    累计计数器：若某 trip 结束后到下一个 trip 之间没有计数器读数，
+    ``_nearest_after(trip_end)`` 会跳到「下一个 trip 期间/之后」的读数，使本段能量
+    重复计入下一段的能量，并造成 ``anchor_end(i) > anchor_start(i+1)`` 的时间重叠
+    → ``delta_energy_kwh`` / ``effective_capacity_kwh`` / EP 被高估。
+
+    本后处理在 ``merge_discharge_by_mass`` + ``_recompute_anchors`` 之后、对**最终**
+    放电段运行：把重叠的前段 ``_anchor_end_time`` 钳到后段 ``_anchor_start_time``，
+    并据已是 kWh 的锚点相对值重算 ``delta_energy_kwh`` 与 ``effective_capacity_kwh``。
+    仅修改实际存在重叠的段（稀疏计数器场景）；计数器在间隔内有读数时无重叠 →
+    不改动。
+
+    锚点相对值与能量的关系（见 find_discharge_segments_by_speed）：
+        delta_energy_kwh = -(anchor_end_rel_kwh - anchor_start_rel_kwh)
+    （二者皆相对腿起点归零、单位 kWh；放电为负）。
+
+    原地修改 ``discharge_segs`` 内的段字典；返回被钳位的段数（供 regen 日志统计）。
+    """
+    if not discharge_segs or len(discharge_segs) < 2:
+        return 0
+
+    # 1. 防御性按 start_time 排序（仅用于确定相邻关系；段字典为共享引用，
+    #    原地修改会传回 discharge_segs，不改变调用方列表的原有顺序）。
+    segs = sorted(discharge_segs, key=lambda s: _to_utc(s['start_time']))
+
+    def _usable_anchor(s: dict) -> bool:
+        # soc_estimate 段没有真实计数器锚点（rel 为 NaN）→ 跳过
+        if s.get('energy_source') == 'soc_estimate':
+            return False
+        if s.get('_anchor_start_time') is None or s.get('_anchor_end_time') is None:
+            return False
+        a_sv = s.get('_anchor_start_rel_kwh', float('nan'))
+        a_ev = s.get('_anchor_end_rel_kwh', float('nan'))
+        try:
+            return bool(np.isfinite(a_sv) and np.isfinite(a_ev))
+        except (TypeError, ValueError):
+            return False
+
+    n_clamped = 0
+    for k in range(len(segs) - 1):
+        cur = segs[k]
+        nxt = segs[k + 1]
+        if not (_usable_anchor(cur) and _usable_anchor(nxt)):
+            continue
+
+        cur_end   = _to_utc(cur['_anchor_end_time'])
+        nxt_start = _to_utc(nxt['_anchor_start_time'])
+        if cur_end <= nxt_start:
+            continue  # 无重叠 → 不动（计数器在间隔内有读数的正常情形）
+
+        # 重叠 → 把前段 anchor_end 钳到后段 anchor_start，并据锚点相对值重算能量
+        new_end_rel = nxt['_anchor_start_rel_kwh']
+        new_delta   = -(new_end_rel - cur['_anchor_start_rel_kwh'])
+        if not (new_delta < 0):
+            # 钳位后不再是有效放电（锚点塌缩 / 病态）→ 保持原段不变，仅告警
+            logger.warning(
+                '[%s] anchor overlap clamp skipped (would collapse to '
+                'non-discharge): cur trip start=%s, anchor_end %s > next '
+                'anchor_start %s, new_delta=%.3f',
+                reg, cur.get('start_time'), cur_end, nxt_start, new_delta,
+            )
+            continue
+
+        cur['_anchor_end_time']    = nxt['_anchor_start_time']
+        cur['_anchor_end_rel_kwh'] = new_end_rel
+        cur['delta_energy_kwh']    = round(new_delta, 3)
+        dsoc_abs = abs(cur.get('delta_soc_pct') or 0.0)
+        if dsoc_abs > 0:
+            cur['effective_capacity_kwh'] = round(
+                abs(new_delta) / (dsoc_abs / 100.0), 1
+            )
+        n_clamped += 1
+        logger.info(
+            '[%s] anchor overlap clamped: cur trip start=%s, anchor_end %s → %s '
+            '(next anchor_start); delta_energy_kwh=%s, eff_cap=%s',
+            reg, cur.get('start_time'), cur_end, nxt_start,
+            cur['delta_energy_kwh'], cur.get('effective_capacity_kwh'),
+        )
+
+    return n_clamped
+
+
+# =============================================================================
 # 封装函数：同时运行充放电分段 + 可选生成验证图
 # =============================================================================
 def run_segment_detection(
@@ -2697,6 +3042,15 @@ def run_segment_detection(
         _speed_col = cfg.get('speed_col', 'wheel_based_speed')
         speed_p = dict(_pipeline_cfg.get('speed_params', {}))
         speed_p['speed_col'] = _speed_col
+        # Per-vehicle min_stop_duration_min override (vehicles.json): defaults to
+        # the pipeline speed_params value; a vehicle that needs a wider
+        # stop-bridge gap (e.g. TA70WTL's ~7-min pickup/drop pauses that should
+        # not split a single round) can raise it without touching the shared
+        # pipeline value (renault_speed also serves N88GNW / T88RNW). Only
+        # vehicles that set the key are affected.
+        _min_stop_override = cfg.get('min_stop_duration_min')
+        if _min_stop_override is not None:
+            speed_p['min_stop_duration_min'] = float(_min_stop_override)
         # 从车辆配置传递能量列和容量参数
         speed_p['total_energy_col'] = _tot_col
         speed_p['moving_energy_col'] = _mov_col
@@ -2706,17 +3060,23 @@ def run_segment_detection(
             speed_p.setdefault('cap_lo', cap_lo)
         if cap_hi:
             speed_p.setdefault('cap_hi', cap_hi)
-        # Trip 端点锚定策略（pipeline 顶层字段；默认 first_motion 保持向后兼容）
+        # Trip 端点锚定策略（pipeline 顶层字段）。v2.2.5 起 zero_speed 成为
+        # 全车队默认；pipeline 可显式设 trip_endpoint_anchor: "first_motion" 退回旧行为。
         # zero_speed 模式见 find_speed_trips() docstring。
-        _anchor = _pipeline_cfg.get('trip_endpoint_anchor', 'first_motion')
+        _anchor = _pipeline_cfg.get('trip_endpoint_anchor', 'zero_speed')
         _max_ext = float(_pipeline_cfg.get('max_extend_minutes', 5.0))
         speed_p['trip_endpoint_anchor'] = _anchor
         speed_p['max_extend_minutes']   = _max_ext
-        # 若遥测数据中无速度列，用 Logger 速度直接检测行程窗口
+        # 遥测速度不可用、或车辆配置 prefer_logger_speed 时，用 Logger 速度检测行程窗口。
+        # prefer_logger_speed: telematics speed 存在但不可靠（如 YN25RSY 几乎全零、仅零星
+        # 噪声，.any() 会误判为可用）→ 显式强制走可靠的 Logger 速度（与 diesel logger 范式
+        # 一致），避免落到 SOC 兜底切出跟随 SOC 下降的巨段。
+        _prefer_logger = bool(cfg.get('prefer_logger_speed', False))
         _has_tele_speed = (_speed_col in df_raw.columns and
                            pd.to_numeric(df_raw[_speed_col], errors='coerce')
                            .pipe(lambda s: s.notna() & (s > 0)).any())
-        if not _has_tele_speed and logger_speed_df is not None and not logger_speed_df.empty:
+        if (_prefer_logger or not _has_tele_speed) and \
+                logger_speed_df is not None and not logger_speed_df.empty:
             # 从 Logger 速度 DataFrame 构建行程检测用的 DataFrame
             _logger_spd_df = pd.DataFrame({
                 TIME_COL: logger_speed_df.index,
@@ -2732,7 +3092,10 @@ def run_segment_detection(
                 max_extend_minutes=_max_ext,
             )
             speed_p['trips'] = _logger_trips
-            logger.info('  速度数据: 遥测速度不可用，回退使用 Logger Speed'
+            _logger_reason = ('使用 Logger Speed（prefer_logger_speed）'
+                              if _prefer_logger else
+                              '遥测速度不可用，回退使用 Logger Speed')
+            logger.info(f'  速度数据: {_logger_reason}'
                         f' (检测到 {len(_logger_trips)} 个行程)')
         discharge_segs = find_discharge_segments_by_speed(df_raw, **speed_p)
         # Fallback：若速度分段无结果，回退到 SOC-based
@@ -2796,7 +3159,10 @@ def run_segment_detection(
         # 2. 在聚类标签变化处拆分放电段（装卸货事件）
         #    方案 B：切点附近 ±W/2 必须存在 v=0 样本，否则视为 CVW 噪声尖刺。
         #    W 沿用速度参数 min_stop_duration_min（与 zero_speed anchor 一致）。
-        _min_stop_min = float(_speed_p_top.get('min_stop_duration_min', 5.0))
+        # Honour the per-vehicle min_stop_duration_min override here too, so the
+        # zero-speed split window stays coherent with the trip-detection gap.
+        _min_stop_min = float(cfg.get('min_stop_duration_min',
+                                      _speed_p_top.get('min_stop_duration_min', 5.0)))
         _split_window_s = _min_stop_min * 60.0
         discharge_segs = split_discharge_by_mass(
             discharge_segs, df_raw,
@@ -2807,7 +3173,14 @@ def run_segment_detection(
         #    pipeline 顶层 `merge_by_mass: false` 可关闭此合并（保留 split）。
         #    用例：scania_speed_00 / scania_speed_01 / volvo_speed_03 等同质量
         #    cluster 整日不变的车辆，merge 会把所有 trip 合并成单段长 In Transit。
-        if _pipeline_cfg.get('merge_by_mass', True):
+        #    Per-vehicle override (vehicles.json `merge_by_mass`) wins over the
+        #    pipeline flag; both default to True. This lets a single vehicle on a
+        #    shared pipeline (e.g. TA70WTL on renault_speed) disable the merge
+        #    without affecting its pipeline siblings (N88GNW / T88RNW stay merge-ON).
+        _merge_by_mass = cfg.get(
+            'merge_by_mass', _pipeline_cfg.get('merge_by_mass', True)
+        )
+        if _merge_by_mass:
             # 长时间静止切分（opt-in）：vehicles.json 的 split_long_stops_min
             # （分钟）启用。仅配置了该键的车辆（目前 Nestlé: EV73SAL / YK73WFN）
             # 受影响；其它车 cfg.get(...) 为 None → merge 行为逐字不变。
@@ -2819,6 +3192,14 @@ def run_segment_detection(
             )
         # 4. 重新计算拆分后缺失的能量锚点（用于验证图标注）
         _recompute_anchors(discharge_segs, df_raw, _tot_col, _mov_col)
+
+    # ── 锚点非重叠强制 ────────────────────────────────────────────────────
+    # 对最终放电段（已经过 split / merge / _recompute_anchors）运行：把因稀疏累计
+    # 计数器导致的相邻段能量重复计入（anchor_end(i) > anchor_start(i+1)）钳正。
+    # 置于 split_by_mass 块之外、验证图之前 → speed / soc 两分支的最终段都覆盖。
+    _n_clamped = _enforce_anchor_ordering(discharge_segs, reg)
+    if _n_clamped:
+        logger.info('  锚点重叠修正: %d 段已钳位（%s %s）', _n_clamped, reg, suffix)
 
     if generate_validation_fig and out_dir is not None and _HAS_MPL:
         # Panel 3 列：优先使用 total_energy_col（若放电段实际使用了它）
@@ -2836,6 +3217,7 @@ def run_segment_detection(
         out_path = val_dir / f'validation_{reg}_{suffix}.png'
         _mass_col = cfg.get('mass_col', MASS_COL)
         _speed_col = cfg.get('speed_col', 'wheel_based_speed')
+        _mass_agg = resolve_mass_agg(reg, _pipeline_cfg)
         plot_leg_validation(
             df_raw, charge_segs, discharge_segs,
             reg, suffix, out_path,
@@ -2845,6 +3227,7 @@ def run_segment_detection(
             logger_mass_df=logger_mass_df,
             charger_meter_df=charger_meter_df,
             mass_from_logger=_mass_from_logger,
+            mass_agg=_mass_agg,
             export_dsoc_overlay=export_dsoc_overlay,
         )
 

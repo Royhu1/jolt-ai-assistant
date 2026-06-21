@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jolt-toolkit"
-version = "2.2.5"
+version = "2.2.6"
 description = "JOLT EV telematics toolkit — report generation, plotting, and parameter identification"
 requires-python = ">=3.10"
 dependencies = [
