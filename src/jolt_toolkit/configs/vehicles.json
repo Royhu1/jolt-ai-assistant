@@ -170,7 +170,7 @@
     "srf_reg": "EX74 JXW",
     "nominal_kwh": 475,
     "srf_capacity_kwh": 518,
-    "effective_capacity_kwh": 488.2,
+    "effective_capacity_kwh": 475.6,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
