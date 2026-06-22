@@ -46,7 +46,11 @@ from jolt_toolkit.report_generator.segment_algorithms import (
     SOC_COL,
     TIME_COL,
 )
-from jolt_toolkit.report_generator.report_builder import _write_html_viewer
+from jolt_toolkit.report_generator.report_builder import (
+    _write_html_viewer,
+    _group_paths_by_date,
+    _clear_day_validation_figures,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -194,34 +198,39 @@ class ValidationGenerator:
                 reg_srf, span_ds, span_de
             )
 
-        # 2. 遍历 raw CSV，重新运行分段 + 生成验证图（带 Logger 叠加）
+        # 2. 一日一图：把同一天的所有 raw leg CSV 归并、拼成单个 DataFrame，分段后
+        #    每天画一张覆盖整个 UTC 日的验证图（带 Logger 叠加 + overlay sidecar）。
+        #    电车 raw_telematics 同样按 leg 落盘（raw_<date>_<idx>.csv），多 leg 日会
+        #    被合并成一项，与柴油的「一天一项」保持一致。开画前先清掉历史 per-leg 图
+        #    + sidecar（保留 *_finetuned.*），避免新旧命名在 inspect 侧栏并存。
+        by_date = _group_paths_by_date(raw_csvs, re.compile(r"raw_(\d{4}-\d{2}-\d{2})"))
+        n_removed = _clear_day_validation_figures(
+            report_dir / "validation_figures", reg
+        )
+        if n_removed:
+            logger.info("  清理历史 per-leg validation 图 + sidecar: %d 个文件", n_removed)
+
         fig_count = 0
-        for csv_path in raw_csvs:
-            # 从文件名解析 suffix: raw_2025-10-20_0000.csv
-            fname_m = re.match(r"raw_(.+)\.csv$", csv_path.name)
-            if not fname_m:
-                continue
-            suffix = fname_m.group(1)
-
-            df_leg = pd.read_csv(csv_path, dtype=str)
-            if df_leg.empty or SOC_COL not in df_leg.columns:
+        for day, day_csvs in by_date.items():
+            df_day = self._concat_day_raw(day_csvs)
+            if df_day is None or df_day.empty:
                 continue
 
-            # 切片 Logger 数据到当前 leg 时间窗口
-            leg_logger_spd = self._slice_logger_data(df_leg, logger_speed_all)
-            leg_logger_mass = self._slice_logger_data(df_leg, logger_mass_all)
+            # 切片 Logger 数据到当天时间窗口
+            day_logger_spd = self._slice_logger_data(df_day, logger_speed_all)
+            day_logger_mass = self._slice_logger_data(df_day, logger_mass_all)
 
             run_segment_detection(
-                df_leg,
+                df_day,
                 reg=reg,
-                suffix=suffix,
+                suffix=day,
                 out_dir=str(report_dir),
                 generate_validation_fig=True,
                 cap_lo=cap_lo,
                 cap_hi=cap_hi,
-                logger_speed_df=leg_logger_spd,
-                logger_mass_df=leg_logger_mass,
-                # Externalise Panel-1 dSOC boxes → sidecar JSON for the inspect
+                logger_speed_df=day_logger_spd,
+                logger_mass_df=day_logger_mass,
+                # Externalise every panel's data label → sidecar JSON for the inspect
                 # HTML's interactive hover overlay (the PNG no longer bakes them).
                 export_dsoc_overlay=True,
             )
@@ -463,6 +472,41 @@ class ValidationGenerator:
             df.index = df.index.tz_convert("UTC")
         logger.info("  Logger %s 数据: %d 条", label, len(df))
         return df
+
+    @staticmethod
+    def _concat_day_raw(csv_paths: list[Path]) -> pd.DataFrame | None:
+        """把同一天的多个 per-leg raw_telematics CSV 拼成单个按时间排序的 DataFrame。
+
+        一日一图（v2.2.6）：电车 raw_telematics 按 leg 落盘（``raw_<date>_<idx>.csv``），
+        一天可能有多条 leg。本函数把当天每条 leg CSV（``dtype=str``，与 ``--debug`` 落盘
+        一致）按行堆叠（axis=0），按 ``TIME_COL`` 升序排序、去重边界重复时间戳后，交给
+        ``run_segment_detection`` 跑一次分段、出一张覆盖整日的图。只保留含 SOC 列的非空
+        leg；单 leg 日等价于旧 per-leg 行为（concat / sort / dedup 均为 no-op）。全天无
+        可用 leg 时返回 None。
+        """
+        frames: list[pd.DataFrame] = []
+        for p in csv_paths:
+            try:
+                df = pd.read_csv(p, dtype=str)
+            except Exception:
+                continue
+            if df.empty or SOC_COL not in df.columns:
+                continue
+            frames.append(df)
+        if not frames:
+            return None
+        df_all = pd.concat(frames, axis=0, ignore_index=True, sort=False)
+        if TIME_COL in df_all.columns:
+            _t = pd.to_datetime(df_all[TIME_COL], errors="coerce", utc=True)
+            df_all = (
+                df_all.assign(_t=_t)
+                .dropna(subset=["_t"])
+                .sort_values("_t")
+                .drop_duplicates(subset="_t", keep="first")
+                .drop(columns="_t")
+                .reset_index(drop=True)
+            )
+        return df_all if not df_all.empty else None
 
     @staticmethod
     def _slice_logger_data(

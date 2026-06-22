@@ -35,8 +35,8 @@ python .claude/skills/generate-excel-report/generate_report.py -veh KY24LHT -ds 
 
 In addition to the Excel report, it also outputs:
 - `raw_telematics/` — raw CSV data for each FPS leg
-- `validation_figures/` — a 4-panel validation figure per leg (SOC, AC+DC energy, discharge energy, vehicle mass)
-- `inspect_*.html` — an HTML viewer for browsing the validation figures interactively
+- `validation_figures/` — a 4-panel validation figure (SOC/speed, AC+DC energy, discharge energy, vehicle mass). The `--debug` live path writes one figure per leg, but the **canonical** figures are re-painted **one per calendar day** by the overlay-regenerate path (`ValidationGenerator.regenerate` for EV / `regenerate_diesel_validation` for diesel; see §Validation figures), which groups a day's per-leg raw CSVs, segments the concatenated day, and spans the full UTC day (00:00→24:00) with **all** that day's trip/charge bands on one figure.
+- `inspect_*.html` — an HTML viewer for browsing the validation figures interactively (one sidebar entry per day)
 
 #### Fast mode
 
@@ -107,7 +107,7 @@ src/jolt_toolkit/
 │   ├── logger_patcher.py          # Logger data patching
 │   ├── weather_patcher.py         # OpenWeather API weather patching (coarse: origin/dest 2-point average)
 │   ├── weather_patch.py           # unified weather-patch entry point — default coarse, fine opt-in (patch_weather + CLI)
-│   ├── validation_generator.py    # Debug validation figure generation
+│   ├── validation_generator.py    # EV overlay-regenerate path: re-paint validation figures + inspect HTML from raw_telematics CSVs. v2.2.6: groups a day's per-leg raw CSVs → ONE figure per calendar day (`_concat_day_raw`); diesel routes to `diesel_pipeline.regenerate_diesel_validation`
 │   ├── rerender_inspect.py        # standalone CLI: re-render inspect_*.html from existing figures + .boxes.json sidecars (no figure regen); drives the current v2.2.6 viewer; skips *_finetuned
 │   ├── data_dashboard.py          # data-availability dashboard generator (v2.2.3): scans the report DB → self-contained 3-panel interactive data_dashboard.html (+ optional --details drill-down)
 │   ├── data_dashboard_detail.py   # per-vehicle drill-down detail page (detail_<REG>.html): offline uPlot day-by-day channel viewer with event bands/markers + dashed per-event mean-mass line (report's mass_agg)
@@ -739,6 +739,30 @@ Each segment is annotated with: dSOC, delta energy (kWh), effective capacity (kW
 > vehicles whose sidecars have not yet been re-painted. Only EV figures regenerated
 > under v2.2.6+ carry the dict schema; the finetune comparison path bakes labels
 > (no sidecar) and is unaffected.
+
+> **v2.2.6 one figure per calendar day (regenerate paths)**: SRF-logger diesel
+> vehicles (WU70GLV, YT21EFD) split a single day into dozens of short logger legs,
+> so the old one-figure-per-leg behaviour fragmented a day into dozens of figures /
+> inspect-sidebar entries (`2025-09-01_0000`, `_0002`, `_0004`, …). Both
+> overlay-regenerate paths now **group the per-leg raw CSVs by `<date>`** (shared
+> `report_builder._group_paths_by_date`), concatenate each day's legs into one
+> DataFrame, run segmentation on the day, and paint **one figure per calendar day**
+> named `validation_<REG>_<date>.png` (no `_<NNNN>` suffix) spanning the full UTC
+> day with **all** that day's trip/charge bands. EV uses
+> `ValidationGenerator._concat_day_raw` (row-stack the `dtype=str` telematics CSVs,
+> sort + de-dup by `TIME_COL`); diesel uses `diesel_pipeline._logger_day_df_from_csvs`
+> (row-stack logger CSVs → `_finalise_logger_df`; cumulative LFC/VDHR counters stay
+> monotonic across legs so per-trip deltas remain correct). The `.boxes.json`
+> sidecar + inspect sidebar then have **one entry per day**. Before re-painting,
+> `report_builder._clear_day_validation_figures` deletes the stale non-finetuned
+> `validation_<REG>_*.{png,boxes.json,dsoc.json}` so the legacy per-leg fragments do
+> not coexist with the consolidated day figures (`*_finetuned.*` are preserved).
+> `_write_html_viewer` / `scripts/refresh_inspect_html.py` accept both names (date
+> token followed by `.` *or* `_`). Day-level segmentation matches the per-leg xlsx
+> In-Transit row count near-exactly (±1 at leg boundaries, where a continuous trip
+> straddling two logger legs is merged into one). Empirically, WU70GLV collapses
+> 717 per-leg figures → 84 per-day figures; the live `--debug` path still emits
+> transient per-leg figures (cleared on the next regenerate).
 
 **Diesel** (`diesel_pipeline.py::plot_diesel_leg_validation`):
 

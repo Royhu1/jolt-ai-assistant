@@ -1214,7 +1214,7 @@ def main():
             f"Each extra tonne of load adds ~{gvm_slope:.2f} kWh/km.")
     conclusion_points.append(
         f"Temperature (laden trips, {laden_gmin:.0f}–{laden_gmax:.0f} t): energy performance changes "
-        f"~{abs(t_per10):.2f} kWh/km per 10 °C colder (R²={t_r2:.2f}) — {temp_sens}.")
+        f"~{abs(t_per10):.2f} kWh/km per 10 °C colder — {temp_sens}.")
 
     # page-1 summary: concise plain-English takeaways for partners. Kept to a high-level overview
     # + charging behaviour + a data-availability note; the load/range/temperature detail lives on
@@ -1284,10 +1284,7 @@ def main():
     else:
         operator_disp, reg_disp = operator, args.reg
         analysis_sub = f"{operator} · {args.reg} · {vehicle_model}"
-        src_note = " · subset to window" if covering_src else ""
-        source_ops = (f"Source: JOLT telematics pipeline · "
-                      f"excel_report_database/{args.version} · {fname}{src_note}")
-        source_analysis = f"Source: JOLT telematics pipeline (excel_report_database/{args.version})"
+        source_ops = source_analysis = ""  # source footers removed per user request (2026-06-22)
 
     def f(v, d=0, suf=""):
         return "—" if pd.isna(v) else f"{v:,.{d}f}{suf}"

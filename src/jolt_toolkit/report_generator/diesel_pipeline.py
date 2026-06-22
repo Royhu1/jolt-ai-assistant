@@ -50,6 +50,8 @@ from jolt_toolkit.report_generator.report_builder import (
     _point_str,
     _get_postcode,
     _write_html_viewer,
+    _group_paths_by_date,
+    _clear_day_validation_figures,
 )
 from jolt_toolkit.report_generator.operators import derive_leg_operator
 
@@ -240,6 +242,39 @@ def _logger_df_from_csv(csv_path: Path, cfg: dict) -> pd.DataFrame | None:
     if df.empty:
         return None
     return _finalise_logger_df(df, cfg, source=csv_path.name)
+
+
+def _logger_day_df_from_csvs(
+    csv_paths: list[Path], cfg: dict
+) -> pd.DataFrame | None:
+    """
+    把同一个日历日的多个 per-leg ``logger_<date>_<idx>.csv`` 合并成单个 DataFrame。
+
+    一日一图（v2.2.6）：柴油 logger 一天往往切成几十条短 leg，每条单独出图会把一天
+    碎成几十张。本函数把某天的所有 leg CSV 读出后按行（axis=0，各 leg 覆盖同一组通道
+    的不相交时间窗）堆叠，再交给 :func:`_finalise_logger_df` 做共享的去重 + UTC 索引 +
+    速度 fallback 收尾。LFC 油耗 / VDHR 里程是车辆生命周期累计计数器，跨 leg 仍单调，
+    故按时间顺序 concat 不影响 :func:`_trip_metrics` 的 per-trip 差分。无任何可用行时
+    返回 None。
+    """
+    raw_frames: list[pd.DataFrame] = []
+    for p in csv_paths:
+        try:
+            df = pd.read_csv(p, index_col=0)
+        except Exception as exc:
+            logger.debug("  读取 logger CSV 失败 %s: %s", p.name, exc)
+            continue
+        if df is None or df.empty:
+            continue
+        idx = pd.to_datetime(df.index, errors="coerce", utc=True)
+        df = df.loc[~idx.isna()]
+        df.index = idx[~idx.isna()]
+        if not df.empty:
+            raw_frames.append(df)
+    if not raw_frames:
+        return None
+    df_all = pd.concat(raw_frames, axis=0)
+    return _finalise_logger_df(df_all, cfg, source=f"{len(csv_paths)} legs/day")
 
 
 def _safe_stat(series: pd.Series, fn=np.nanmean, default=nan) -> float:
@@ -916,8 +951,9 @@ _XLSX_RE = re.compile(
     r"jolt_report_(?P<reg>\w+?)_(?P<ds>\d{8})_(?P<de>\d{8})"
     r"(?P<ft>_finetuned)?\.xlsx$"
 )
-# 本地 logger CSV 名解析：logger_<suffix>.csv（suffix == 初始生成时的图后缀）
-_LOGGER_CSV_RE = re.compile(r"logger_(?P<suffix>.+)\.csv$")
+# 本地 logger CSV 名 → 日历日：logger_<date>_<idx>.csv。一日一图按 <date> 归组
+# （:func:`_group_paths_by_date` 用 ``.search`` 取 group(1) 的日期 token）。
+_LOGGER_DATE_RE = re.compile(r"logger_(\d{4}-\d{2}-\d{2})")
 
 
 def regenerate_diesel_validation(
@@ -932,13 +968,18 @@ def regenerate_diesel_validation(
     柴油版的 :meth:`ValidationGenerator.regenerate` —— 后者是电车专用（依赖 SOC +
     FPS ``raw_telematics`` + ``run_segment_detection``，对柴油会 early-return）。
     本函数改从本地 ``raw_logger_*/logger_*.csv`` 重建 Logger DataFrame（不需 SRF
-    往返），按与初始生成相同的 idx 后缀 **同名覆盖** 原图，并以
-    ``export_overlay=True`` 调用 :func:`plot_diesel_leg_validation`，把所有圆角数据
-    标注外置到 ``<png-stem>.boxes.json`` sidecar（由 inspect HTML 渲染交互 overlay）。
+    往返），并以 ``export_overlay=True`` 调用 :func:`plot_diesel_leg_validation`，把
+    所有圆角数据标注外置到 ``<png-stem>.boxes.json`` sidecar（由 inspect HTML 渲染
+    交互 overlay）。
 
-    CSV 与图的 idx 一致性：``_save_logger_data`` 落盘 CSV 与柴油主循环出图都对同一
-    个 ``SRFLOGGER_V1`` ``logger_legs`` 列表按相同顺序 enumerate，故
-    ``logger_<date>_<idx>.csv`` ↔ ``validation_<reg>_<date>_<idx>.png`` 一一对应。
+    一日一图（v2.2.6）：柴油 logger 一天往往切成几十条短 leg，逐 leg 出图会把一天
+    碎成几十张（inspect 侧栏出现 ``2025-09-01_0000`` / ``_0002`` / ``_0004`` …）。
+    本函数先用 :func:`_group_paths_by_date` 把 ``logger_<date>_*.csv`` 按日历日归组，
+    :func:`_logger_day_df_from_csvs` 把当天所有 leg 拼成单个 DataFrame，分段后每天只
+    画一张覆盖整个 UTC 日（00:00→24:00）、含当天全部 trip 阴影的
+    ``validation_<reg>_<date>.png``，故 sidecar / inspect 侧栏一天一项。开画前先
+    :func:`_clear_day_validation_figures` 清掉历史 per-leg 图 + sidecar（保留
+    ``*_finetuned.*``），避免新旧命名在侧栏并存。
 
     Args:
         report_dir: 车辆报告目录，含 ``raw_logger_*/`` CSV 与 ``jolt_report_*.xlsx``。
@@ -946,7 +987,7 @@ def regenerate_diesel_validation(
         cfg:        车辆配置；省略时按 ``reg`` 从 VEHICLE_CONFIG 读取。
 
     Returns:
-        重画的 validation figure 数量。
+        重画的 validation figure 数量（= 有有效 trip 的活动天数）。
     """
     report_dir = Path(report_dir)
     xlsx_files = sorted(report_dir.glob("jolt_report_*.xlsx"))
@@ -977,29 +1018,32 @@ def regenerate_diesel_validation(
         return 0
 
     fig_dir = report_dir / "validation_figures"
+    # 一日一图：把同一天的所有 leg CSV 归到一组，先清掉历史 per-leg 图 + sidecar，
+    # 再每天画一张覆盖整日的图（当天全部 trip 阴影集中在一张）。
+    by_date = _group_paths_by_date(csvs, _LOGGER_DATE_RE)
+    n_removed = _clear_day_validation_figures(fig_dir, reg)
+    if n_removed:
+        logger.info("  清理历史 per-leg validation 图 + sidecar: %d 个文件", n_removed)
+
     fig_count = 0
-    for csv_path in csvs:
-        nm = _LOGGER_CSV_RE.match(csv_path.name)
-        if not nm:
-            continue
-        suffix = nm.group("suffix")  # e.g. 2025-06-26_0001
-        df = _logger_df_from_csv(csv_path, cfg)
+    for day, day_csvs in by_date.items():
+        df = _logger_day_df_from_csvs(day_csvs, cfg)
         if df is None or df.empty:
             continue
-        trips, seg_metrics = _segments_from_df(df, cfg, source=csv_path.name)
+        trips, seg_metrics = _segments_from_df(df, cfg, source=f"{reg} {day}")
         # 与初始生成一致：无有效 trip（seg_metrics 空）则不出图
         if not seg_metrics:
             continue
-        out_path = fig_dir / f"validation_{reg}_{suffix}.png"
+        out_path = fig_dir / f"validation_{reg}_{day}.png"
         try:
             plot_diesel_leg_validation(
-                df, trips, seg_metrics, reg, suffix, out_path, cfg,
+                df, trips, seg_metrics, reg, day, out_path, cfg,
                 export_overlay=True,
             )
             fig_count += 1
         except Exception as exc:
             logger.warning(
-                "柴油 validation figure 重画失败 %s: %s", csv_path.name, exc
+                "柴油 validation figure 重画失败 %s: %s", day, exc
             )
 
     # 为每个非 finetuned 周期 xlsx 各重写一份 inspect HTML（finetuned 周期由
