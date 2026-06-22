@@ -85,7 +85,12 @@ def refresh_one(xlsx: Path) -> dict:
     )
 
     # Count figs that fall inside the period (matches _write_html_viewer's own filter).
-    _date_re = re.compile(r"validation_" + re.escape(reg) + r"_(\d{4}-\d{2}-\d{2})_")
+    # ``[._]`` accepts both the one-figure-per-day ``validation_<reg>_<date>.png`` and
+    # the legacy per-leg ``validation_<reg>_<date>_<NNNN>.png`` (kept in lock-step with
+    # _write_html_viewer so the counts here match what the viewer actually lists).
+    _date_re = re.compile(
+        r"validation_" + re.escape(reg) + r"_(\d{4}-\d{2}-\d{2})[._]"
+    )
     figs_in_period: list[str] = []
     if fig_dir.exists():
         ds_s, de_s = ds.isoformat(), de.isoformat()

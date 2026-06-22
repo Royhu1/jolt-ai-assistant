@@ -2074,6 +2074,62 @@ def _compute_active_dates_from_xlsx(xlsx_path: Path) -> set[str]:
             pass
 
 
+def _group_paths_by_date(
+    paths, date_re: "re.Pattern[str]"
+) -> dict[str, list[Path]]:
+    """Group per-leg raw-CSV paths by the ``YYYY-MM-DD`` captured by ``date_re``.
+
+    Both regenerate paths (EV ``raw_<date>_<idx>.csv`` and diesel
+    ``logger_<date>_<idx>.csv``) split a single calendar day into many short
+    legs. To draw one validation figure per day we first bucket each day's legs
+    together. ``date_re`` must expose the date in capture group 1
+    (``re.search`` is used, so the pattern need only match the filename's date
+    token). The returned dict preserves chronological order (paths are sorted
+    first, dict insertion order is stable on Python 3.7+), and each day's list
+    is in filename — i.e. leg-index, i.e. time — order.
+    """
+    groups: dict[str, list[Path]] = {}
+    for p in sorted(paths):
+        m = date_re.search(p.name)
+        if not m:
+            continue
+        groups.setdefault(m.group(1), []).append(p)
+    return groups
+
+
+def _clear_day_validation_figures(fig_dir: Path, reg: str) -> int:
+    """Delete stale validation figures + overlay sidecars before a per-day repaint.
+
+    The one-figure-per-day regeneration writes ``validation_<reg>_<date>.png``;
+    earlier builds wrote one figure per leg (``validation_<reg>_<date>_<NNNN>.png``).
+    Both match the ``validation_<reg>_*`` glob the inspect viewer lists, so without
+    this sweep a re-painted directory would show BOTH the consolidated day figure
+    and every stale per-leg fragment. Clearing the whole non-finetuned set up front
+    also drops figures for days that no longer segment to any trip.
+
+    ``*_finetuned.*`` artefacts are left untouched — they belong to the
+    report-finetuner flow and must survive a base repaint. Returns the number of
+    files removed.
+    """
+    if not fig_dir.exists():
+        return 0
+    removed = 0
+    for pattern in (
+        f"validation_{reg}_*.png",
+        f"validation_{reg}_*.boxes.json",
+        f"validation_{reg}_*.dsoc.json",
+    ):
+        for p in fig_dir.glob(pattern):
+            if "_finetuned" in p.name:
+                continue
+            try:
+                p.unlink()
+                removed += 1
+            except OSError:
+                pass
+    return removed
+
+
 def _write_html_viewer(
     out_dir: Path, reg: str, period_start, period_end, report_name: str
 ) -> None:
@@ -2085,8 +2141,13 @@ def _write_html_viewer(
     if not all_figs:
         return
 
-    # 仅保留日期在 period_start ~ period_end 范围内的验证图
-    _date_re = re.compile(r"validation_" + re.escape(reg) + r"_(\d{4}-\d{2}-\d{2})_")
+    # 仅保留日期在 period_start ~ period_end 范围内的验证图。
+    # 日期 token 后用 ``[._]`` 兼容两种命名：新的一日一图 ``validation_<reg>_<date>.png``
+    # （日期后直接是扩展名 ``.``）与历史 / finetuned 的 per-leg
+    # ``validation_<reg>_<date>_<NNNN>.png``（日期后是 ``_``）。
+    _date_re = re.compile(
+        r"validation_" + re.escape(reg) + r"_(\d{4}-\d{2}-\d{2})[._]"
+    )
     ds_str = str(period_start)
     de_str = str(period_end)
     figs = []
