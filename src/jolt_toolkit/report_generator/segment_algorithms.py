@@ -105,15 +105,79 @@ PIPELINE_CONFIGS: dict[str, dict] = _load_json('pipelines.json')
 # weight spike (e.g. a ~49000 kg reading on a true ~30 t trip) no longer inflates
 # the value. The default ``"mean"`` preserves the legacy behaviour bit-for-bit.
 
-_MASS_AGG_METHODS = ('mean', 'median', 'iqr_median', 'mad_median')
+_MASS_AGG_METHODS = (
+    'mean', 'median', 'iqr_median', 'mad_median',
+    'iqr_mean', 'mad_mean', 'trimmed_mean',
+)
 
-# ``mad_median`` fence width as a multiple of the MAD (median absolute deviation):
-# inliers are kept within ``median ± _MAD_K * MAD`` before re-taking the median.
-# Using the raw MAD (no 1.4826 normal-consistency scaling), k=3 gives a fence of
+# ``mad_median`` / ``mad_mean`` fence width as a multiple of the MAD (median
+# absolute deviation): inliers are kept within ``median ± _MAD_K * MAD``. Using
+# the raw MAD (no 1.4826 normal-consistency scaling), k=3 gives a fence of
 # ~2 robust-sigma — tight enough to shave a one-sided high-spike tail that an IQR
 # fence leaves in (its q3 lands on the spikes), yet validated to never dip below
 # the central body (see :func:`_agg_mass`).
 _MAD_K = 3.0
+
+# ``trimmed_mean`` per-tail trim fraction (symmetric). 0.20 drops the lowest and
+# highest 20% of the samples and means the central 60% — the classic 20% trimmed
+# mean (matching ``scipy.stats.trim_mean(proportiontocut=0.20)``).
+_TRIM_FRAC = 0.20
+
+
+def _iqr_inliers(sel: 'pd.Series') -> 'pd.Series':
+    """Tukey 1.5·IQR inlier subset of ``sel`` (shared by ``iqr_median`` /
+    ``iqr_mean`` so they fence identically).
+
+    Returns the subset within ``[q1 - 1.5*iqr, q3 + 1.5*iqr]`` when the IQR is
+    positive and >= 2 samples survive; otherwise returns ``sel`` unchanged (a
+    zero IQR means a quantised GCW where the median already ignores a minority
+    spike).
+    """
+    q1, q3 = sel.quantile([0.25, 0.75])
+    iqr = q3 - q1
+    if iqr > 0:
+        lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+        inliers = sel[(sel >= lo) & (sel <= hi)]
+        if len(inliers) >= 2:
+            return inliers
+    return sel
+
+
+def _mad_inliers(sel: 'pd.Series') -> 'pd.Series':
+    """Median ± ``_MAD_K``·MAD inlier subset of ``sel`` (shared by ``mad_median`` /
+    ``mad_mean`` so they fence identically).
+
+    Returns the subset within ``median ± _MAD_K*MAD`` (raw median absolute
+    deviation) when the MAD is positive and >= 2 samples survive; otherwise
+    returns ``sel`` unchanged. Because the fence is centred on the robust median
+    rather than on the quartiles, it shaves a dense body's one-sided HIGH-spike
+    tail that the IQR fence leaves in (a cluster of spikes pins q3, so the IQR
+    fence stays too wide).
+    """
+    med = sel.median()
+    mad = float((sel - med).abs().median())
+    if mad > 0:
+        lo, hi = med - _MAD_K * mad, med + _MAD_K * mad
+        inliers = sel[(sel >= lo) & (sel <= hi)]
+        if len(inliers) >= 2:
+            return inliers
+    return sel
+
+
+def _trimmed_inliers(sel: 'pd.Series', frac: float = _TRIM_FRAC) -> 'pd.Series':
+    """Symmetric trimmed subset of ``sel``: drop the lowest & highest ``frac``.
+
+    ``k = int(len * frac)`` samples are dropped from each tail (matching
+    ``scipy.stats.trim_mean`` semantics) and the central subset is returned. When
+    trimming would leave fewer than one sample (tiny windows) ``sel`` is returned
+    unchanged so the caller still has a value.
+    """
+    n = len(sel)
+    k = int(n * frac)
+    if k <= 0 or n - 2 * k < 1:
+        return sel
+    ordered = sel.sort_values()
+    return ordered.iloc[k:n - k]
 
 
 def _agg_mass(sel: 'pd.Series', method: str = 'mean') -> tuple[float, float]:
@@ -123,29 +187,32 @@ def _agg_mass(sel: 'pd.Series', method: str = 'mean') -> tuple[float, float]:
     restricted to moving-only samples (the caller owns the filtering, so that the
     Excel column and the figure annotation share one definition).
 
-    method
-        ``"mean"``        — arithmetic mean (legacy default; identical to the
-                            pre-v2.2.6 behaviour, so non-opted-in vehicles are
-                            unchanged).
-        ``"median"``      — plain median (matches the diesel pipeline).
-        ``"iqr_median"``  — Tukey-fenced median: when the IQR is positive, keep
-                            inliers within ``[q1 - 1.5*iqr, q3 + 1.5*iqr]`` (only
-                            if >= 2 remain, otherwise keep all) and take the median
-                            of the kept set; when the IQR is zero (quantised GCW,
-                            more than half the readings identical) skip the fence
-                            because the median already ignores a minority spike.
-        ``"mad_median"``  — MAD-fenced median: keep inliers within
-                            ``median ± _MAD_K * MAD`` (raw median absolute
-                            deviation) when the MAD is positive (>= 2 survivors,
-                            else keep all), then re-take the median. Because the
-                            fence is centred on the robust median rather than on
-                            the quartiles, it shaves a dense central body's
-                            one-sided HIGH-spike tail that the IQR fence leaves in
-                            (a cluster of spikes pins q3, so the IQR fence stays
-                            too wide). Strengthens high-outlier rejection over
-                            ``iqr_median`` without dipping below the body;
-                            validated per-segment against the SRF Logger CVW for
-                            EX74JXW.
+    Each method is a two-step recipe — an outlier *fence* (which inliers to keep)
+    followed by a central *estimator* (median or mean over the kept set):
+
+        ``"mean"``         — no fence; arithmetic mean of all samples (legacy
+                             default; identical to the pre-v2.2.6 behaviour, so
+                             non-opted-in vehicles are unchanged).
+        ``"median"``       — no fence; plain median (matches the diesel pipeline).
+        ``"iqr_median"``   — Tukey 1.5·IQR fence (:func:`_iqr_inliers`) → median.
+        ``"iqr_mean"``     — Tukey 1.5·IQR fence (:func:`_iqr_inliers`) → mean.
+        ``"mad_median"``   — median ± _MAD_K·MAD fence (:func:`_mad_inliers`) →
+                             median. The fence is centred on the robust median
+                             rather than on the quartiles, so it shaves a dense
+                             body's one-sided HIGH-spike tail that the IQR fence
+                             leaves in (a cluster of spikes pins q3). Strengthens
+                             high-outlier rejection over ``iqr_median`` without
+                             dipping below the body.
+        ``"mad_mean"``     — median ± _MAD_K·MAD fence (:func:`_mad_inliers`) →
+                             mean of survivors. Same robust fence as ``mad_median``
+                             but a mean estimator, so when the cleaned body still
+                             carries a high-side lag/over-read tail (telematics
+                             that lags the true load) the mean sits *below* the
+                             body's median — useful where the median lands on
+                             lag-high readings.
+        ``"trimmed_mean"`` — symmetric 20% trimmed mean (:func:`_trimmed_inliers`
+                             → mean): drop the lowest & highest 20% of samples and
+                             mean the central 60% (a robust two-sided reference).
 
     ``cv`` is ``std / mean`` of the kept set (sample std, ddof=1), matching the
     legacy reliability metric. Unknown ``method`` falls back to ``"mean"`` with a
@@ -159,38 +226,27 @@ def _agg_mass(sel: 'pd.Series', method: str = 'mean') -> tuple[float, float]:
         logger.warning("Unknown mass_agg method %r; falling back to 'mean'", method)
         m = 'mean'
 
-    kept = sel
-    if m == 'iqr_median':
-        q1, q3 = sel.quantile([0.25, 0.75])
-        iqr = q3 - q1
-        if iqr > 0:
-            lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
-            inliers = sel[(sel >= lo) & (sel <= hi)]
-            if len(inliers) >= 2:
-                kept = inliers
+    # Step 1 — outlier fence (the kept inlier set). ``mean`` / ``median`` use the
+    # full window; each ``*_median`` and ``*_mean`` pair shares one fence helper,
+    # so the median and mean variants of a fence keep BYTE-IDENTICAL inlier sets
+    # (only the Step-2 estimator differs).
+    if m in ('iqr_median', 'iqr_mean'):
+        kept = _iqr_inliers(sel)
+    elif m in ('mad_median', 'mad_mean'):
+        kept = _mad_inliers(sel)
+    elif m == 'trimmed_mean':
+        kept = _trimmed_inliers(sel)
+    else:  # 'mean', 'median'
+        kept = sel
+
+    # Step 2 — central estimator over the kept set.
+    if m in ('median', 'iqr_median', 'mad_median'):
         value = float(kept.median())
-    elif m == 'median':
-        value = float(kept.median())
-    elif m == 'mad_median':
-        # Median ± k·MAD fence, then median of survivors. Unlike the IQR fence
-        # (anchored on q1/q3, which a cluster of high spikes pins so the fence
-        # stays wide and the spikes survive), this fence is centred on the robust
-        # median with the spread measured by the raw MAD, so a dense central body
-        # with a one-sided high-spike tail is shaved reliably without dipping
-        # below the body (validated per-segment against the Logger CVW for EX74JXW).
-        med = sel.median()
-        mad = float((sel - med).abs().median())
-        if mad > 0:
-            lo, hi = med - _MAD_K * mad, med + _MAD_K * mad
-            inliers = sel[(sel >= lo) & (sel <= hi)]
-            if len(inliers) >= 2:
-                kept = inliers
-        value = float(kept.median())
-    else:  # 'mean'
+    else:  # 'mean', 'iqr_mean', 'mad_mean', 'trimmed_mean'
         value = float(kept.mean())
 
     # ``cv`` is std/mean of the kept set (legacy reliability metric); for a
-    # singleton low cluster fall back to the full window so cv stays meaningful.
+    # singleton kept set fall back to the full window so cv stays meaningful.
     cv_set = kept if len(kept) >= 2 else sel
     mu = float(cv_set.mean())
     cv = float(cv_set.std() / mu) if mu > 0 else np.nan
