@@ -213,6 +213,10 @@ class JOLTReportGenerator:
         mass_agg = resolve_mass_agg(
             reg, PIPELINE_CONFIGS.get(cfg.get("pipeline", "default_soc"))
         )
+        # v2.2.6: 当遥测 GCVW 系统性偏噪/偏高而 SRF Logger 称重更干净时，逐车
+        # opt-in 用 Logger CVW 作为 `Vehicle Mass (kg)` 列的来源（同 mass_agg 稳健
+        # 聚合，段内 Logger 缺读数时回退遥测）。目前仅 EX74JXW。
+        prefer_logger_mass = bool(cfg.get("prefer_logger_mass", False))
         cap_lo = nominal_kwh * 0.5 if nominal_kwh else None
         cap_hi = nominal_kwh * 2.0 if nominal_kwh else None
 
@@ -497,6 +501,8 @@ class JOLTReportGenerator:
                     speed_col=speed_col,
                     operator=op_code,
                     mass_agg=mass_agg,
+                    logger_mass_all=logger_mass_all,
+                    prefer_logger_mass=prefer_logger_mass,
                 )
                 all_rows.append((seg["start_time"], list(row)))
 
@@ -515,6 +521,8 @@ class JOLTReportGenerator:
                     logger_dec_pedal_all=logger_dec_pedal_all,
                     operator=op_code,
                     mass_agg=mass_agg,
+                    logger_mass_all=logger_mass_all,
+                    prefer_logger_mass=prefer_logger_mass,
                 )
                 all_rows.append((seg["start_time"], list(row)))
 

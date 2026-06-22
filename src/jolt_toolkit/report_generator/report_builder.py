@@ -742,6 +742,42 @@ def _seg_mask(df: pd.DataFrame, t_start, t_end) -> pd.Series:
     return (ts >= t_s) & (ts <= t_e)
 
 
+def _logger_window_mass(
+    logger_mass_df: pd.DataFrame,
+    t_start,
+    t_end,
+    method: str,
+) -> tuple[float, float]:
+    """Aggregate the SRF Logger CVW series over ``[t_start, t_end]`` → (mass_kg, cv).
+
+    ``logger_mass_df`` is a single-column, UTC-time-indexed CVW frame (as built by
+    ``_generator._load_logger_channel`` / ``ValidationGenerator._load_logger_from_csv``).
+    The window slice drops NaN and J1939 default ``0`` readings, then aggregates with
+    ``_agg_mass`` under the same ``method`` as the telematics path. Returns
+    ``(nan, nan)`` when fewer than two valid samples remain. No moving-speed filter is
+    applied — the CVW series carries no speed column, the vehicle mass is unchanged at
+    standstill anyway, and ``iqr_median`` already ignores transient spikes (this
+    mirrors the validation figure's logger seg-mean fallback).
+    """
+    t_s = pd.Timestamp(t_start)
+    t_e = pd.Timestamp(t_end)
+    if t_s.tzinfo is None:
+        t_s = t_s.tz_localize("UTC")
+    if t_e.tzinfo is None:
+        t_e = t_e.tz_localize("UTC")
+    try:
+        sl = logger_mass_df.loc[t_s:t_e]
+    except Exception:
+        return nan, nan
+    if sl is None or sl.empty:
+        return nan, nan
+    vals = pd.to_numeric(sl.iloc[:, 0], errors="coerce")
+    vals = vals[vals.notna() & (vals > 0)]
+    if len(vals) < 2:
+        return nan, nan
+    return _agg_mass(vals, method)
+
+
 def _get_vehicle_mass(
     df: pd.DataFrame,
     t_start,
@@ -749,6 +785,8 @@ def _get_vehicle_mass(
     speed_col: str = _SPEED_COL,
     speed_threshold_kmh: float = MOVING_SPEED_THRESHOLD_KMH,
     method: str = "mean",
+    logger_mass_df: pd.DataFrame | None = None,
+    prefer_logger: bool = False,
 ) -> tuple[float, float]:
     """返回 (mass_kg, cv) 或 (nan, nan)。
 
@@ -760,7 +798,19 @@ def _get_vehicle_mass(
     v2.2.6: 过滤口径不变，但末段聚合改由 ``_agg_mass`` 按 ``method`` 完成
     （``mean`` / ``median`` / ``iqr_median``），供异常重量尖峰的稳健估计。默认
     ``mean`` 与旧实现逐值一致（``sel.mean()`` / ``std/mean``）。
+
+    v2.2.6 (``prefer_logger``): 当车辆配置 ``prefer_logger_mass`` 时，质量来源改用
+    SRF Logger CVW（``logger_mass_df``）并按同一 ``method`` 稳健聚合 —— 适用于遥测
+    GCVW 系统性偏噪/偏高、而 Logger 称重更干净更低的车（如 EX74JXW）。该 segment
+    窗口内 Logger 读数缺失（< 2 个 > 0 样本）时**回退**到下面的遥测路径，故其它
+    车辆、以及无 Logger 覆盖的时段，行为逐值不变。
     """
+    if prefer_logger and logger_mass_df is not None and not logger_mass_df.empty:
+        lm_kg, lm_cv = _logger_window_mass(logger_mass_df, t_start, t_end, method)
+        if not np.isnan(lm_kg):
+            return lm_kg, lm_cv
+        # Logger 缺该窗口读数 → 落到遥测路径（与无 prefer_logger 时逐值一致）
+
     if _WEIGHT_COL not in df.columns:
         return nan, nan
     mask = _seg_mask(df, t_start, t_end)
@@ -1376,9 +1426,17 @@ def _seg_to_row(
     logger_dec_pedal_all: pd.DataFrame | None = None,
     operator: str | None = None,
     mass_agg: str = "mean",
+    logger_mass_all: pd.DataFrame | None = None,
+    prefer_logger_mass: bool = False,
 ) -> tuple:
     """
     将一个 segment dict 转换为一行 Excel 数据（HEADERS 顺序）。
+
+    logger_mass_all / prefer_logger_mass: v2.2.6 —— 当车辆配置 ``prefer_logger_mass``
+                           时，``Vehicle Mass (kg)`` 列改用 SRF Logger CVW
+                           （``logger_mass_all``，全周期单列时间索引帧，由
+                           ``_get_vehicle_mass`` 按段窗口切片），段内 Logger 缺读数
+                           时回退遥测。默认 False → 行为逐值不变。
 
     mode: 'charge' | 'discharge'
     logger_speed_all:      Logger 1Hz 速度 DataFrame（索引为 UTC 时间戳，列 'logger_speed'），
@@ -1470,7 +1528,10 @@ def _seg_to_row(
         )
 
     # ── Vehicle mass ──────────────────────────────────────────────────────
-    veh_mass, veh_mass_cv = _get_vehicle_mass(df_leg, t_s, t_e, method=mass_agg)
+    veh_mass, veh_mass_cv = _get_vehicle_mass(
+        df_leg, t_s, t_e, method=mass_agg,
+        logger_mass_df=logger_mass_all, prefer_logger=prefer_logger_mass,
+    )
     recuperation = _get_recuperation(df_leg, t_s, t_e)
     elevation_diff = _get_elevation_diff(df_leg, t_s, t_e, altitude_col)
 

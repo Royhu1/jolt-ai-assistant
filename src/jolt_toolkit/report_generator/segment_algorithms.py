@@ -1722,6 +1722,7 @@ def plot_leg_validation(
     charger_meter_df: pd.DataFrame | None = None,
     mass_from_logger: bool = False,
     mass_agg: str = 'mean',
+    prefer_logger_mass: bool = False,
     *,
     overlay_charge_segs: list[dict] | None = None,
     overlay_discharge_segs: list[dict] | None = None,
@@ -2096,6 +2097,56 @@ def plot_leg_validation(
         _sel = _vals[_valid]
         return _sel if len(_sel) >= 2 else None
 
+    def _logger_seg_mass(t_s, t_e):
+        """Return the Logger-CVW seg-mean (``mass_agg`` aggregated) or None.
+
+        Window slice -> > 0 -> ``_agg_mass``. No moving filter (the CVW series
+        carries no speed; ``iqr_median`` already drops transients) — same recipe
+        as ``report_builder._logger_window_mass`` so figure and Excel agree."""
+        if logger_mass_df is None or logger_mass_df.empty:
+            return None
+        _log_slice = logger_mass_df.loc[t_s:t_e]
+        if _log_slice.empty:
+            return None
+        _log_vals = pd.to_numeric(_log_slice.iloc[:, 0], errors='coerce').dropna()
+        _log_vals = _log_vals[_log_vals > 0]
+        if len(_log_vals) < 2:
+            return None
+        _mkg, _ = _agg_mass(_log_vals, mass_agg)
+        return float(_mkg) if np.isfinite(_mkg) else None
+
+    def _telemetry_seg_mass(t_s, t_e):
+        """Return the telematics seg-mean (``mass_agg`` aggregated) or None."""
+        _sel = _telemetry_mass(t_s, t_e)
+        if _sel is None:
+            return None
+        _mkg, _ = _agg_mass(_sel, mass_agg)
+        return float(_mkg) if np.isfinite(_mkg) else None
+
+    def _seg_mean_mass(t_s, t_e):
+        """Return ``(mass_kg, from_logger)`` for a segment window.
+
+        ``prefer_logger_mass`` flips the source preference to Logger-first (with a
+        telematics fallback when the window has no Logger reading), matching the
+        Excel ``Vehicle Mass (kg)`` column. Default keeps the legacy telematics-first
+        (Logger only as a fallback) behaviour bit-for-bit."""
+        if prefer_logger_mass:
+            _lm = _logger_seg_mass(t_s, t_e)
+            if _lm is not None:
+                return _lm, True
+            _tm = _telemetry_seg_mass(t_s, t_e)
+            if _tm is not None:
+                return _tm, False
+            return None, False
+        # legacy: telematics preferred, Logger fallback
+        _tm = _telemetry_seg_mass(t_s, t_e)
+        if _tm is not None:
+            return _tm, bool(mass_from_logger)
+        _lm = _logger_seg_mass(t_s, t_e)
+        if _lm is not None:
+            return _lm, True
+        return None, False
+
     _mean_mass_tele = False
     _mean_mass_logger = False
     for _df_seg, _col, _seg_pfx in ((df_d, _DISCHARGE_COLOR, 'd'),
@@ -2103,26 +2154,9 @@ def plot_leg_validation(
         for _midx, (_, row) in enumerate(_df_seg.iterrows()):
             t_s = _to_utc(row['start_time'])
             t_e = _to_utc(row['end_time'])
-            _seg_mass = None
-            _from_logger = False
-            # 优先使用遥测质量（与 Excel 列同口径过滤 + mass_agg 聚合）
-            _sel = _telemetry_mass(t_s, t_e)
-            if _sel is not None:
-                _mkg, _ = _agg_mass(_sel, mass_agg)
-                if np.isfinite(_mkg):
-                    _seg_mass = float(_mkg)
-                    _from_logger = mass_from_logger
-            # 回退：若遥测质量不可用，使用 Logger CVW（同样 mass_agg 聚合）
-            if _seg_mass is None and logger_mass_df is not None and not logger_mass_df.empty:
-                _log_slice = logger_mass_df.loc[t_s:t_e]
-                if not _log_slice.empty:
-                    _log_vals = pd.to_numeric(_log_slice.iloc[:, 0], errors='coerce').dropna()
-                    _log_vals = _log_vals[_log_vals > 0]
-                    if len(_log_vals) >= 2:
-                        _mkg, _ = _agg_mass(_log_vals, mass_agg)
-                        if np.isfinite(_mkg):
-                            _seg_mass = float(_mkg)
-                            _from_logger = True
+            # 段均质量：prefer_logger_mass 时以 Logger CVW 为主、遥测兜底；否则
+            # 遥测为主、Logger 兜底（与 Excel `Vehicle Mass (kg)` 列同口径）。
+            _seg_mass, _from_logger = _seg_mean_mass(t_s, t_e)
             if _seg_mass is not None:
                 _ls = ':' if _from_logger else '--'
                 ax4.plot([t_s, t_e], [_seg_mass, _seg_mass],
@@ -2154,27 +2188,8 @@ def plot_leg_validation(
             for _midx, (_, row) in enumerate(_df_ov.iterrows()):
                 t_s = _to_utc(row['start_time'])
                 t_e = _to_utc(row['end_time'])
-                _seg_mass = None
-                _from_logger = False
-                # 与 base 段同口径：window -> valid -> moving -> mass_agg 聚合
-                _sel = _telemetry_mass(t_s, t_e)
-                if _sel is not None:
-                    _mkg, _ = _agg_mass(_sel, mass_agg)
-                    if np.isfinite(_mkg):
-                        _seg_mass = float(_mkg)
-                        _from_logger = mass_from_logger
-                if (_seg_mass is None and logger_mass_df is not None
-                        and not logger_mass_df.empty):
-                    _log_slice = logger_mass_df.loc[t_s:t_e]
-                    if not _log_slice.empty:
-                        _log_vals = pd.to_numeric(
-                            _log_slice.iloc[:, 0], errors='coerce').dropna()
-                        _log_vals = _log_vals[_log_vals > 0]
-                        if len(_log_vals) >= 2:
-                            _mkg, _ = _agg_mass(_log_vals, mass_agg)
-                            if np.isfinite(_mkg):
-                                _seg_mass = float(_mkg)
-                                _from_logger = True
+                # 与 base 段同口径（含 prefer_logger_mass 偏好）
+                _seg_mass, _from_logger = _seg_mean_mass(t_s, t_e)
                 if _seg_mass is None:
                     continue
                 _ls = ':' if _from_logger else '--'
@@ -3218,6 +3233,9 @@ def run_segment_detection(
         _mass_col = cfg.get('mass_col', MASS_COL)
         _speed_col = cfg.get('speed_col', 'wheel_based_speed')
         _mass_agg = resolve_mass_agg(reg, _pipeline_cfg)
+        # v2.2.6: prefer_logger_mass 车辆的 Panel-4 段均质量也以 Logger CVW 为主
+        # （与 Excel `Vehicle Mass (kg)` 列同源），段内 Logger 缺读数时回退遥测。
+        _prefer_logger_mass = bool(cfg.get('prefer_logger_mass', False))
         plot_leg_validation(
             df_raw, charge_segs, discharge_segs,
             reg, suffix, out_path,
@@ -3228,6 +3246,7 @@ def run_segment_detection(
             charger_meter_df=charger_meter_df,
             mass_from_logger=_mass_from_logger,
             mass_agg=_mass_agg,
+            prefer_logger_mass=_prefer_logger_mass,
             export_dsoc_overlay=export_dsoc_overlay,
         )
 

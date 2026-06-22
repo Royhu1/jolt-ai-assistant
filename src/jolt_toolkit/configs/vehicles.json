@@ -184,7 +184,8 @@
     "moving_energy_col": "electric_energy_wheelbased_speed_over_zero",
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
-    "min_cluster_gap_kg": 2000.0
+    "min_cluster_gap_kg": 2000.0,
+    "prefer_logger_mass": true
   },
   "EX74JXY": {
     "srf_reg": "EX74 JXY",
