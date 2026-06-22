@@ -105,14 +105,15 @@ PIPELINE_CONFIGS: dict[str, dict] = _load_json('pipelines.json')
 # weight spike (e.g. a ~49000 kg reading on a true ~30 t trip) no longer inflates
 # the value. The default ``"mean"`` preserves the legacy behaviour bit-for-bit.
 
-_MASS_AGG_METHODS = ('mean', 'median', 'iqr_median', 'low_cluster')
+_MASS_AGG_METHODS = ('mean', 'median', 'iqr_median', 'mad_median')
 
-# ``low_cluster`` gap (kg): the in-window readings are sorted and split wherever
-# two consecutive values jump by more than this, and the LOWEST resulting cluster
-# is kept. Sized at ~1 t — comfortably above the GCVW quantisation step yet below
-# a genuine load change — to isolate the lowest coherent mass band from spurious
-# high-side telematics excursions (see :func:`_agg_mass`).
-_LOW_CLUSTER_GAP_KG = 1000.0
+# ``mad_median`` fence width as a multiple of the MAD (median absolute deviation):
+# inliers are kept within ``median ± _MAD_K * MAD`` before re-taking the median.
+# Using the raw MAD (no 1.4826 normal-consistency scaling), k=3 gives a fence of
+# ~2 robust-sigma — tight enough to shave a one-sided high-spike tail that an IQR
+# fence leaves in (its q3 lands on the spikes), yet validated to never dip below
+# the central body (see :func:`_agg_mass`).
+_MAD_K = 3.0
 
 
 def _agg_mass(sel: 'pd.Series', method: str = 'mean') -> tuple[float, float]:
@@ -133,24 +134,23 @@ def _agg_mass(sel: 'pd.Series', method: str = 'mean') -> tuple[float, float]:
                             of the kept set; when the IQR is zero (quantised GCW,
                             more than half the readings identical) skip the fence
                             because the median already ignores a minority spike.
-        ``"low_cluster"`` — lowest-band median: sort the readings, split them into
-                            clusters wherever two consecutive values jump by more
-                            than ``_LOW_CLUSTER_GAP_KG``, and take the median of the
-                            LOWEST cluster. For a vehicle whose telematics GCVW
-                            channel emits spurious HIGH-side excursions while
-                            driving (so the within-segment signal wanders well
-                            above the true mass), the lowest coherent band tracks
-                            the real load far better than a central estimator;
+        ``"mad_median"``  — MAD-fenced median: keep inliers within
+                            ``median ± _MAD_K * MAD`` (raw median absolute
+                            deviation) when the MAD is positive (>= 2 survivors,
+                            else keep all), then re-take the median. Because the
+                            fence is centred on the robust median rather than on
+                            the quartiles, it shaves a dense central body's
+                            one-sided HIGH-spike tail that the IQR fence leaves in
+                            (a cluster of spikes pins q3, so the IQR fence stays
+                            too wide). Strengthens high-outlier rejection over
+                            ``iqr_median`` without dipping below the body;
                             validated per-segment against the SRF Logger CVW for
-                            EX74JXW. Robust to a single high spike (it is dropped
-                            with its cluster) and to a lone low glitch (kept only
-                            if it forms / joins the lowest cluster within the gap).
+                            EX74JXW.
 
     ``cv`` is ``std / mean`` of the kept set (sample std, ddof=1), matching the
-    legacy reliability metric (for a singleton ``low_cluster`` it falls back to the
-    full window so it stays meaningful). Unknown ``method`` falls back to ``"mean"``
-    with a warning. ``len(sel) < 2`` returns ``(nan, nan)``; ``mean <= 0`` yields a
-    nan cv.
+    legacy reliability metric. Unknown ``method`` falls back to ``"mean"`` with a
+    warning. ``len(sel) < 2`` returns ``(nan, nan)``; ``mean <= 0`` yields a nan
+    cv.
     """
     if sel is None or len(sel) < 2:
         return np.nan, np.nan
@@ -171,15 +171,20 @@ def _agg_mass(sel: 'pd.Series', method: str = 'mean') -> tuple[float, float]:
         value = float(kept.median())
     elif m == 'median':
         value = float(kept.median())
-    elif m == 'low_cluster':
-        # Sort, split into clusters wherever consecutive readings jump by more
-        # than the gap, and keep the LOWEST cluster — the true mass sits in the
-        # lowest stable band when the telematics GCVW shows spurious high-side
-        # excursions while driving (validated against the Logger CVW).
-        srt = sel.sort_values()
-        kept = srt[(srt.diff() > _LOW_CLUSTER_GAP_KG).cumsum() == 0]
-        if len(kept) == 0:
-            kept = sel
+    elif m == 'mad_median':
+        # Median ± k·MAD fence, then median of survivors. Unlike the IQR fence
+        # (anchored on q1/q3, which a cluster of high spikes pins so the fence
+        # stays wide and the spikes survive), this fence is centred on the robust
+        # median with the spread measured by the raw MAD, so a dense central body
+        # with a one-sided high-spike tail is shaved reliably without dipping
+        # below the body (validated per-segment against the Logger CVW for EX74JXW).
+        med = sel.median()
+        mad = float((sel - med).abs().median())
+        if mad > 0:
+            lo, hi = med - _MAD_K * mad, med + _MAD_K * mad
+            inliers = sel[(sel >= lo) & (sel <= hi)]
+            if len(inliers) >= 2:
+                kept = inliers
         value = float(kept.median())
     else:  # 'mean'
         value = float(kept.mean())
