@@ -107,7 +107,7 @@ PIPELINE_CONFIGS: dict[str, dict] = _load_json('pipelines.json')
 
 _MASS_AGG_METHODS = (
     'mean', 'median', 'iqr_median', 'mad_median',
-    'iqr_mean', 'mad_mean', 'trimmed_mean',
+    'iqr_mean', 'mad_mean', 'mad_tw_mean', 'trimmed_mean',
 )
 
 # ``mad_median`` / ``mad_mean`` fence width as a multiple of the MAD (median
@@ -180,7 +180,81 @@ def _trimmed_inliers(sel: 'pd.Series', frac: float = _TRIM_FRAC) -> 'pd.Series':
     return ordered.iloc[k:n - k]
 
 
-def _agg_mass(sel: 'pd.Series', method: str = 'mean') -> tuple[float, float]:
+def _coerce_seconds(ts: 'pd.Series') -> 'np.ndarray | None':
+    """Coerce ``ts`` (a per-sample time axis aligned to a kept mass set) into a
+    1-D float array of seconds, or ``None`` when it cannot be used.
+
+    Accepts either a datetime-like Series (any unit / tz; e.g. the telematics
+    ``eventDatetime``) or an already-numeric seconds Series (e.g. the dashboard's
+    seconds-from-midnight). For datetimes the offset is taken from the first
+    element, so only relative spacing matters (the time-weighted mean is invariant
+    to a constant time offset / uniform scaling). Any NaN/NaT makes it unusable.
+    """
+    if ts is None or len(ts) == 0:
+        return None
+    s = ts if isinstance(ts, pd.Series) else pd.Series(list(ts))
+    if pd.api.types.is_numeric_dtype(s):
+        n = pd.to_numeric(s, errors='coerce')
+        return n.to_numpy('float64') if bool(n.notna().all()) else None
+    t = pd.to_datetime(s, errors='coerce', utc=True)
+    if not bool(t.notna().all()):
+        return None
+    return (t - t.iloc[0]).dt.total_seconds().to_numpy('float64')
+
+
+def _time_weighted_mean(values: 'np.ndarray', seconds: 'np.ndarray') -> float:
+    """Trapezoidal time-weighted mean of ``values`` sampled at ``seconds``.
+
+    Each sample's weight is the time interval it represents (trapezoidal rule:
+    half the gap to each neighbour; the two endpoints get half of their single
+    adjacent gap). A short dense burst of repeated readings therefore contributes
+    only its (short) duration, not its (large) count — so a transient lag plateau
+    that telematics happens to sample densely no longer biases the mean. Falls
+    back to the plain arithmetic mean when the time axis is unusable (< 2 points,
+    any non-finite second, or a zero span — e.g. all-duplicate timestamps), which
+    makes ``mad_tw_mean`` degrade exactly to ``mad_mean``.
+    """
+    v = np.asarray(values, dtype='float64')
+    s = np.asarray(seconds, dtype='float64')
+    if v.size < 2 or s.size != v.size or not np.isfinite(s).all():
+        return float(v.mean())
+    order = np.argsort(s, kind='mergesort')
+    s = s[order]
+    v = v[order]
+    if (s[-1] - s[0]) <= 0:
+        return float(v.mean())
+    w = np.empty_like(s)
+    w[1:-1] = (s[2:] - s[:-2]) / 2.0
+    w[0] = (s[1] - s[0]) / 2.0
+    w[-1] = (s[-1] - s[-2]) / 2.0
+    wsum = float(w.sum())
+    if wsum <= 0:
+        return float(v.mean())
+    return float(np.dot(w, v) / wsum)
+
+
+def _mad_tw_value(sel: 'pd.Series', kept: 'pd.Series',
+                  timestamps: 'pd.Series | None') -> float:
+    """Time-weighted mean of the MAD-fenced ``kept`` set, aligned to ``timestamps``.
+
+    ``timestamps`` is expected to be index-aligned to ``sel`` (the pre-fence
+    sample series), so it is reindexed onto ``kept.index`` to pick each survivor's
+    time. Any failure (missing / mis-aligned / non-unique / unusable timestamps)
+    falls back to ``kept.mean()`` — i.e. plain ``mad_mean`` — so the method is
+    always safe to select even when a caller cannot supply a time axis.
+    """
+    if len(kept) >= 2 and isinstance(timestamps, pd.Series):
+        try:
+            secs = _coerce_seconds(timestamps.reindex(kept.index))
+            if secs is not None and len(secs) == len(kept):
+                return _time_weighted_mean(kept.to_numpy('float64'), secs)
+        except Exception:  # pragma: no cover - defensive; degrade to mad_mean
+            pass
+    return float(kept.mean())
+
+
+def _agg_mass(sel: 'pd.Series', method: str = 'mean',
+              timestamps: 'pd.Series | None' = None) -> tuple[float, float]:
     """Aggregate an already-filtered mass-sample series into ``(mass_kg, cv)``.
 
     ``sel`` is expected to already be positive (> 0) and, where applicable,
@@ -210,12 +284,30 @@ def _agg_mass(sel: 'pd.Series', method: str = 'mean') -> tuple[float, float]:
                              that lags the true load) the mean sits *below* the
                              body's median — useful where the median lands on
                              lag-high readings.
+        ``"mad_tw_mean"``  — median ± _MAD_K·MAD fence (:func:`_mad_inliers`) → a
+                             *time-weighted* mean of survivors (:func:`_mad_tw_value`
+                             / :func:`_time_weighted_mean`), requiring per-sample
+                             ``timestamps`` aligned to ``sel``. Each survivor is
+                             weighted by the time interval it represents, so a
+                             short dense burst of repeated lag/over-read values
+                             (which count-weighting over-counts) contributes only
+                             its brief duration. Where telematics samples are
+                             bursty (dense transient clusters + sparse steady
+                             cruise) this pulls the estimate toward the
+                             duration-dominant settled body, matching how a 1 Hz
+                             logger averages the same window. **Without usable
+                             ``timestamps`` it degrades to ``mad_mean``** (identical
+                             fence + plain mean), so it is always safe to select.
         ``"trimmed_mean"`` — symmetric 20% trimmed mean (:func:`_trimmed_inliers`
                              → mean): drop the lowest & highest 20% of samples and
                              mean the central 60% (a robust two-sided reference).
 
+    ``timestamps`` is only consulted by ``mad_tw_mean``; every other method
+    ignores it and is byte-identical to the pre-``timestamps`` behaviour.
+
     ``cv`` is ``std / mean`` of the kept set (sample std, ddof=1), matching the
-    legacy reliability metric. Unknown ``method`` falls back to ``"mean"`` with a
+    legacy reliability metric (``mad_tw_mean`` shares ``mad_mean``'s kept set, so
+    its cv is identical). Unknown ``method`` falls back to ``"mean"`` with a
     warning. ``len(sel) < 2`` returns ``(nan, nan)``; ``mean <= 0`` yields a nan
     cv.
     """
@@ -232,7 +324,7 @@ def _agg_mass(sel: 'pd.Series', method: str = 'mean') -> tuple[float, float]:
     # (only the Step-2 estimator differs).
     if m in ('iqr_median', 'iqr_mean'):
         kept = _iqr_inliers(sel)
-    elif m in ('mad_median', 'mad_mean'):
+    elif m in ('mad_median', 'mad_mean', 'mad_tw_mean'):
         kept = _mad_inliers(sel)
     elif m == 'trimmed_mean':
         kept = _trimmed_inliers(sel)
@@ -242,6 +334,10 @@ def _agg_mass(sel: 'pd.Series', method: str = 'mean') -> tuple[float, float]:
     # Step 2 — central estimator over the kept set.
     if m in ('median', 'iqr_median', 'mad_median'):
         value = float(kept.median())
+    elif m == 'mad_tw_mean':
+        # Time-weighted mean of the (shared) MAD fence; falls back to the plain
+        # mean of the kept set when no usable time axis is supplied (== mad_mean).
+        value = _mad_tw_value(sel, kept, timestamps)
     else:  # 'mean', 'iqr_mean', 'mad_mean', 'trimmed_mean'
         value = float(kept.mean())
 
@@ -2175,10 +2271,12 @@ def plot_leg_validation(
     # filter is no longer needed: the robust median already ignores a few
     # tractor-only low readings.
     def _telemetry_mass(t_s, t_e):
-        """Return the filtered positive (moving-preferred) telemetry mass Series
-        for a segment window, or ``None`` when fewer than two samples remain."""
+        """Return ``(sel, timestamps)`` — the filtered positive (moving-preferred)
+        telemetry mass Series for a segment window and its index-aligned
+        ``eventDatetime`` axis (for ``mad_tw_mean``) — or ``(None, None)`` when
+        fewer than two samples remain."""
         if mass_col not in df_raw.columns:
-            return None
+            return None, None
         _times = pd.to_datetime(df_raw[TIME_COL], errors='coerce', utc=True)
         _win = (_times >= t_s) & (_times <= t_e)
         _vals = pd.to_numeric(df_raw.loc[_win, mass_col], errors='coerce')
@@ -2189,7 +2287,9 @@ def plot_leg_validation(
             if _moving.sum() >= 2:
                 _valid = _moving
         _sel = _vals[_valid]
-        return _sel if len(_sel) >= 2 else None
+        if len(_sel) < 2:
+            return None, None
+        return _sel, _times.loc[_sel.index]
 
     _mean_mass_tele = False
     _mean_mass_logger = False
@@ -2201,9 +2301,9 @@ def plot_leg_validation(
             _seg_mass = None
             _from_logger = False
             # 优先使用遥测质量（与 Excel 列同口径过滤 + mass_agg 聚合）
-            _sel = _telemetry_mass(t_s, t_e)
+            _sel, _sel_ts = _telemetry_mass(t_s, t_e)
             if _sel is not None:
-                _mkg, _ = _agg_mass(_sel, mass_agg)
+                _mkg, _ = _agg_mass(_sel, mass_agg, timestamps=_sel_ts)
                 if np.isfinite(_mkg):
                     _seg_mass = float(_mkg)
                     _from_logger = mass_from_logger
@@ -2214,7 +2314,8 @@ def plot_leg_validation(
                     _log_vals = pd.to_numeric(_log_slice.iloc[:, 0], errors='coerce').dropna()
                     _log_vals = _log_vals[_log_vals > 0]
                     if len(_log_vals) >= 2:
-                        _mkg, _ = _agg_mass(_log_vals, mass_agg)
+                        _mkg, _ = _agg_mass(_log_vals, mass_agg,
+                                            timestamps=_log_vals.index.to_series())
                         if np.isfinite(_mkg):
                             _seg_mass = float(_mkg)
                             _from_logger = True
@@ -2252,9 +2353,9 @@ def plot_leg_validation(
                 _seg_mass = None
                 _from_logger = False
                 # 与 base 段同口径：window -> valid -> moving -> mass_agg 聚合
-                _sel = _telemetry_mass(t_s, t_e)
+                _sel, _sel_ts = _telemetry_mass(t_s, t_e)
                 if _sel is not None:
-                    _mkg, _ = _agg_mass(_sel, mass_agg)
+                    _mkg, _ = _agg_mass(_sel, mass_agg, timestamps=_sel_ts)
                     if np.isfinite(_mkg):
                         _seg_mass = float(_mkg)
                         _from_logger = mass_from_logger
@@ -2266,7 +2367,8 @@ def plot_leg_validation(
                             _log_slice.iloc[:, 0], errors='coerce').dropna()
                         _log_vals = _log_vals[_log_vals > 0]
                         if len(_log_vals) >= 2:
-                            _mkg, _ = _agg_mass(_log_vals, mass_agg)
+                            _mkg, _ = _agg_mass(_log_vals, mass_agg,
+                                                timestamps=_log_vals.index.to_series())
                             if np.isfinite(_mkg):
                                 _seg_mass = float(_mkg)
                                 _from_logger = True

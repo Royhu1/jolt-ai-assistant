@@ -361,7 +361,12 @@ def _mass_mean(df: pd.DataFrame, mass_col: str,
         if moving.sum() >= 2:
             valid = moving
     sel = vals[valid]
-    mass_kg, cv = _agg_mass(sel, method)
+    # ``mad_tw_mean`` needs a per-sample time axis aligned to ``sel``; build it
+    # from TIME_COL only for that method (other methods are byte-identical).
+    timestamps = None
+    if (method or '').lower() == 'mad_tw_mean' and TIME_COL in df.columns:
+        timestamps = pd.to_datetime(df[TIME_COL], errors='coerce', utc=True).loc[sel.index]
+    mass_kg, cv = _agg_mass(sel, method, timestamps=timestamps)
     if not np.isfinite(mass_kg):
         return None, None
     return mass_kg, (cv if np.isfinite(cv) else None)

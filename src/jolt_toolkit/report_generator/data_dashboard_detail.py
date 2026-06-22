@@ -803,15 +803,18 @@ def _annotate_segment_mean_mass(
             if w.any():
                 # Same robust aggregation as the Excel column / figure annotation
                 # (the report's resolved ``mass_agg`` method), so the dashed line
-                # matches the report's mass values for this event.
-                val = _agg_mass(pd.Series(tele_kg[w]), mass_agg)[0]
+                # matches the report's mass values for this event. ``tele_sec`` is
+                # the position-aligned seconds axis (used only by ``mad_tw_mean``).
+                val = _agg_mass(pd.Series(tele_kg[w]), mass_agg,
+                                timestamps=pd.Series(tele_sec[w]))[0]
                 # Tractor guard: drop stationary / empty events (figure exclusion).
                 if np.isfinite(val) and val >= TRACTOR_ONLY_MAX_KG:
                     mean_kg, src = val, TELEMATICS
         if mean_kg is None and log_sec is not None:
             w = (log_sec >= s) & (log_sec <= e)
             if w.any():
-                val = _agg_mass(pd.Series(log_kg[w]), mass_agg)[0]
+                val = _agg_mass(pd.Series(log_kg[w]), mass_agg,
+                                timestamps=pd.Series(log_sec[w]))[0]
                 if np.isfinite(val):
                     mean_kg, src = val, LOGGER
         if mean_kg is not None:

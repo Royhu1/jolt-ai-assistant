@@ -758,8 +758,10 @@ def _get_vehicle_mass(
     若速度列缺失，行为与旧版完全一致。
 
     v2.2.6: 过滤口径不变，但末段聚合改由 ``_agg_mass`` 按 ``method`` 完成
-    （``mean`` / ``median`` / ``iqr_median``），供异常重量尖峰的稳健估计。默认
-    ``mean`` 与旧实现逐值一致（``sel.mean()`` / ``std/mean``）。
+    （``mean`` / ``median`` / ``iqr_median`` / ``mad_mean`` / ``mad_tw_mean`` …），
+    供异常重量尖峰的稳健估计。默认 ``mean`` 与旧实现逐值一致（``sel.mean()`` /
+    ``std/mean``）。``mad_tw_mean`` 额外需要与 ``sel`` 对齐的时间轴，故仅在该方法
+    下从 ``TIME_COL`` 构造时间戳传入；其余方法路径逐值不变。
     """
     if _WEIGHT_COL not in df.columns:
         return nan, nan
@@ -777,7 +779,12 @@ def _get_vehicle_mass(
             valid = moving
 
     sel = vals[valid]
-    return _agg_mass(sel, method)
+    # ``mad_tw_mean`` needs a per-sample time axis aligned to ``sel``; build it
+    # only for that method so every other method's path is byte-identical.
+    timestamps = None
+    if (method or "").lower() == "mad_tw_mean":
+        timestamps = _to_utc_series(df).loc[sel.index]
+    return _agg_mass(sel, method, timestamps=timestamps)
 
 
 def _get_recuperation(df: pd.DataFrame, t_start, t_end) -> float:
