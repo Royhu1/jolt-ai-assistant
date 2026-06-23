@@ -32,6 +32,14 @@ produced; `pdf_report_workspace/` only holds the artefacts.
 
 - Arguments: `<REG>` (registration) + `<period>` (`yyyymmdd_yyyymmdd`); optional `--version`
   (default 2.2.3) and `--base` (use the non-finetuned base xlsx).
+- **`--all-data`**: read & concatenate **every** period report for the vehicle (all collected data,
+  deduped by Start Time + Leg Type) instead of one period; the operating period and output naming
+  then span the full data range, and `--period` is ignored for xlsx selection. Combine with `--anon`
+  as usual. Example: `--reg CMZ6260 --all-data` covers 2025-09 → 2026-04 across three quarterly reports.
+- **Two report variants, auto-selected by data**: vehicles that report gross vehicle mass get the
+  standard mass-based briefing; vehicles with **no usable mass channel** (mass present on < 5 % of
+  trips — e.g. YN75NMA, T88RNW) automatically get the **distribution variant** (see §4/§5) — no flag
+  needed.
 - Data comes **only** from `excel_report_database/<version>/<REG>/jolt_report_*.xlsx`
   (prefer `_finetuned`). If there is **no exact-period** file, the generator automatically
   picks the most compact report whose `[start,end]` **covers the target period** and **clips
@@ -134,6 +142,11 @@ was conditional on **anonymisation**. Add `--anon`:
   3. Energy Performance vs Ambient Temperature (**restricted to the laden cluster** to control
      for mass; the title states the laden mass range, e.g. "(laden, ≥ 20 t)")
   4. Charging Start State of Charge
+- **No-mass distribution variant** (auto, see §1): the page-2 grid becomes (1) **Energy Performance
+  Distribution** (histogram + KDE overlay + mean/median lines, EP axis 0–3), (2) **Projected Range
+  Distribution** (per-trip capacity ÷ EP; skipped if no capacity), (3) **Energy Performance vs
+  Ambient Temperature** fitted over **all trips** (no laden cluster), (4) Charging Start SoC. The GVM
+  scatters, load markers and the 42 t projection are omitted.
 - **Chart titles are HTML** (`.chart-cell__title`), **spelled out (no GVM/SoC abbreviations)**
   and **larger than the matplotlib axis labels**; a 2-line title height is reserved so every
   cell's plot box starts at the same y.
@@ -218,6 +231,16 @@ GVM never reaches 42 t.
    telematics (shown as '—')." Omitted when every channel is reported.
 The load / range / temperature detail lives on page 2 and is **not** repeated in the Summary.
 
+### No-mass distribution variant — conclusions & page-1
+When the vehicle reports no usable mass, the page-2 Conclusions become a **distribution analysis**
+(no load points): EP `averaged X kWh/km (median Y, IQR L–H, σ S) over N trips — <tightly clustered /
+moderately spread / widely spread>`; projected range `averaged X km (median Y, IQR L–H km) —
+effective capacity Z kWh ÷ per-trip EP`; the temperature bullet is fitted over **all trips** (stated
+as "all trips", not "laden"); plus one honest line that load dependence cannot be assessed without
+mass. Page-1 "Mean GVM" shows "—" and the data-availability note lists "gross vehicle mass". The
+verification workbook (a mass-based audit) is **not** emitted for this variant (follow-up: add a
+distribution-stats audit).
+
 ### Cleaning (unchanged)
 - **Valid-trip filter** (`MIN_TRIP_KM` = 3 km): drop driving legs with distance < 3 km (or
   missing). The OPERATING PERIOD (page-header span), active days and all stats use only valid
@@ -236,6 +259,11 @@ The load / range / temperature detail lives on page 2 and is **not** repeated in
 
 ✗ fields must be requested from the operator / Monta, or clearly marked estimated/not
 applicable — **never fabricated**.
+
+- **No mass channel** (e.g. YN75NMA, T88RNW): the briefing auto-switches to the **distribution
+  variant** — EP & projected-range histograms replace the GVM scatters; load points, the 42 t
+  projection, "Mean GVM" and the verification workbook are all N/A (shown as "—" / omitted), never
+  fabricated.
 
 - **Unavailable → show "—" not 0**: when a pipeline field is in the schema but this vehicle
   has no valid value for the whole column (e.g. some vehicles do not report charging AC/DC

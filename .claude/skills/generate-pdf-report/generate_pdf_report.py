@@ -499,7 +499,7 @@ def _finish_scatter(ax):
 
 
 def build_charts(tr, ch, outdir, reg, cb, here_key=None, cap_kwh=None, anon=False,
-                 rel="figures", load_pts=None):
+                 rel="figures", load_pts=None, no_mass=False):
     # 文件名带 run token 即可破坏 Chrome 缓存；旧图 best-effort 清理
     # （不用 rmtree —— OneDrive 目录可能被占用导致 WinError 5）
     outdir.mkdir(parents=True, exist_ok=True)
@@ -569,10 +569,51 @@ def build_charts(tr, ch, outdir, reg, cb, here_key=None, cap_kwh=None, anon=Fals
         _save(fig, outdir / name("range_gvm"), box=SCATTER_AXBOX)
         charts["range"] = f"{rel}/{name('range_gvm')}"
 
+    # 1c/1d) No-mass distribution variant: EP & projected-range histograms with a KDE overlay
+    #        and mean (dashed red) / median (dotted green) markers. Replace the GVM scatters.
+    if no_mass:
+        epv = pd.to_numeric(tr["ep"], errors="coerce").dropna().values
+        fig, ax = plt.subplots(figsize=(SQ, SQ))
+        if len(epv):
+            ax.hist(epv, bins=np.linspace(EP_MIN, EP_MAX, 25), color=OEM_BLUE,
+                    alpha=0.82, edgecolor="white")
+            if len(epv) >= 3 and np.ptp(epv) > 0:
+                try:
+                    xs = np.linspace(EP_MIN, EP_MAX, 200)
+                    ax2 = ax.twinx(); ax2.plot(xs, gaussian_kde(epv)(xs), color="#e67e22", lw=1.7)
+                    ax2.set_yticks([]); ax2.set_ylim(bottom=0)
+                except Exception:
+                    pass
+            ax.axvline(float(np.mean(epv)), color="#c0392b", lw=1.4, ls="--")
+            ax.axvline(float(np.median(epv)), color="#27ae60", lw=1.4, ls=":")
+        ax.set_xlabel("EP (kWh/km)"); ax.set_ylabel("Trips")
+        ax.set_xlim(EP_MIN, EP_MAX); ax.set_xticks([0, 1, 2, 3]); ax.set_ylim(bottom=0)
+        _save(fig, outdir / name("ep_dist"), box=SCATTER_AXBOX)
+        charts["ep_dist"] = f"{rel}/{name('ep_dist')}"
+        if cap_kwh and len(epv):
+            rngv = cap_kwh / epv
+            rmax = float(np.nanmax(rngv)) * 1.05 if len(rngv) else 1.0
+            fig, ax = plt.subplots(figsize=(SQ, SQ))
+            ax.hist(rngv, bins=np.linspace(0, rmax, 25), color=OEM_BLUE, alpha=0.82, edgecolor="white")
+            if len(rngv) >= 3 and np.ptp(rngv) > 0:
+                try:
+                    xs = np.linspace(0, rmax, 200)
+                    ax2 = ax.twinx(); ax2.plot(xs, gaussian_kde(rngv)(xs), color="#e67e22", lw=1.7)
+                    ax2.set_yticks([]); ax2.set_ylim(bottom=0)
+                except Exception:
+                    pass
+            ax.axvline(float(np.mean(rngv)), color="#c0392b", lw=1.4, ls="--")
+            ax.axvline(float(np.median(rngv)), color="#27ae60", lw=1.4, ls=":")
+            ax.set_xlabel("Projected Range (km)"); ax.set_ylabel("Trips")
+            ax.set_xlim(0, rmax); ax.set_ylim(bottom=0)
+            _save(fig, outdir / name("range_dist"), box=SCATTER_AXBOX)
+            charts["range_dist"] = f"{rel}/{name('range_dist')}"
+
     # 2) EP vs ambient temperature — restricted to the dense (laden) cluster so mass is held
     #    roughly constant: a control-variable view of the temperature effect.
     dmask = lp.get("dense_mask")
-    td = tr[dmask] if dmask is not None else tr
+    # No-mass variant has no laden cluster → fit temperature over ALL trips.
+    td = tr if no_mass else (tr[dmask] if dmask is not None else tr)
     fig, ax = plt.subplots(figsize=(SQ, SQ))
     r = _scatter_fit(ax, td["temp"].values, td["ep"].values, unit=" /°C")
     ax.set_xlabel("Ambient Temperature (°C)"); ax.set_ylabel("EP (kWh/km)")
@@ -690,10 +731,37 @@ def _resolve_xlsx(rdir, reg, period, finetuned):
         f"nor one whose [start,end] covers the window. Run /generate-excel-report first.")
 
 
-def compute(reg, period, version, finetuned):
+def _read_all_xlsx(rdir, reg, finetuned):
+    """All-data mode: read & concatenate EVERY period report for a vehicle, deduping
+    quarterly-boundary overlaps by (Start Time, Leg Type). Returns (df, last_path, False)."""
+    pat = re.compile(rf"^jolt_report_{re.escape(reg)}_(\d{{8}})_(\d{{8}})(_finetuned)?\.xlsx$")
+    by_period = {}
+    for p in rdir.glob(f"jolt_report_{reg}_*.xlsx"):
+        m = pat.match(p.name)
+        if not m:
+            continue
+        key = f"{m.group(1)}_{m.group(2)}"; is_ft = bool(m.group(3))
+        cur = by_period.get(key)  # one file per period; honour the finetuned preference
+        if cur is None or (is_ft == finetuned and cur[1] != finetuned):
+            by_period[key] = (p, is_ft)
+    if not by_period:
+        raise FileNotFoundError(
+            f"No xlsx for {reg} under {rdir} — run /generate-excel-report first.")
+    paths = [by_period[k][0] for k in sorted(by_period)]
+    df = pd.concat([pd.read_excel(p) for p in paths], ignore_index=True)
+    n0 = len(df)
+    df = df.drop_duplicates(subset=["Start Time (UTC)", "Leg Type"], keep="first").reset_index(drop=True)
+    print(f"  [all-data] {len(paths)} period report(s) for {reg} concatenated: {n0}->{len(df)} legs (deduped)")
+    return df, paths[-1], False
+
+
+def compute(reg, period, version, finetuned, all_data=False):
     rdir = PROJECT / "excel_report_database" / version / reg
-    xlsx, subset = _resolve_xlsx(rdir, reg, period, finetuned)
-    df = pd.read_excel(xlsx)
+    if all_data:
+        df, xlsx, subset = _read_all_xlsx(rdir, reg, finetuned)
+    else:
+        xlsx, subset = _resolve_xlsx(rdir, reg, period, finetuned)
+        df = pd.read_excel(xlsx)
     tr = df[df["Leg Type"].isin(DRIVE)].copy()
     ch = df[df["Leg Type"].isin(CHARGE)].copy()
     for c, col in [("d", "Distance (km)"), ("ep", "Energy Performance (kWh/km)"),
@@ -1065,10 +1133,12 @@ def main():
     ap.add_argument("--anon", action="store_true",
                     help="匿名化展示版：隐去运营方与车牌、底图换无地名 CARTO，"
                          "产物为 report_anon_<period>.*（与命名版共存）")
+    ap.add_argument("--all-data", action="store_true",
+                    help="读取该车所有周期报告并合并（全部已采集数据，而非单一周期；忽略 --period）")
     args = ap.parse_args()
 
     df, tr, ch, xlsx_path, covering_src = compute(args.reg, args.period, args.version,
-                                                  finetuned=not args.base)
+                                                  finetuned=not args.base, all_data=args.all_data)
     fname = xlsx_path.name
     spec = PLOT_CFG["vehicle_specs"].get(args.reg, {})
     operator = _resolve_operator(args.reg, args.period)
@@ -1087,10 +1157,12 @@ def main():
     fig_dir = outdir / fig_rel
     cb = int(time.time())  # run token：图片文件名缓存破坏
     cap_kwh = VEHICLES.get(args.reg, {}).get("effective_capacity_kwh")
+    # No usable mass channel (e.g. YN75NMA, T88RNW) → distribution variant instead of the GVM scatters.
+    no_mass = int(tr["mass"].notna().sum()) < max(1, int(0.05 * len(tr)))
     load_pts = _compute_load_points(args.reg, tr)
     charts, st = build_charts(tr, ch, fig_dir, args.reg, cb,
                               here_key=_load_here_key(), cap_kwh=cap_kwh,
-                              anon=args.anon, rel=fig_rel, load_pts=load_pts)
+                              anon=args.anon, rel=fig_rel, load_pts=load_pts, no_mass=no_mass)
 
     # ---- 真实 KPI ----
     daily_km = tr.dropna(subset=["date"]).groupby("date")["d"].sum()
@@ -1228,6 +1300,35 @@ def main():
         f"Temperature (laden trips, {laden_gmin:.0f}–{laden_gmax:.0f} t): energy performance changes "
         f"~{abs(t_per10):.2f} kWh/km per 10 °C colder — {temp_sens}.")
 
+    # No-mass variant: replace the load-point conclusions with EP & projected-range distribution stats.
+    ep_mean = ep_med = ep_sd_d = ep_q1 = ep_q3 = float("nan"); ep_n_d = 0
+    rng_mean = rng_med = rng_q1 = rng_q3 = float("nan")
+    if no_mass:
+        epv = tr["ep"].dropna()
+        ep_n_d = int(len(epv))
+        ep_mean = float(epv.mean()); ep_med = float(epv.median()); ep_sd_d = float(epv.std())
+        ep_q1 = float(epv.quantile(0.25)); ep_q3 = float(epv.quantile(0.75))
+        cv = (ep_sd_d / ep_mean) if (pd.notna(ep_sd_d) and ep_mean) else float("nan")
+        spread = ("tightly clustered" if (pd.notna(cv) and cv < 0.15)
+                  else "moderately spread" if (pd.notna(cv) and cv < 0.30) else "widely spread")
+        conclusion_points = [
+            f"Energy performance averaged {_pep(ep_mean)} kWh/km (median {_pep(ep_med)}, "
+            f"IQR {_pep(ep_q1)}–{_pep(ep_q3)}, σ {_pep(ep_sd_d)}) over {ep_n_d} trips — {spread}."]
+        if cap_kwh and ep_n_d:
+            rngv = cap_kwh / epv
+            rng_mean = float(rngv.mean()); rng_med = float(rngv.median())
+            rng_q1 = float(rngv.quantile(0.25)); rng_q3 = float(rngv.quantile(0.75))
+            conclusion_points.append(
+                f"Projected full-charge range averaged {_prn(rng_mean)} km (median {_prn(rng_med)}, "
+                f"IQR {_prn(rng_q1)}–{_prn(rng_q3)} km) — effective capacity {cap_kwh:.0f} kWh ÷ per-trip EP.")
+        if pd.notna(t_per10):
+            conclusion_points.append(
+                f"Temperature (all trips, {tr['temp'].min():.0f}–{tr['temp'].max():.0f} °C): energy "
+                f"performance changes ~{abs(t_per10):.2f} kWh/km per 10 °C colder — {temp_sens}.")
+        conclusion_points.append(
+            "This vehicle does not report gross vehicle mass, so the load dependence of energy "
+            "performance cannot be assessed; the figures above characterise the observed spread.")
+
     # page-1 summary: concise plain-English takeaways for partners. Kept to a high-level overview
     # + charging behaviour + a data-availability note; the load/range/temperature detail lives on
     # page 2 (not duplicated here).
@@ -1248,6 +1349,8 @@ def main():
         _missing.append("charged energy (AC/DC)")
     if pd.isna(recup):
         _missing.append("energy recuperated")
+    if no_mass:
+        _missing.append("gross vehicle mass")
     if _missing:
         summary_points.append(
             f"Data channels: {' and '.join(_missing)} are not reported by this vehicle telematics "
@@ -1285,7 +1388,7 @@ def main():
                     rng_r2=st["range_fit"][3], rng_light=rng_light, rng_heavy=rng_heavy)
 
     verif_path, n_audit = None, 0
-    if not args.anon:  # 匿名版数字与命名版一致，核实在命名版工作簿上完成
+    if not args.anon and not no_mass:  # 命名版才出核实工作簿；no_mass 分布变体暂不出（mass-based 审计不适用，留作后续）
         verif_path = outdir / f"verification_{args.reg}_{op_period}.xlsx"
         try:
             n_audit = build_verification_workbook(verif_path, tr, ch, vals)
@@ -1313,13 +1416,22 @@ def main():
                  else (sg_thr if single_group
                        else (gvw_hi if legacy_tertile else gvw_split)))
     laden_lbl = (f"laden, ≥ {laden_thr:.0f} t" if pd.notna(laden_thr) else "laden")
-    charts_grid = [dict(title="Energy Performance vs Gross Vehicle Mass", img=charts["gvm"])]
-    if charts.get("range"):
-        charts_grid.append(dict(title="Projected Range vs Gross Vehicle Mass", img=charts["range"]))
-    charts_grid += [
-        dict(title=f"Energy Performance vs Ambient Temperature ({laden_lbl})", img=charts["temp"]),
-        dict(title="Charging Start State of Charge", img=charts["soc"]),
-    ]
+    if no_mass:
+        charts_grid = [dict(title="Energy Performance Distribution", img=charts["ep_dist"])]
+        if charts.get("range_dist"):
+            charts_grid.append(dict(title="Projected Range Distribution", img=charts["range_dist"]))
+        charts_grid += [
+            dict(title="Energy Performance vs Ambient Temperature (all trips)", img=charts["temp"]),
+            dict(title="Charging Start State of Charge", img=charts["soc"]),
+        ]
+    else:
+        charts_grid = [dict(title="Energy Performance vs Gross Vehicle Mass", img=charts["gvm"])]
+        if charts.get("range"):
+            charts_grid.append(dict(title="Projected Range vs Gross Vehicle Mass", img=charts["range"]))
+        charts_grid += [
+            dict(title=f"Energy Performance vs Ambient Temperature ({laden_lbl})", img=charts["temp"]),
+            dict(title="Charging Start State of Charge", img=charts["soc"]),
+        ]
 
     ctx = dict(
         reg=reg_disp, operator=operator_disp, vehicle_model=vehicle_model.upper(),
