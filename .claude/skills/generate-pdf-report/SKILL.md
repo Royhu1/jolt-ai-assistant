@@ -36,17 +36,17 @@ produced; `pdf_report_workspace/` only holds the artefacts.
   deduped by Start Time + Leg Type) instead of one period; the operating period and output naming
   then span the full data range, and `--period` is ignored for xlsx selection. Combine with `--anon`
   as usual. Example: `--reg CMZ6260 --all-data` covers 2025-09 → 2026-04 across three quarterly reports.
-- **Round-robin vehicles + `--all-data` → one briefing PER OPERATOR (auto)**: a vehicle in
-  `plot_config.json` `company_assignment.round_robin` (currently **EX74JXW**, **LN25NKE**) runs under
-  different operators over time; with `--all-data` the generator automatically emits **one briefing
-  per distinct operator** — the data is filtered to that operator's date span and the briefing is
-  labelled with that operator — instead of one merged "JOLT Partners" briefing. Output is
-  `output/<REG>_<OPERATOR>_<op_period>/` (e.g. `EX74JXW_DP_WORLD_…`, `EX74JXW_WJF_…`). Simple
-  (single-operator) vehicles, and any non-`--all-data` run, are unchanged (a single briefing).
-  An operator with **< 20 valid trips** is **skipped** (too sparse for a meaningful briefing, logged —
-  e.g. LN25NKE/DP_WORLD has only 12). The **mass-vs-distribution variant is decided at the vehicle
-  level** (over all the vehicle's data, before the operator split) so a vehicle's per-operator briefings
-  are all the same variant (a sparse operator subset can't flip to a mass briefing on its own).
+- **Round-robin vehicles + `--all-data` → one briefing PER OPERATOR (auto, DATA-DRIVEN)**: the operator
+  comes from the report's per-leg **`Operator`** column (the generator derives it from SRF
+  `leg.trip.trial.description` / `vehicle.organisation.name`), **NOT** the manual plot_config. With
+  `--all-data`, if the data shows **>1 distinct operator** (each with **≥20 valid trips**) the generator
+  emits **one briefing per operator** — trips filtered by `Operator == op`, charges by that operator's
+  trip date span, labelled with that operator — instead of one merged briefing. Output is
+  `output/<REG>_<OPERATOR>_<op_period>/` (e.g. `CMZ6260_JLP_…` / `CMZ6260_SJG_…` / `CMZ6260_HTL_…`).
+  A single distinct operator → one briefing; non-`--all-data` runs → one briefing. An operator with
+  **< 20 valid trips** is **skipped** (too sparse, logged). The **mass-vs-distribution variant is decided
+  at the vehicle level** (over all the vehicle's data, before the split) so a vehicle's per-operator
+  briefings are all the same variant (a sparse operator subset can't flip to a mass briefing on its own).
 - **Two report variants, auto-selected by data**: vehicles that report gross vehicle mass get the
   standard mass-based briefing; vehicles with **no usable mass channel** (mass present on < 5 % of
   trips — e.g. YN75NMA, T88RNW) automatically get the **distribution variant** (see §4/§5) — no flag
@@ -59,12 +59,12 @@ produced; `pdf_report_workspace/` only holds the artefacts.
   `src/jolt_toolkit/configs/vehicles.json` `effective_capacity_kwh` (needed for the Range
   figure); OEM is taken from `plot_config.json` `vehicle_specs`, and model from
   `vehicles.json` `model`.
-- **Operator resolution** (`_resolve_operator`): first look up `plot_config.json`
-  `company_assignment.simple`; for a dedicated vehicle not in `simple`, match the report
-  period against the date ranges in `company_assignment.round_robin[REG]` (prefer the range
-  containing the period-end day, otherwise the overlapping range); fall back to the
-  registration if neither matches. Example: EX74JXW is in `round_robin`, the 2025-10/11
-  period → `WJF`. The anonymised version always hides the operator as "JOLT MEMBER".
+- **Operator resolution (DATA-DRIVEN)**: the page-header operator is the **dominant operator** in the
+  briefing's data (mode of the trips' `Operator` column), falling back to the registration only if the
+  column is empty. `plot_config.json` `company_assignment` (simple / round_robin) is **no longer used**
+  for the operator — the report's per-leg `Operator` column is the single source of truth, so an operator
+  change shows up automatically (e.g. CMZ6260 JLP→SJG→HTL; YN75NMA PORT_EXPRESS_DAIMLER→HTL) with no
+  config edit. The anonymised version always hides the operator as "JOLT MEMBER".
 - **Regen energy is taken from the raw_telematics cumulative counter** (`_counter_recup`):
   read the regen counter under `excel_report_database/<ver>/<REG>/raw_telematics/` and use
   `jolt_toolkit.analysis` `build_interp`/`delta` to interpolate-and-difference at each

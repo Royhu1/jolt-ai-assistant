@@ -808,6 +808,10 @@ def compute(reg, period, version, finetuned, all_data=False):
                    ("ec", "Energy Change (kWh)"), ("temp", "Average Temperature (C)"),
                    ("mass", "Vehicle Mass (kg)"), ("recup", "Recuperation Energy (kWh)")]:
         tr[c] = num(tr[col])
+    # Operator is DATA-DRIVEN: read the report's per-leg `Operator` column (the generator derives it
+    # from SRF leg.trip.trial.description / vehicle.organisation.name). This is the source of truth for
+    # the page header and the per-operator split — NOT the manual plot_config company_assignment.
+    tr["operator"] = tr["Operator"].astype(str).str.strip() if "Operator" in tr.columns else ""
     # 有效 trip 过滤：里程 < MIN_TRIP_KM（或里程缺失）的行驶段不计入任何分析与运营周期
     # （极短/残段，EP 不可靠）。须在统计前剔除：OPERATING PERIOD、活跃天数、KPI、散点均基于有效 trip。
     n_before = len(tr)
@@ -1050,10 +1054,10 @@ def build_verification_workbook(path, tr, ch, v):
             ("Page 2 · EP vs GVM", "Average EP, heaviest 1/3 (kWh/km)", v["ep_heavy"],
              f'=AVERAGEIFS({tr_f},{tr_g},{hi_crit})', 0.005, "Mean EP where GVM > 67% quantile", ""),
         ]
-        range_rows = ([("Page 2 · Range vs GVM", "Average range, lighter group (km)", v["rng_light"],
+        range_rows = ([("Page 2 · Range vs GVM", "Average range, lighter group (km)", v.get("rng_light", float("nan")),
                         f'={cap:g}/AVERAGEIFS({tr_f},{tr_g},{lo_crit})', 1.0,
                         "capacity / cluster mean EP (monotonic with EP, never inverts)", ""),
-                       ("Page 2 · Range vs GVM", "Average range, heavier group (km)", v["rng_heavy"],
+                       ("Page 2 · Range vs GVM", "Average range, heavier group (km)", v.get("rng_heavy", float("nan")),
                         f'={cap:g}/AVERAGEIFS({tr_f},{tr_g},{hi_crit})', 1.0, "", "")] if cap else [])
     else:
         rows += [
@@ -1070,10 +1074,10 @@ def build_verification_workbook(path, tr, ch, v):
             ("Page 2 · EP vs GVM", "Average EP, heavier cluster (kWh/km)", v["ep_heavy"],
              f'=AVERAGEIFS({tr_f},{tr_g},{hi_crit})', 0.005, "Mean EP where GVM > cluster split", ""),
         ]
-        range_rows = ([("Page 2 · Range vs GVM", "Average range, lighter group (km)", v["rng_light"],
+        range_rows = ([("Page 2 · Range vs GVM", "Average range, lighter group (km)", v.get("rng_light", float("nan")),
                         f'={cap:g}/AVERAGEIFS({tr_f},{tr_g},{lo_crit})', 1.0,
                         "capacity / cluster mean EP (monotonic with EP, never inverts)", ""),
-                       ("Page 2 · Range vs GVM", "Average range, heavier group (km)", v["rng_heavy"],
+                       ("Page 2 · Range vs GVM", "Average range, heavier group (km)", v.get("rng_heavy", float("nan")),
                         f'={cap:g}/AVERAGEIFS({tr_f},{tr_g},{hi_crit})', 1.0, "", "")] if cap else [])
     if cap:
         rows += [
@@ -1164,20 +1168,6 @@ def build_verification_workbook(path, tr, ch, v):
     return len(rows)
 
 
-def _round_robin_operators(reg):
-    """For a round-robin vehicle, return [(operator, lo_ts, hi_ts), ...] — segments grouped by
-    distinct operator (each operator's segments merged into one [min start, max end] span). Empty
-    for simple / unknown regs."""
-    segs = PLOT_CFG.get("company_assignment", {}).get("round_robin", {}).get(reg, [])
-    spans = {}
-    for s in segs:
-        c = s["company"]
-        lo = pd.Timestamp(s["date_start"])
-        hi = pd.Timestamp(s["date_end"]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-        spans[c] = (min(spans[c][0], lo), max(spans[c][1], hi)) if c in spans else (lo, hi)
-    return [(c, lo, hi) for c, (lo, hi) in spans.items()]
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reg", default="YK73WFN")
@@ -1190,46 +1180,53 @@ def main():
     ap.add_argument("--all-data", action="store_true",
                     help="读取该车所有周期报告并合并（全部已采集数据，而非单一周期；忽略 --period）")
     args = ap.parse_args()
-    # Round-robin vehicle + --all-data → one briefing PER DISTINCT OPERATOR (each over that operator's
-    # date span); other vehicles / non-all-data → a single briefing (unchanged).
-    ops = _round_robin_operators(args.reg) if args.all_data else []
-    if ops:
-        print(f"[round-robin] {args.reg}: {len(ops)} operator(s) → " + ", ".join(o[0] for o in ops))
-        for op in ops:
-            _emit_briefing(args, op_filter=op)
-    else:
-        _emit_briefing(args)
-
-
-def _emit_briefing(args, op_filter=None):
-    df, tr, ch, xlsx_path, covering_src = compute(args.reg, args.period, args.version,
-                                                  finetuned=not args.base, all_data=args.all_data)
+    df, tr, ch, xlsx_path, _cov = compute(args.reg, args.period, args.version,
+                                          finetuned=not args.base, all_data=args.all_data)
     fname = xlsx_path.name
-    # no_mass 在 operator 过滤之前、按**全车**数据判定，使同一车各 operator 子集的变体一致
-    # （否则某稀疏 operator 子集偶然 mass≥5% 会被当作 mass 变体，与其分布变体兄弟不一致）。
-    _veh_no_mass = int(tr["mass"].notna().sum()) < max(1, int(0.05 * len(tr)))
-    op_name = None
+    # no_mass 按**全车**数据判定（在 operator 拆分之前），使同一车各 operator 子集变体一致。
+    veh_no_mass = int(tr["mass"].notna().sum()) < max(1, int(0.05 * len(tr)))
+    # Operators are DATA-DRIVEN from the report's `Operator` column. --all-data + >1 distinct operator
+    # (each with ≥20 valid trips) → one briefing per operator; sparser operators are skipped. Otherwise a
+    # single briefing labelled by the dominant operator. (plot_config company_assignment no longer used.)
+    def _valid_n(o):
+        return int(((tr["operator"] == o) & tr["ep"].notna()).sum())
+    ops_all = [o for o in tr["operator"].dropna().unique()
+               if str(o).strip() and str(o).strip().lower() != "nan"]
+    eligible = [o for o in ops_all if _valid_n(o) >= 20]
+    if args.all_data and len(eligible) > 1:
+        print(f"[operator-split] {args.reg}: {len(eligible)} operator(s) → " + ", ".join(eligible))
+        for o in ops_all:
+            if o not in eligible:
+                print(f"[operator-split] {args.reg} / {o}: only {_valid_n(o)} valid trips (<20) — skipped")
+        for o in eligible:
+            _emit_briefing(args, tr, ch, fname, veh_no_mass, op_filter=o)
+    else:
+        _emit_briefing(args, tr, ch, fname, veh_no_mass, op_filter=None)
+
+
+def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
+    # op_filter = an operator name → trips filtered by the data-driven `operator` column, charges by that
+    # operator's trip date span. None → single briefing, labelled by the dominant operator in the data.
     if op_filter is not None:
-        op_name, op_lo, op_hi = op_filter
-        tr = tr[(tr["st"] >= op_lo) & (tr["st"] <= op_hi)].copy()
-        ch = ch[(ch["st"] >= op_lo) & (ch["st"] <= op_hi)].copy()
-        n_valid = int(tr["ep"].notna().sum())
-        if n_valid < 20:  # too sparse for a meaningful per-operator briefing → skip (note it)
-            print(f"[round-robin] {args.reg} / {op_name}: only {n_valid} valid trips (< 20) — too sparse, skipped")
-            return
+        tr = tr_full[tr_full["operator"] == op_filter].copy()
+        d0f, d1f = tr["st"].min(), tr["et"].max()
+        ch = ch_full[(ch_full["st"] >= d0f) & (ch_full["st"] <= d1f)].copy()
+        operator = op_filter
+    else:
+        tr, ch = tr_full.copy(), ch_full.copy()
+        _op = tr["operator"][tr["operator"].astype(str).str.strip().ne("")
+                             & tr["operator"].astype(str).str.lower().ne("nan")]
+        operator = _op.mode().iloc[0] if not _op.mode().empty else args.reg
     spec = PLOT_CFG["vehicle_specs"].get(args.reg, {})
     make = spec.get("make", "")
     model = VEHICLES.get(args.reg, {}).get("model", "")
     vehicle_model = (f"{make} {model}".strip() or make)  # 真实型号取自 vehicles.json
 
-    # 运营周期 = 有效 trip 的真实跨度（首发车 → 末到达）；**输出（文件夹/PDF/xlsx/标签）一律按此命名**，
-    # 与页头 OPERATING PERIOD 对齐，而非名义报告周期 args.period（后者仅用于 compute 定位 xlsx）。
-    # 无有效 trip 时回退 args.period。
+    # 运营周期 = 有效 trip 的真实跨度（首发车 → 末到达）；输出（文件夹/PDF/标签）一律按此命名。
     d0, d1 = tr["st"].min(), tr["et"].max()
     op_period = (f"{d0:%Y%m%d}_{d1:%Y%m%d}" if pd.notna(d0) and pd.notna(d1) else args.period)
-    # Per-operator split passes the operator explicitly; otherwise resolve over the real op span.
-    operator = op_name or _resolve_operator(args.reg, op_period)
-    tag = f"{op_name}_{op_period}" if op_name else op_period   # operator-scoped file/dir naming
+    _op_tag = re.sub(r"[^A-Za-z0-9]+", "_", str(operator)).strip("_") or "OP"
+    tag = f"{_op_tag}_{op_period}" if op_filter is not None else op_period   # operator-scoped naming when split
 
     outdir = WORKSPACE / "output" / f"{args.reg}_{tag}"
     fig_rel = "figures_anon" if args.anon else "figures"  # 匿名版独立图目录，与命名版产物共存
@@ -1238,7 +1235,7 @@ def _emit_briefing(args, op_filter=None):
     cap_kwh = VEHICLES.get(args.reg, {}).get("effective_capacity_kwh")
     # No usable mass channel (e.g. YN75NMA, T88RNW) → distribution variant instead of the GVM scatters.
     # Use the vehicle-level flag (computed before any operator filter) so per-operator splits are consistent.
-    no_mass = _veh_no_mass
+    no_mass = veh_no_mass
     load_pts = _compute_load_points(args.reg, tr)
     charts, st = build_charts(tr, ch, fig_dir, args.reg, cb,
                               here_key=_load_here_key(), cap_kwh=cap_kwh,
