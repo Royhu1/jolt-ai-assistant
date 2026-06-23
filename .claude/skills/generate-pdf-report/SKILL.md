@@ -178,7 +178,11 @@ was conditional on **anonymisation**. Add `--anon`:
 
 The page-2 **Conclusions** block and the page-1 **Summary** block are the subjective deliverable.
 Both are plain-English, partner-facing, **British English**, concise, with **every number inlined
-from the pipeline (no manual entry)** and **no inference unsupported by the data**. Use
+from the pipeline (no manual entry)** and **no inference unsupported by the data**. **State the
+headline numbers only — no parenthetical median / IQR / σ breakdowns and no subjective verdict tags
+(e.g. "…temperature-sensitive", "widely spread"); this applies to BOTH the standard and the
+distribution variant** (the per-load-point `±s` on the standard variant is kept — it is a concise,
+expected spread, not a verbose breakdown). Use
 **"energy performance"** (matching the figures), not "energy use". Glossary: gross vehicle mass
 (GVM); EP = energy performance (kWh/km); Range = effective battery capacity ÷ EP (state capacity).
 
@@ -193,9 +197,9 @@ Report at three load points, each with a **±1 standard deviation** in brackets:
   cap/EP.
 - One **load-sensitivity** line (`Each extra tonne of load adds ~m kWh/km`).
 - One **temperature** line: `Temperature (laden trips, lo–hi t): energy performance changes
-  ~X kWh/km per 10 °C colder (R²=…) — <largely / moderately / noticeably temperature-sensitive>`.
-  Temperature is fitted on the **laden cluster only** (mass held roughly constant); the bullet
-  states the laden **mass range**.
+  ~X kWh/km per 10 °C colder` — **numbers only: no R² and no qualitative "…temperature-sensitive"
+  verdict tag** (see the style note above). Temperature is fitted on the **laden cluster only** (mass
+  held roughly constant); the bullet states the laden **mass range**.
 
 ### Load-point masses & EP basis (data + judgement) — `_compute_load_points`
 Masses combine the GVM distribution with judgement. Priority **band > single-group >
@@ -233,9 +237,9 @@ The load / range / temperature detail lives on page 2 and is **not** repeated in
 
 ### No-mass distribution variant — conclusions & page-1
 When the vehicle reports no usable mass, the page-2 Conclusions become a **distribution analysis**
-(no load points): EP `averaged X kWh/km (median Y, IQR L–H, σ S) over N trips — <tightly clustered /
-moderately spread / widely spread>`; projected range `averaged X km (median Y, IQR L–H km) —
-effective capacity Z kWh ÷ per-trip EP`; the temperature bullet is fitted over **all trips** (stated
+(no load points): EP `averaged X kWh/km over N trips`; projected range `averaged X km —
+effective capacity Z kWh ÷ per-trip EP` (headline means only — no median/IQR/σ parentheticals and no
+"…spread" verdict, per the style note above); the temperature bullet is fitted over **all trips** (stated
 as "all trips", not "laden"); plus one honest line that load dependence cannot be assessed without
 mass. Page-1 "Mean GVM" shows "—" and the data-availability note lists "gross vehicle mass". The
 verification workbook (a mass-based audit) is **not** emitted for this variant (follow-up: add a

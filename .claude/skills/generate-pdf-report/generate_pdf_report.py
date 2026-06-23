@@ -1270,12 +1270,6 @@ def main():
     laden_gmin, laden_gmax = laden_gvm.min(), laden_gvm.max()
     t_slope = st.get("temp_slope", float("nan")); t_r2 = st.get("temp_r2", float("nan"))
     t_n = int(st.get("temp_n", 0)); t_per10 = t_slope * 10 if pd.notna(t_slope) else float("nan")
-    temp_sens = ("largely temperature-insensitive over this range"
-                 if (pd.notna(t_per10) and abs(t_per10) < 0.10) else
-                 "moderately temperature-sensitive"
-                 if (pd.notna(t_per10) and abs(t_per10) < 0.25) else
-                 "noticeably temperature-sensitive" if pd.notna(t_per10) else
-                 "of undetermined temperature sensitivity")
 
     # plain-English number formatters (NaN -> "—"; ± omitted when unknown)
     _pep = lambda v: "—" if pd.isna(v) else f"{v:.2f}"
@@ -1298,7 +1292,7 @@ def main():
             f"Each extra tonne of load adds ~{gvm_slope:.2f} kWh/km.")
     conclusion_points.append(
         f"Temperature (laden trips, {laden_gmin:.0f}–{laden_gmax:.0f} t): energy performance changes "
-        f"~{abs(t_per10):.2f} kWh/km per 10 °C colder — {temp_sens}.")
+        f"~{abs(t_per10):.2f} kWh/km per 10 °C colder.")
 
     # No-mass variant: replace the load-point conclusions with EP & projected-range distribution stats.
     ep_mean = ep_med = ep_sd_d = ep_q1 = ep_q3 = float("nan"); ep_n_d = 0
@@ -1308,23 +1302,19 @@ def main():
         ep_n_d = int(len(epv))
         ep_mean = float(epv.mean()); ep_med = float(epv.median()); ep_sd_d = float(epv.std())
         ep_q1 = float(epv.quantile(0.25)); ep_q3 = float(epv.quantile(0.75))
-        cv = (ep_sd_d / ep_mean) if (pd.notna(ep_sd_d) and ep_mean) else float("nan")
-        spread = ("tightly clustered" if (pd.notna(cv) and cv < 0.15)
-                  else "moderately spread" if (pd.notna(cv) and cv < 0.30) else "widely spread")
         conclusion_points = [
-            f"Energy performance averaged {_pep(ep_mean)} kWh/km (median {_pep(ep_med)}, "
-            f"IQR {_pep(ep_q1)}–{_pep(ep_q3)}, σ {_pep(ep_sd_d)}) over {ep_n_d} trips — {spread}."]
+            f"Energy performance averaged {_pep(ep_mean)} kWh/km over {ep_n_d} trips."]
         if cap_kwh and ep_n_d:
             rngv = cap_kwh / epv
             rng_mean = float(rngv.mean()); rng_med = float(rngv.median())
             rng_q1 = float(rngv.quantile(0.25)); rng_q3 = float(rngv.quantile(0.75))
             conclusion_points.append(
-                f"Projected full-charge range averaged {_prn(rng_mean)} km (median {_prn(rng_med)}, "
-                f"IQR {_prn(rng_q1)}–{_prn(rng_q3)} km) — effective capacity {cap_kwh:.0f} kWh ÷ per-trip EP.")
+                f"Projected full-charge range averaged {_prn(rng_mean)} km "
+                f"— effective capacity {cap_kwh:.0f} kWh ÷ per-trip EP.")
         if pd.notna(t_per10):
             conclusion_points.append(
                 f"Temperature (all trips, {tr['temp'].min():.0f}–{tr['temp'].max():.0f} °C): energy "
-                f"performance changes ~{abs(t_per10):.2f} kWh/km per 10 °C colder — {temp_sens}.")
+                f"performance changes ~{abs(t_per10):.2f} kWh/km per 10 °C colder.")
         conclusion_points.append(
             "This vehicle does not report gross vehicle mass, so the load dependence of energy "
             "performance cannot be assessed; the figures above characterise the observed spread.")
