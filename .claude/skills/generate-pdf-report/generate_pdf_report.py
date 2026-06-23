@@ -247,13 +247,12 @@ def _compute_load_points(reg, tr):
     elif reg in LEGACY_TERTILE_REGS:             # fixed tertiles
         loq, hiq = gvw_t.quantile(0.33), gvw_t.quantile(0.67)
         dense_mask, unladen_mask = gvw_t > hiq, gvw_t < loq
-    else:                                        # default: KDE density-valley split
+    else:                                        # default: KDE density-valley split — laden = the
+        # HEAVIER cluster, unladen = the lighter (split by MASS, not by which cluster is denser: a
+        # vehicle that runs mostly light, e.g. CMZ6260 at ~19 t, must not have its denser light
+        # cluster mislabelled as "laden" — laden must always be the heavier observed mass).
         split = _gvm_cluster_split(gvw_t.values)
-        heavy_mask, light_mask = gvw_t > split, gvw_t <= split
-        if int(heavy_mask.sum()) >= int(light_mask.sum()):
-            dense_mask, unladen_mask = heavy_mask, light_mask
-        else:
-            dense_mask, unladen_mask = light_mask, heavy_mask
+        dense_mask, unladen_mask = gvw_t > split, gvw_t <= split
     m_la = float(gvw_t[dense_mask].median()) if dense_mask.any() else float("nan")
     ov = spec.get("unladen_mass_t")
     if ov is not None:
@@ -1167,9 +1166,10 @@ def main():
     # ---- 真实 KPI ----
     daily_km = tr.dropna(subset=["date"]).groupby("date")["d"].sum()
     tot_km = tr["d"].sum(); ndays = tr["date"].nunique()
-    # 分析用的有效行驶段数 = 图表 n（EP & GVM 齐全）。头部 "Driving Legs"、trips/day 一律用它，
-    # 与第 2 页散点/拟合的 n 保持一致（len(tr) 还含 EP 被清洗的离群段，距离/能耗总量仍按全部段）。
-    n_legs = int((tr["ep"].notna() & tr["mass"].notna()).sum())
+    # 分析用的有效行驶段数 = 图表 n。标准变体取 EP & GVM 齐全（与第 2 页散点/拟合 n 一致）；
+    # 无质量变体（no_mass）第 2 页是 EP/Range 分布图、不依赖 mass，故取 EP 齐全的段（否则 mass 全空
+    # 会让 n_legs=0 → "0.0 trips/day"、"Driving Legs 0"）。距离/能耗总量仍按全部段。
+    n_legs = int(tr["ep"].notna().sum()) if no_mass else int((tr["ep"].notna() & tr["mass"].notna()).sum())
     tot_e = tr["ec"].abs().sum(); mean_ep = tot_e / tot_km if tot_km else float("nan")
     # 再生能量：优先用 raw_telematics 累积计数器（全覆盖、口径正确，约占能耗 ~20%）；无 raw /
     # 无该计数器的车（Scania/Mercedes/柴油）回退 xlsx 列（其值本就稀疏/缺 → 显示 '—'）。
@@ -1352,8 +1352,15 @@ def main():
     if no_mass:
         _missing.append("gross vehicle mass")
     if _missing:
+        # Oxford-style list join so 3 items read "A, B, and C" (not "A and B and C").
+        if len(_missing) == 1:
+            joined = _missing[0]
+        elif len(_missing) == 2:
+            joined = " and ".join(_missing)
+        else:
+            joined = ", ".join(_missing[:-1]) + ", and " + _missing[-1]
         summary_points.append(
-            f"Data channels: {' and '.join(_missing)} are not reported by this vehicle telematics "
+            f"Data channels: {joined} are not reported by this vehicle telematics "
             f"(shown as “—”).")
 
     # ---- 人工核实：把简报中出现的每个数字汇成清单，写核实工作簿（Excel 公式独立复算）----
