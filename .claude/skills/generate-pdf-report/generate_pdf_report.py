@@ -74,7 +74,7 @@ LEGACY_TERTILE_REGS = {"YK73WFN"}
 # 单组分析（不分轻/重簇）：这些车主要满载运行、GVM 分簇无意义——改为只给
 # **GVM > 阈值(t) 的离群剔除（IQR 1.5×）平均**（EP 与续航各一条 bullet）。值 = GVM 阈值(t)。
 # 优先级高于 LEGACY_TERTILE_REGS / KDE 聚类。见 SKILL.md §5。
-SINGLE_GROUP_REGS = {"YN25RSY": 17.0}
+SINGLE_GROUP_REGS = {}  # none currently — YN25RSY moved to an AI-judged artic band (a band, when set in briefing_vehicle_specs.json, overrides single-group anyway via the guard below)
 
 # 统一坐标轴范围与刻度（参数化，所有报告跨车辆/周期可比）
 GVM_XLIM = (0, 45)               # gross vehicle mass 轴，t
@@ -1216,7 +1216,9 @@ def main():
 
     # 单组模式（SINGLE_GROUP_REGS，如 YN25RSY）：不分轻/重簇，只给 GVM > 阈值的离群剔除均值
     sg_thr = SINGLE_GROUP_REGS.get(args.reg)
-    single_group = sg_thr is not None
+    # A configured AI-judged band (briefing_vehicle_specs.json) always takes priority over the
+    # single-group treatment (matching _compute_load_points), so the unladen line is not suppressed.
+    single_group = (sg_thr is not None) and (load_pts.get("band_lo") is None)
     ep_laden = rng_laden = float("nan"); n_laden = n_laden_tot = 0
     if single_group:
         ep_laden, n_laden, n_laden_tot = _outlier_trimmed_mean(tr.loc[gvw_t > sg_thr, "ep"])

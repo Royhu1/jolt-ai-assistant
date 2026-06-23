@@ -215,14 +215,19 @@ vehicle it merges the ~17 t unladen shoulder into the dominant laden peak and re
 unladen (e.g. CMZ6260's KDE → ~19 t, whereas the true tractor+trailer unladen is ~17 t).
 
 - **Band mode** (`briefing_vehicle_specs.json` `unladen_band_t`=[lo,hi], opt. `laden_min_t`): the
-  AI-judged artic case above. Unladen = data points in [lo,hi) (tractor + empty trailer); laden =
-  GVM ≥ laden_min (default hi); bobtail (< lo) excluded. e.g. **EX74JXW = [14,20], laden_min 20**
-  (bobtail ~12 t, unladen ~17 t); **CMZ6260 = [13,18], laden_min 18** (bobtail ~10.5 t excluded,
-  unladen ~17 t, laden ≥ 18 t).
-- **Single-group** (`SINGLE_GROUP_REGS`, e.g. **YN25RSY = 17 t**): laden = GVM > threshold;
-  **no unladen point** (runs mostly laden); laden EP = IQR(1.5×)-trimmed mean.
-- **Legacy tertile** (`LEGACY_TERTILE_REGS`, e.g. **YK73WFN**): unladen = lightest tertile,
-  laden = heaviest tertile (the partner style baseline).
+  AI-judged artic case above (**takes priority** over single-group / legacy-tertile / KDE). Unladen =
+  data points in [lo,hi) (tractor + empty trailer); laden = GVM ≥ laden_min (default hi); bobtail
+  (< lo) excluded; `unladen_mass_t` pins the marker when the band is sparse. Current bands (all
+  artics; per-vehicle histogram + judgement in the JSON `note`s): **EX74JXW [13,19]/19** (unladen
+  pinned ~17 t), **CMZ6260 [13,18]/18** (unladen ~17 t), **YK73WFN [13,24]/24** (bobtail ~11 t — 106
+  data points! — excluded, unladen ~19 t, laden ~35 t), **YN25RSY [13,21]/21** (unladen ~19 t,
+  laden ~24 t).
+- **Single-group** (`SINGLE_GROUP_REGS`): laden = GVM > threshold, no unladen point — for a vehicle
+  that genuinely runs only laden. **None currently** (YN25RSY moved to a band once its ~19 t unladen
+  cluster was identified); a configured band overrides single-group.
+- **Legacy tertile** (`LEGACY_TERTILE_REGS`, e.g. **YK73WFN** historically): unladen = lightest
+  tertile, laden = heaviest. **Superseded for YK73WFN by an AI-judged band** (band has priority) —
+  the tertile let YK73's 106 bobtail points contaminate the lightest third / unladen.
 - **Default** (fallback only): KDE density-valley split (`_gvm_cluster_split`) — laden = the
   **heavier** cluster by mass, unladen = the lighter. Prefer an AI-judged band for artics (the
   default cannot see the bobtail/unladen/laden tiers and will mislabel a mostly-laden vehicle).
