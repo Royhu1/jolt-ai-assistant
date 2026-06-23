@@ -205,12 +205,17 @@ Unladen EP = mean of the unladen data points **except in band mode**, where the 
 → always the **trend extrapolated** (± fit σ); drawn dashed + labelled "projected" when observed
 GVM never reaches 42 t.
 
-### Page-1 Summary (≤3 bullets, no duplication of page 2)
+### Page-1 Summary (no duplication of page 2)
 1. Fleet-overview line (active days, distance, ~km/day, total energy, mean EP).
 2. Charging behaviour (sessions, median start SoC, mean end SoC).
-3. **Data-availability note** (adaptive): the channels this vehicle does **not** report — e.g.
+3. **Regen-recovery line** (`recup_pct`, only when the vehicle reports recuperation — the
+   Volvo/Renault raw-telematics counter): `Regenerative braking recovered ~X kWh over the period —
+   about Y% of the energy used`, where **Y = energy recuperated ÷ total energy used × 100** (the
+   project's "≈20% of energy" basis; tot_e is the net driving discharge). Omitted for vehicles with
+   no regen channel (then the data-availability note flags it instead).
+4. **Data-availability note** (adaptive): the channels this vehicle does **not** report — e.g.
    "Data channels: charged energy (AC/DC) and energy recuperated are not reported by this vehicle
-   telematics (shown as '—')." Omitted when every channel is reported (then 2 bullets).
+   telematics (shown as '—')." Omitted when every channel is reported.
 The load / range / temperature detail lives on page 2 and is **not** repeated in the Summary.
 
 ### Cleaning (unchanged)

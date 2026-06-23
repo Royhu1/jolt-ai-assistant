@@ -863,6 +863,15 @@ def build_verification_workbook(path, tr, ch, v):
           if v["recup_src"] == "counter"
           else f"Σ recuperation; only {v['recup_cov']}/{v['recup_tot']} legs have a value (known undercount)"),
          "raw_telematics recuperation counter" if v["recup_src"] == "counter" else "Recuperation Energy (kWh)"),
+        ("Page 1 · Performance", "Regen recovery (% of energy used)", v.get("recup_pct"),
+         ("manual" if v["recup_src"] == "counter"
+          else f"=SUM(Trips!$I$2:$I${tn})/SUMPRODUCT(ABS(Trips!$E$2:$E${tn}))*100"),
+         (None if v["recup_src"] == "counter" else 0.5),
+         ("Energy recuperated ÷ total energy used × 100 (recup is counter-based, audited above; "
+          "ratio = that kWh ÷ Σ|energy change|)"
+          if v["recup_src"] == "counter"
+          else "Σ recuperation ÷ Σ|energy change| × 100"),
+         "—"),
         ("Page 1 · Charging", "Total energy charged (kWh)", v["tot_ch"],
          f"=SUM(Charges!$D$2:$D${cn})+SUM(Charges!$E$2:$E${cn})", 0.5, "AC + DC", "Energy Charged AC/DC (kWh)"),
         ("Page 1 · Charging", "AC charged (kWh)", v["ac"],
@@ -1098,6 +1107,9 @@ def main():
     else:
         recup = _sum_or_na(tr["recup"]); recup_cov = int(tr["recup"].notna().sum())
         recup_tot = len(tr); recup_src = "xlsx"
+    # 制动能量回收比例 = 周期内再生回收能量 ÷ 总用电量(净放电)×100；与项目既有口径一致
+    # (≈20% for the counter-based Volvos)。无再生数据(recup NaN)或零能耗 → NaN(summary 略过该条)。
+    recup_pct = recup / tot_e * 100 if (pd.notna(recup) and tot_e) else float("nan")
     ac, dc = _sum_or_na(ch["ac"]), _sum_or_na(ch["dc"])
     tot_ch = np.nansum([ac, dc]) if (pd.notna(ac) or pd.notna(dc)) else float("nan")
     med_start = ch["ssoc"].median(); mean_end = ch["esoc"].mean()
@@ -1225,6 +1237,12 @@ def main():
         f"Charging: {len(ch)} sessions over the period, typically plugged in from a median "
         f"{med_start:.0f}% start SoC and charged to a mean {mean_end:.0f}%.",
     ]
+    # Regenerative-braking recovery ratio (only when the vehicle reports recuperation, e.g. the
+    # Volvo/Renault telematics counter); skipped where there is no regen channel (shown as "—" below).
+    if pd.notna(recup_pct):
+        summary_points.append(
+            f"Regenerative braking recovered ~{recup:,.0f} kWh over the period — "
+            f"about {recup_pct:.0f}% of the energy used.")
     _missing = []
     if pd.isna(tot_ch):
         _missing.append("charged energy (AC/DC)")
@@ -1244,7 +1262,7 @@ def main():
         med_dep=median_time(tr.groupby("date")["st"].min()),
         med_arr=median_time(tr.groupby("date")["et"].max()),
         tot_km=tot_km, tot_e=tot_e, mean_ep=mean_ep, recup=recup, recup_cov=int(recup_cov),
-        recup_tot=int(recup_tot), recup_src=recup_src,
+        recup_tot=int(recup_tot), recup_src=recup_src, recup_pct=recup_pct,
         tot_ch=tot_ch, ac=ac, dc=dc, mean_ssoc=ch["ssoc"].mean(), mean_esoc=mean_end,
         med_start=med_start, pct_low=pct_low, dc_share=dc_share,
         gvm_min=gvw_t.min(), gvm_max=gvw_t.max(),
