@@ -203,18 +203,29 @@ Report at three load points, each with a **±1 standard deviation** in brackets:
 
 ### Load-point masses & EP basis (data + judgement) — `_compute_load_points`
 Masses combine the GVM distribution with judgement. Priority **band > single-group >
-legacy-tertile > KDE**:
+legacy-tertile > KDE**.
 
-- **Band mode** (`briefing_vehicle_specs.json` `unladen_band_t`=[lo,hi], opt. `laden_min_t`):
-  for an **artic whose lightest GVM cluster is the bobtail tractor** (not a real unladen mass).
-  Unladen = data points in [lo,hi) (tractor + empty trailer); laden = GVM ≥ laden_min (default
-  hi); bobtail (< lo) excluded. e.g. **EX74JXW = [14,20], laden_min 20** (bobtail ~12 t).
+**Use AI judgement, not a blind algorithm** (especially for artics): at generation time, INSPECT the
+vehicle's GVM histogram / KDE and map the clusters to the **articulated-HGV mass tiers** —
+(1) **tractor-only / bobtail ~10 t** = the lightest cluster, NOT a real operating mass → **EXCLUDE**;
+(2) **tractor + empty trailer ~16–17 t** = **unladen**; (3) **loaded operations** = higher,
+operation-dependent up to the rated GVW (~42 t) = **laden** — then record that decision as a
+`briefing_vehicle_specs.json` band. The default KDE split is only a fallback: for a mostly-laden
+vehicle it merges the ~17 t unladen shoulder into the dominant laden peak and reports a too-high
+unladen (e.g. CMZ6260's KDE → ~19 t, whereas the true tractor+trailer unladen is ~17 t).
+
+- **Band mode** (`briefing_vehicle_specs.json` `unladen_band_t`=[lo,hi], opt. `laden_min_t`): the
+  AI-judged artic case above. Unladen = data points in [lo,hi) (tractor + empty trailer); laden =
+  GVM ≥ laden_min (default hi); bobtail (< lo) excluded. e.g. **EX74JXW = [14,20], laden_min 20**
+  (bobtail ~12 t, unladen ~17 t); **CMZ6260 = [13,18], laden_min 18** (bobtail ~10.5 t excluded,
+  unladen ~17 t, laden ≥ 18 t).
 - **Single-group** (`SINGLE_GROUP_REGS`, e.g. **YN25RSY = 17 t**): laden = GVM > threshold;
   **no unladen point** (runs mostly laden); laden EP = IQR(1.5×)-trimmed mean.
 - **Legacy tertile** (`LEGACY_TERTILE_REGS`, e.g. **YK73WFN**): unladen = lightest tertile,
   laden = heaviest tertile (the partner style baseline).
-- **Default**: KDE density-valley split (`_gvm_cluster_split`) — laden = denser cluster,
-  unladen = lighter cluster.
+- **Default** (fallback only): KDE density-valley split (`_gvm_cluster_split`) — laden = the
+  **heavier** cluster by mass, unladen = the lighter. Prefer an AI-judged band for artics (the
+  default cannot see the bobtail/unladen/laden tiers and will mislabel a mostly-laden vehicle).
 
 **EP basis**: laden EP = mean of the laden data points (ample data; ± within-cluster std).
 Unladen EP = mean of the unladen data points **except in band mode**, where the band is sparse
