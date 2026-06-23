@@ -197,7 +197,8 @@ Report at three load points, each with a **±1 standard deviation** in brackets:
   cap/EP.
 - One **load-sensitivity** line (`Each extra tonne of load adds ~m kWh/km`).
 - One **temperature** line: `Temperature (laden trips, lo–hi t): energy performance changes
-  ~X kWh/km per 10 °C colder` — **numbers only: no R² and no qualitative "…temperature-sensitive"
+  ~X kWh/km per 10 °C colder/warmer` (**sign-aware**: "colder" when EP rises as temperature falls, i.e.
+  `temp_slope < 0`; "warmer" when EP rises with temperature) — **numbers only: no R² and no qualitative "…temperature-sensitive"
   verdict tag** (see the style note above). Temperature is fitted on the **laden cluster only** (mass
   held roughly constant); the bullet states the laden **mass range**.
 
@@ -257,7 +258,7 @@ When the vehicle reports no usable mass, the page-2 Conclusions become a **distr
 effective capacity Z kWh ÷ per-trip EP` (headline means only — no median/IQR/σ parentheticals and no
 "…spread" verdict, per the style note above); the temperature bullet is fitted over **all trips** (stated
 as "all trips", not "laden"); plus one honest line that load dependence cannot be assessed without
-mass. Page-1 "Mean GVM" shows "—" and the data-availability note lists "gross vehicle mass". The
+mass. Page-1 "Median GVM" shows "—" (forced for the no-mass variant even if a few legs happen to carry a mass value) and the data-availability note lists "gross vehicle mass". The
 verification workbook (a mass-based audit) is **not** emitted for this variant (follow-up: add a
 distribution-stats audit).
 
@@ -282,7 +283,7 @@ applicable — **never fabricated**.
 
 - **No mass channel** (e.g. YN75NMA, T88RNW): the briefing auto-switches to the **distribution
   variant** — EP & projected-range histograms replace the GVM scatters; load points, the 42 t
-  projection, "Mean GVM" and the verification workbook are all N/A (shown as "—" / omitted), never
+  projection, "Median GVM" and the verification workbook are all N/A (shown as "—" / omitted), never
   fabricated.
 
 - **Unavailable → show "—" not 0**: when a pipeline field is in the schema but this vehicle

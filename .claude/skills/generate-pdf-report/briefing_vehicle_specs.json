@@ -4,22 +4,62 @@
     "unladen_band_t": [13, 19],
     "laden_min_t": 19,
     "unladen_mass_t": 17,
-    "note": "Scania 23P, ARTIC, rated GVW 42 t (518 kWh). All-data GVM histogram (n=240, KDE peaks 12.7 / 24.6 t): bobtail tractor-only ~12.7 t (10-13 t, 16 pts) EXCLUDED; UNLADEN tractor + empty trailer = the sparse 13-19 t shoulder (~10 pts) — marker PINNED to 17 t (sparse cluster, canonical tractor+trailer figure); LADEN = loaded GVM >= 19 t (bulk 19-37 t, median ~25 t); full = 42 t rated GVW (observed tops ~37 t bar one 43 t outlier -> dashed projection). Tightened from the earlier window-data band [14,20] because on all-data that pulled unladen up into the 19-20 t laden start."
+    "note": "Scania 23P, ARTIC, 42 t/518 kWh. All-data (n=240, KDE 12.7/24.6 t): bobtail ~12.7 t (10-13 t, 16 pts) EXCLUDED; UNLADEN sparse 13-19 t shoulder -> marker PINNED 17 t; LADEN >= 19 t (bulk 19-37 t, median ~25 t); full 42 t dashed projection. Tightened from window-data [14,20]."
   },
   "CMZ6260": {
     "unladen_band_t": [13, 18],
     "laden_min_t": 18,
     "unladen_mass_t": 17,
-    "note": "Volvo FH Electric, ARTIC, rated GVW ~42 t. AI judgement of the all-data GVM histogram (n=327, KDE peaks 10.5 / 19.6 / 23.8 t): three tiers — bobtail tractor-only ~10.5 t (the 10-12 t bin, 12 pts) EXCLUDED; UNLADEN tractor + empty trailer = the 14-18 t band (~27 pts, data median ~16.4 t) — marker PINNED to 17 t (canonical tractor+trailer; data supports ~16-17 t); LADEN = loaded operations GVM >= 18 t (dominant runs 18-26 t, median ~22 t); full = 42 t rated GVW (observed tops ~26 t bar one 46 t outlier -> dashed projection). The DEFAULT KDE split mislabels this mostly-laden vehicle — merges the ~17 t unladen shoulder into the dominant ~19.6 t laden peak (wrong unladen ~19 t); the band corrects unladen to ~17 t."
+    "note": "Volvo FH Electric, ARTIC, ~42 t. All-data (n=327, KDE 10.5/19.6/23.8 t): bobtail ~10.5 t (12 pts) EXCLUDED; UNLADEN 14-18 t band (median ~16.4 t) PINNED 17 t; LADEN >= 18 t (median ~22 t); full 42 t projection. Default KDE merged the ~17 t unladen into the ~19.6 t laden peak (wrong unladen ~19 t); band corrects it."
   },
   "YK73WFN": {
     "unladen_band_t": [13, 24],
     "laden_min_t": 24,
-    "note": "Volvo FH Electric, ARTIC, rated GVW 42 t. All-data GVM histogram (n=838, KDE peaks 11.1 / 19.4 / 27.8 / 39.2 t): bobtail tractor-only ~11 t (10-12 t, **106 pts**) EXCLUDED — this is exactly why the legacy tertile mislabels YK73 (the 106 bobtail points contaminate the lightest third); UNLADEN tractor + empty trailer ~19 t = the dominant 18-22 t cluster (data-driven; this rig's empty is ~19 t, heavier than CMZ6260's ~17 t); LADEN = loaded operations GVM >= 24 t (clusters ~28 t and ~40 t, median ~34-36 t); full = 42 t rated GVW (observed reaches ~42 t). Switched from LEGACY_TERTILE to an AI-judged band (band has priority) so the bobtail is excluded; this changes the earlier Nestle-approved tertile baseline (1.16/1.79) — done at user request (all-data + new workflow)."
+    "note": "Volvo FH Electric, ARTIC, 42 t. All-data (n=838, KDE 11.1/19.4/27.8/39.2 t): bobtail ~11 t (10-12 t, **106 pts**) EXCLUDED — exactly why the legacy tertile mislabelled YK73; UNLADEN ~19 t (dominant 18-22 t cluster, this rig's empty); LADEN >= 24 t (~28 t and ~40 t clusters, median ~35 t); full 42 t. Switched from LEGACY_TERTILE to a band (changes the earlier Nestle-approved 1.16/1.79 baseline — at user request)."
   },
   "YN25RSY": {
     "unladen_band_t": [13, 21],
     "laden_min_t": 21,
-    "note": "Mercedes-Benz eActros 600, ARTIC, ~600 kWh, rated GVW ~42 t. All-data GVM histogram (n=35, KDE peaks 11.6 / 19.6 / 23.9 t): bobtail ~11.6 t (1 pt) EXCLUDED; UNLADEN tractor + empty trailer ~19 t = the 17-21 t cluster (~14 pts; eActros empty is ~19 t, heavier due to the large battery); LADEN = loaded operations GVM >= 21 t (21-29 t, median ~24 t); full = 42 t rated GVW (observed tops ~27 t -> dashed projection). Switched from SINGLE_GROUP (laden-only, no unladen point) to an AI-judged band (band has priority) because the data shows a clear ~19 t unladen cluster distinct from the ~24 t laden."
+    "note": "Mercedes-Benz eActros 600, ARTIC, ~600 kWh. All-data (n=35, KDE 11.6/19.6/23.9 t): bobtail ~11.6 t (1 pt) EXCLUDED; UNLADEN ~19 t (17-21 t cluster; eActros empty is ~19 t); LADEN >= 21 t (median ~24 t); full 42 t projection. Switched from SINGLE_GROUP to a band (clear ~19 t unladen cluster)."
+  },
+  "AV24LXJ": {
+    "unladen_band_t": [13, 19],
+    "laden_min_t": 19,
+    "note": "Volvo (volvo_speed_00 trio), ARTIC. All-data (n=5725, KDE 16.9/40.0 t): BIMODAL — bobtail ~10-12 t (~106 pts) EXCLUDED; UNLADEN ~16 t = the large 15-19 t cluster (~2400 pts); LADEN >= 19 t (runs mostly near-full, heavy cluster ~37-41 t, median ~38 t); full 42 t. Band excludes the bobtail and isolates the ~16 t empty from the ~40 t laden."
+  },
+  "AV24LXK": {
+    "unladen_band_t": [13, 19],
+    "laden_min_t": 19,
+    "note": "Volvo (volvo_speed_00 trio), ARTIC. All-data (n=5558, KDE 16.7/39.7 t): BIMODAL like AV24LXJ — bobtail ~10-12 t EXCLUDED; UNLADEN ~16 t (15-19 t cluster, ~2600 pts); LADEN >= 19 t (heavy ~40 t, median ~39 t); full 42 t."
+  },
+  "AV24LXL": {
+    "unladen_band_t": [13, 19],
+    "laden_min_t": 19,
+    "note": "Volvo (volvo_speed_00 trio), ARTIC. All-data (n=5315, KDE 17.1/40.3 t): BIMODAL — bobtail ~10-12 t EXCLUDED; UNLADEN ~17 t (15-19 t cluster, ~2400 pts); LADEN >= 19 t (heavy ~40 t, median ~39 t); full 42 t."
+  },
+  "EV73SAL": {
+    "unladen_band_t": [13, 24],
+    "laden_min_t": 24,
+    "note": "Volvo FH Electric, ARTIC. All-data (n=1198, KDE 11.4/19.5/28.0/40.2 t): bobtail ~11 t (10-14 t, ~186 pts, 15%!) EXCLUDED; UNLADEN ~19 t (18-20 t cluster); LADEN >= 24 t (clusters ~28 t and ~40 t, median ~30 t); full 42 t. Like YK73."
+  },
+  "EX74JXY": {
+    "unladen_band_t": [13, 21],
+    "laden_min_t": 21,
+    "note": "Scania (scania_speed_01), ARTIC. All-data (n=364, KDE 21.1/26.5/51.5 t): bobtail ~12 t (9-15 t, ~42 pts) EXCLUDED; UNLADEN ~19 t (17-21 t cluster); LADEN >= 21 t (~25 t, median ~26 t); full 42 t. The 51 t point is a single outlier (ignored by the trend)."
+  },
+  "KY24LHT": {
+    "unladen_band_t": [13, 19],
+    "laden_min_t": 19,
+    "note": "Volvo (volvo_speed_03), ARTIC. All-data (n=437, KDE 10.3/24.1 t): bobtail ~10 t (9-11 t, 55 pts, 13%!) EXCLUDED; UNLADEN ~17 t (15-19 t); LADEN >= 19 t (broad 19-29 t, median ~24 t); full 42 t (observed tops ~33 t -> dashed projection). Broad laden cluster. NOTE: KY24LHT is excluded from the statistics paper (EXCLUDE_REGS) but still gets a briefing."
+  },
+  "N88GNW": {
+    "unladen_band_t": [13, 21],
+    "laden_min_t": 21,
+    "note": "Renault (renault_speed), ARTIC. All-data (n=1380, KDE 11.2/18.3 t): bobtail ~11 t (10-14 t, ~36 pts) EXCLUDED; UNLADEN ~18 t (16-20 t cluster, ~726 pts); LADEN >= 21 t (decreasing tail 22-40 t, median ~26 t); full 42 t."
+  },
+  "TA70WTL": {
+    "unladen_band_t": [13, 21],
+    "laden_min_t": 21,
+    "note": "Renault (renault_speed), ARTIC. All-data (n=795, KDE 18.6 t): bobtail ~11 t (10-14 t, ~22 pts) EXCLUDED; UNLADEN ~18 t (16-20 t cluster, ~404 pts); LADEN >= 21 t (tail 22-44 t, median ~26 t); full 42 t. Like N88GNW (same pipeline)."
   }
 }

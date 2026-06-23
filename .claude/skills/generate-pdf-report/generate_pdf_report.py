@@ -300,13 +300,16 @@ def _resolve_operator(reg, period):
         return ca["simple"][reg]
     segs = ca.get("round_robin", {}).get(reg, [])
     d0, d1 = period.split("_")
-    for seg in segs:  # 期末日落在该段内（轮换车通常整期属同一家）
-        if seg.get("date_start", "0") <= d1 <= seg.get("date_end", "99999999"):
-            return seg["company"]
-    for seg in segs:  # 退而求其次：报告期与该段有重叠
-        if seg.get("date_start", "0") <= d1 and d0 <= seg.get("date_end", "99999999"):
-            return seg["company"]
-    return reg
+    # Companies whose segment OVERLAPS the operating period [d0, d1].
+    overlap = {seg["company"] for seg in segs
+               if seg.get("date_start", "0") <= d1 and d0 <= seg.get("date_end", "99999999")}
+    if len(overlap) == 1:
+        return next(iter(overlap))           # whole period sits with one operator
+    if len(overlap) > 1:
+        return "JOLT Partners"               # span crosses several operators (e.g. an --all-data briefing)
+    # round-robin car but the period covers no segment → generic partner label, not the bare
+    # registration (avoids "LN25NKE · LN25NKE"); a non-round-robin unconfigured car still falls back to reg.
+    return "JOLT Partners" if segs else reg
 
 
 def _coords(series):
@@ -900,9 +903,9 @@ def build_verification_workbook(path, tr, ch, v):
          "excludes EP-cleaned outliers)", "Leg Type / EP / GVM"),
         ("Page 1 · Summary", "Charging sessions", v["n_ch"],
          f"=ROWS(Charges!$A$2:$A${cn})", 0.5, "Count of charging legs (Leg Type ∈ CHARGE)", "Leg Type"),
-        ("Page 1 · Summary", "Mean GVM (t) — computed as MEDIAN", v["gvw_med"],
+        ("Page 1 · Summary", "Median GVM (t)", v["gvw_med"],
          f"=MEDIAN(Trips!$G$2:$G${tn})", 0.05,
-         "⚠ Labelled 'Mean GVM' on page 1 but computed as the MEDIAN of per-leg GVM", "Vehicle Mass (kg)/1000"),
+         "Median of per-leg GVM (page-1 'Median GVM' tile)", "Vehicle Mass (kg)/1000"),
         ("Page 1 · Timeline", "Trips per day", v["trips_per_day"],
          f'=COUNTIFS({tr_f},"<>",{tr_g},"<>")/COUNTA(Daily!$A$2:$A${dn})', 0.05,
          "Analysed driving legs (EP & GVM present) ÷ active days", "—"),
@@ -1140,7 +1143,6 @@ def main():
                                                   finetuned=not args.base, all_data=args.all_data)
     fname = xlsx_path.name
     spec = PLOT_CFG["vehicle_specs"].get(args.reg, {})
-    operator = _resolve_operator(args.reg, args.period)
     make = spec.get("make", "")
     model = VEHICLES.get(args.reg, {}).get("model", "")
     vehicle_model = (f"{make} {model}".strip() or make)  # 真实型号取自 vehicles.json
@@ -1150,6 +1152,9 @@ def main():
     # 无有效 trip 时回退 args.period。
     d0, d1 = tr["st"].min(), tr["et"].max()
     op_period = (f"{d0:%Y%m%d}_{d1:%Y%m%d}" if pd.notna(d0) and pd.notna(d1) else args.period)
+    # Operator resolved over the REAL operating span (op_period), not the nominal CLI --period, so an
+    # --all-data briefing that crosses several round-robin operators is labelled correctly.
+    operator = _resolve_operator(args.reg, op_period)
 
     outdir = WORKSPACE / "output" / f"{args.reg}_{op_period}"
     fig_rel = "figures_anon" if args.anon else "figures"  # 匿名版独立图目录，与命名版产物共存
@@ -1187,8 +1192,12 @@ def main():
     med_start = ch["ssoc"].median(); mean_end = ch["esoc"].mean()
     pct_low = (ch["ssoc"] < 40).mean() * 100
     dc_share = dc / tot_ch * 100 if (pd.notna(tot_ch) and tot_ch) else float("nan")
-    gvw_med = tr["mass"].median() / 1000.0
-    period_label = (f"{d0.day} {d0:%b} – {d1.day} {d1:%b %Y}" if pd.notna(d0) else args.period)
+    gvw_med = float("nan") if no_mass else tr["mass"].median() / 1000.0
+    # Operating-period label: show the start year too when the span crosses a calendar year
+    # (e.g. an --all-data briefing 11 Jun 2024 → 1 Dec 2025), otherwise keep the compact form.
+    period_label = (
+        (f"{d0.day} {d0:%b %Y} – {d1.day} {d1:%b %Y}" if d0.year != d1.year
+         else f"{d0.day} {d0:%b} – {d1.day} {d1:%b %Y}") if pd.notna(d0) else args.period)
     # 轻/重载对照：默认 GVM 密度谷聚类自适应分界；LEGACY_TERTILE_REGS 内的车保留固定 1/3 三分位
     # 旧表述（合作方风格基准）。冷/暖对照；满电续航投影（容量/EP）。
     gvw_t = tr["mass"] / 1000.0
@@ -1294,7 +1303,7 @@ def main():
             f"Each extra tonne of load adds ~{gvm_slope:.2f} kWh/km.")
     conclusion_points.append(
         f"Temperature (laden trips, {laden_gmin:.0f}–{laden_gmax:.0f} t): energy performance changes "
-        f"~{abs(t_per10):.2f} kWh/km per 10 °C colder.")
+        f"~{abs(t_per10):.2f} kWh/km per 10 °C {'colder' if t_per10 < 0 else 'warmer'}.")
 
     # No-mass variant: replace the load-point conclusions with EP & projected-range distribution stats.
     ep_mean = ep_med = ep_sd_d = ep_q1 = ep_q3 = float("nan"); ep_n_d = 0
@@ -1311,12 +1320,12 @@ def main():
             rng_mean = float(rngv.mean()); rng_med = float(rngv.median())
             rng_q1 = float(rngv.quantile(0.25)); rng_q3 = float(rngv.quantile(0.75))
             conclusion_points.append(
-                f"Projected full-charge range averaged {_prn(rng_mean)} km "
-                f"— effective capacity {cap_kwh:.0f} kWh ÷ per-trip EP.")
+                f"Projected full-charge range averaged {_prn(rng_mean)} km, "
+                f"effective capacity {cap_kwh:.0f} kWh ÷ per-trip EP.")
         if pd.notna(t_per10):
             conclusion_points.append(
                 f"Temperature (all trips, {tr['temp'].min():.0f}–{tr['temp'].max():.0f} °C): energy "
-                f"performance changes ~{abs(t_per10):.2f} kWh/km per 10 °C colder.")
+                f"performance changes ~{abs(t_per10):.2f} kWh/km per 10 °C {'colder' if t_per10 < 0 else 'warmer'}.")
         conclusion_points.append(
             "This vehicle does not report gross vehicle mass, so the load dependence of energy "
             "performance cannot be assessed; the figures above characterise the observed spread.")
@@ -1326,7 +1335,7 @@ def main():
     # page 2 (not duplicated here).
     summary_points = [
         f"Over {ndays} active days the vehicle covered {tot_km:,.0f} km "
-        f"(~{daily_km.mean():.0f} km/day) using {tot_e:,.0f} kWh — averaging {mean_ep:.2f} kWh/km.",
+        f"(~{daily_km.mean():.0f} km/day) using {tot_e:,.0f} kWh, averaging {mean_ep:.2f} kWh/km.",
         f"Charging: {len(ch)} sessions over the period, typically plugged in from a median "
         f"{med_start:.0f}% start SoC and charged to a mean {mean_end:.0f}%.",
     ]
@@ -1334,7 +1343,7 @@ def main():
     # Volvo/Renault telematics counter); skipped where there is no regen channel (shown as "—" below).
     if pd.notna(recup_pct):
         summary_points.append(
-            f"Regenerative braking recovered ~{recup:,.0f} kWh over the period — "
+            f"Regenerative braking recovered ~{recup:,.0f} kWh over the period, "
             f"about {recup_pct:.0f}% of the energy used.")
     _missing = []
     if pd.isna(tot_ch):
@@ -1448,7 +1457,7 @@ def main():
             dict(k="Active Days", v=f(ndays)),
             dict(k="Driving Legs", v=f(n_legs)),
             dict(k="Charging Sessions", v=f(len(ch))),
-            dict(k="Mean GVM", v=f(gvw_med, 1, " t")),
+            dict(k="Median GVM", v=f(gvw_med, 1, " t")),
         ],
         perf_title="VEHICLE PERFORMANCE",
         perf_rows=[
@@ -1512,7 +1521,7 @@ def main():
                  ("Total distance km", round(tot_km)), ("Mean EP kWh/km", round(mean_ep, 3)),
                  ("Total energy kWh", round(tot_e)), ("Charged kWh", _na(round(tot_ch, 0) if pd.notna(tot_ch) else tot_ch)),
                  ("Recup kWh (cov %d/%d)" % (recup_cov, len(tr)), _na(round(recup, 0) if pd.notna(recup) else recup)),
-                 ("Mean GVM t", round(gvw_med, 1))]:
+                 ("Median GVM t", round(gvw_med, 1))]:
         print(f"    ✓ {k:32s} {_na(v)}")
     print("  [N/A — 需运营方 / 商业数据，JOLT 管线不产出]")
     for k in ["Customers served", "Cargo tonnage (仅有 GVW)", "Types of goods",
