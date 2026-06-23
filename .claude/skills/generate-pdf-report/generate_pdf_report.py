@@ -387,8 +387,12 @@ def _ll_to_px(lat, lon, clat, clon, zoom, w, h):
     return x, y
 
 
-def _fit_center_zoom(lats, lons, w, h, pad=0.15):
-    """Centre + Web-Mercator zoom so all points (plus *pad* margin) fit in w*h px."""
+def _fit_center_zoom(lats, lons, w, h, pad=0.10):
+    """Centre + Web-Mercator zoom so all points (plus *pad* margin) fit in w*h px.
+
+    The map card displays the PNG with object-fit:contain (no cropping), so this fit alone
+    decides what is visible — every origin/destination point is guaranteed inside the frame.
+    """
     xf, yf = _merc_x(lons), _merc_y(lats)
     x0, x1 = float(xf.min()), float(xf.max())
     y0, y1 = float(yf.min()), float(yf.max())
