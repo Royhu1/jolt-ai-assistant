@@ -212,6 +212,28 @@ def _gvm_cluster_split(mass_t):
     return float(np.median(x))  # 单峰 / KDE 失败：中位数二分
 
 
+def _narrow_temp_window(gvw_t, widths=(2, 3, 4, 5), min_n=15):
+    """Within a laden GVM series (tonnes), return (lo, hi) of the narrowest sliding window of width in
+    ``widths`` (try 2 t first, widen only as needed) holding >= ``min_n`` points, centred on the
+    densest part of the distribution. If even the widest width can't reach ``min_n`` (a sparse
+    vehicle), return the densest window of the widest width — capped, never wider. Used to hold mass
+    roughly constant for the EP-vs-temperature fit (the full laden cluster can span 20+ t)."""
+    m = pd.to_numeric(pd.Series(gvw_t), errors="coerce").dropna().values
+    if len(m) == 0:
+        return None
+    widest = None
+    for w in widths:
+        cnt_best, lo_best = -1, float(np.min(m))
+        for lo in np.unique(m):                      # candidate window = [lo, lo+w]
+            c = int(((m >= lo) & (m <= lo + w)).sum())
+            if c > cnt_best:
+                cnt_best, lo_best = c, float(lo)
+        widest = (lo_best, lo_best + w)
+        if cnt_best >= min_n:
+            return widest                            # narrowest width meeting the minimum
+    return widest                                    # cap at the widest width (sparse vehicle)
+
+
 def _compute_load_points(reg, tr):
     """Resolve the unladen / laden / full-laden reference masses + the unladen and laden ("dense")
     operating masks used by the page-2 conclusion and the temperature plot.
@@ -259,8 +281,19 @@ def _compute_load_points(reg, tr):
         m_un = float(ov)
     else:
         m_un = float(gvw_t[unladen_mask].median()) if unladen_mask.any() else float("nan")
+    # Temperature analysis: a tight mass window (2-5 t, adaptive to data volume) within the laden
+    # cluster, so mass is held roughly constant for the EP-vs-temperature fit. Load points keep the
+    # full dense_mask; only the temperature subset narrows.
+    temp_lo = temp_hi = None
+    temp_mask = dense_mask
+    if dense_mask.any():
+        tw = _narrow_temp_window(gvw_t[dense_mask])
+        if tw is not None:
+            temp_lo, temp_hi = tw
+            temp_mask = dense_mask & (gvw_t >= temp_lo) & (gvw_t <= temp_hi)
     return dict(unladen=m_un, laden=m_la, full=FULL_LADEN_T,
-                unladen_mask=unladen_mask, dense_mask=dense_mask,
+                unladen_mask=unladen_mask, dense_mask=dense_mask, temp_mask=temp_mask,
+                temp_lo=temp_lo, temp_hi=temp_hi,
                 band_lo=band_lo, band_hi=band_hi, laden_min=laden_min)
 
 
@@ -613,9 +646,10 @@ def build_charts(tr, ch, outdir, reg, cb, here_key=None, cap_kwh=None, anon=Fals
 
     # 2) EP vs ambient temperature — restricted to the dense (laden) cluster so mass is held
     #    roughly constant: a control-variable view of the temperature effect.
-    dmask = lp.get("dense_mask")
-    # No-mass variant has no laden cluster → fit temperature over ALL trips.
-    td = tr if no_mass else (tr[dmask] if dmask is not None else tr)
+    # Temperature held at roughly constant mass: use the narrow temp_mask (a tight laden window) so
+    # the temperature effect is not confounded by mass. No-mass variant → fit over ALL trips.
+    sub = lp.get("temp_mask"); sub = sub if sub is not None else lp.get("dense_mask")
+    td = tr if no_mass else (tr[sub] if sub is not None else tr)
     fig, ax = plt.subplots(figsize=(SQ, SQ))
     r = _scatter_fit(ax, td["temp"].values, td["ep"].values, unit=" /°C")
     ax.set_xlabel("Ambient Temperature (°C)"); ax.set_ylabel("EP (kWh/km)")
@@ -1126,6 +1160,20 @@ def build_verification_workbook(path, tr, ch, v):
     return len(rows)
 
 
+def _round_robin_operators(reg):
+    """For a round-robin vehicle, return [(operator, lo_ts, hi_ts), ...] — segments grouped by
+    distinct operator (each operator's segments merged into one [min start, max end] span). Empty
+    for simple / unknown regs."""
+    segs = PLOT_CFG.get("company_assignment", {}).get("round_robin", {}).get(reg, [])
+    spans = {}
+    for s in segs:
+        c = s["company"]
+        lo = pd.Timestamp(s["date_start"])
+        hi = pd.Timestamp(s["date_end"]) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+        spans[c] = (min(spans[c][0], lo), max(spans[c][1], hi)) if c in spans else (lo, hi)
+    return [(c, lo, hi) for c, (lo, hi) in spans.items()]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reg", default="YK73WFN")
@@ -1138,10 +1186,29 @@ def main():
     ap.add_argument("--all-data", action="store_true",
                     help="读取该车所有周期报告并合并（全部已采集数据，而非单一周期；忽略 --period）")
     args = ap.parse_args()
+    # Round-robin vehicle + --all-data → one briefing PER DISTINCT OPERATOR (each over that operator's
+    # date span); other vehicles / non-all-data → a single briefing (unchanged).
+    ops = _round_robin_operators(args.reg) if args.all_data else []
+    if ops:
+        print(f"[round-robin] {args.reg}: {len(ops)} operator(s) → " + ", ".join(o[0] for o in ops))
+        for op in ops:
+            _emit_briefing(args, op_filter=op)
+    else:
+        _emit_briefing(args)
 
+
+def _emit_briefing(args, op_filter=None):
     df, tr, ch, xlsx_path, covering_src = compute(args.reg, args.period, args.version,
                                                   finetuned=not args.base, all_data=args.all_data)
     fname = xlsx_path.name
+    op_name = None
+    if op_filter is not None:
+        op_name, op_lo, op_hi = op_filter
+        tr = tr[(tr["st"] >= op_lo) & (tr["st"] <= op_hi)].copy()
+        ch = ch[(ch["st"] >= op_lo) & (ch["st"] <= op_hi)].copy()
+        if tr.empty:
+            print(f"[round-robin] {args.reg} / {op_name}: no trips in operator window — skipped")
+            return
     spec = PLOT_CFG["vehicle_specs"].get(args.reg, {})
     make = spec.get("make", "")
     model = VEHICLES.get(args.reg, {}).get("model", "")
@@ -1152,11 +1219,11 @@ def main():
     # 无有效 trip 时回退 args.period。
     d0, d1 = tr["st"].min(), tr["et"].max()
     op_period = (f"{d0:%Y%m%d}_{d1:%Y%m%d}" if pd.notna(d0) and pd.notna(d1) else args.period)
-    # Operator resolved over the REAL operating span (op_period), not the nominal CLI --period, so an
-    # --all-data briefing that crosses several round-robin operators is labelled correctly.
-    operator = _resolve_operator(args.reg, op_period)
+    # Per-operator split passes the operator explicitly; otherwise resolve over the real op span.
+    operator = op_name or _resolve_operator(args.reg, op_period)
+    tag = f"{op_name}_{op_period}" if op_name else op_period   # operator-scoped file/dir naming
 
-    outdir = WORKSPACE / "output" / f"{args.reg}_{op_period}"
+    outdir = WORKSPACE / "output" / f"{args.reg}_{tag}"
     fig_rel = "figures_anon" if args.anon else "figures"  # 匿名版独立图目录，与命名版产物共存
     fig_dir = outdir / fig_rel
     cb = int(time.time())  # run token：图片文件名缓存破坏
@@ -1275,7 +1342,7 @@ def main():
     rng_la, rng_la_sd = _rng_pair(ep_la, ep_la_sd)
     rng_fl, rng_fl_sd = _rng_pair(ep_fl, ep_fl_sd)
 
-    dt = tr[dense_mask]
+    dt = tr[load_pts.get("temp_mask", dense_mask)]   # narrow laden window (mass ~constant for temp)
     td_min, td_max = dt["temp"].min(), dt["temp"].max()
     laden_gvm = dt["mass"] / 1000.0
     laden_gmin, laden_gmax = laden_gvm.min(), laden_gvm.max()
@@ -1397,7 +1464,7 @@ def main():
 
     verif_path, n_audit = None, 0
     if not args.anon and not no_mass:  # 命名版才出核实工作簿；no_mass 分布变体暂不出（mass-based 审计不适用，留作后续）
-        verif_path = outdir / f"verification_{args.reg}_{op_period}.xlsx"
+        verif_path = outdir / f"verification_{args.reg}_{tag}.xlsx"
         try:
             n_audit = build_verification_workbook(verif_path, tr, ch, vals)
         except PermissionError:
@@ -1423,7 +1490,8 @@ def main():
     laden_thr = (load_pts.get("laden_min") if load_pts.get("laden_min") is not None
                  else (sg_thr if single_group
                        else (gvw_hi if legacy_tertile else gvw_split)))
-    laden_lbl = (f"laden, ≥ {laden_thr:.0f} t" if pd.notna(laden_thr) else "laden")
+    laden_lbl = (f"laden, {laden_gmin:.0f}–{laden_gmax:.0f} t"
+                 if pd.notna(laden_gmin) and pd.notna(laden_gmax) else "laden")  # narrow temp window
     if no_mass:
         charts_grid = [dict(title="Energy Performance Distribution", img=charts["ep_dist"])]
         if charts.get("range_dist"):
@@ -1492,7 +1560,7 @@ def main():
 
     html = Template(TEMPLATE.read_text(encoding="utf-8")).render(**ctx)
     # 匿名版文件名不含车牌（便于直接转发），与命名版产物在同一目录共存
-    stem = f"report_anon_{op_period}" if args.anon else f"report_{args.reg}_{op_period}"
+    stem = f"report_anon_{tag}" if args.anon else f"report_{args.reg}_{tag}"
     out_html = outdir / f"{stem}.html"
     out_html.write_text(html, encoding="utf-8")
     out_pdf = outdir / f"{stem}.pdf"

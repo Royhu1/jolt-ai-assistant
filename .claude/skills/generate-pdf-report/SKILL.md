@@ -36,6 +36,13 @@ produced; `pdf_report_workspace/` only holds the artefacts.
   deduped by Start Time + Leg Type) instead of one period; the operating period and output naming
   then span the full data range, and `--period` is ignored for xlsx selection. Combine with `--anon`
   as usual. Example: `--reg CMZ6260 --all-data` covers 2025-09 → 2026-04 across three quarterly reports.
+- **Round-robin vehicles + `--all-data` → one briefing PER OPERATOR (auto)**: a vehicle in
+  `plot_config.json` `company_assignment.round_robin` (currently **EX74JXW**, **LN25NKE**) runs under
+  different operators over time; with `--all-data` the generator automatically emits **one briefing
+  per distinct operator** — the data is filtered to that operator's date span and the briefing is
+  labelled with that operator — instead of one merged "JOLT Partners" briefing. Output is
+  `output/<REG>_<OPERATOR>_<op_period>/` (e.g. `EX74JXW_DP_WORLD_…`, `EX74JXW_WJF_…`). Simple
+  (single-operator) vehicles, and any non-`--all-data` run, are unchanged (a single briefing).
 - **Two report variants, auto-selected by data**: vehicles that report gross vehicle mass get the
   standard mass-based briefing; vehicles with **no usable mass channel** (mass present on < 5 % of
   trips — e.g. YN75NMA, T88RNW) automatically get the **distribution variant** (see §4/§5) — no flag
@@ -199,8 +206,11 @@ Report at three load points, each with a **±1 standard deviation** in brackets:
 - One **temperature** line: `Temperature (laden trips, lo–hi t): energy performance changes
   ~X kWh/km per 10 °C colder/warmer` (**sign-aware**: "colder" when EP rises as temperature falls, i.e.
   `temp_slope < 0`; "warmer" when EP rises with temperature) — **numbers only: no R² and no qualitative "…temperature-sensitive"
-  verdict tag** (see the style note above). Temperature is fitted on the **laden cluster only** (mass
-  held roughly constant); the bullet states the laden **mass range**.
+  verdict tag** (see the style note above). Temperature is fitted on a **narrow mass window within
+  the laden cluster** (`_narrow_temp_window`: adaptive width **2–5 t** — the densest such window
+  holding ≥~15 points, widening from 2 t only as the data volume requires, capped at 5 t — so mass is
+  genuinely held roughly constant, not merely "laden"); the bullet + chart title state that **narrow
+  mass range** (e.g. "(laden, 24–27 t)"). The load points still use the FULL laden cluster.
 
 ### Load-point masses & EP basis (data + judgement) — `_compute_load_points`
 Masses combine the GVM distribution with judgement. Priority **band > single-group >
