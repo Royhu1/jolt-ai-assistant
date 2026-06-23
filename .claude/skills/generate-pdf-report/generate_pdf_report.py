@@ -1201,13 +1201,17 @@ def _emit_briefing(args, op_filter=None):
     df, tr, ch, xlsx_path, covering_src = compute(args.reg, args.period, args.version,
                                                   finetuned=not args.base, all_data=args.all_data)
     fname = xlsx_path.name
+    # no_mass 在 operator 过滤之前、按**全车**数据判定，使同一车各 operator 子集的变体一致
+    # （否则某稀疏 operator 子集偶然 mass≥5% 会被当作 mass 变体，与其分布变体兄弟不一致）。
+    _veh_no_mass = int(tr["mass"].notna().sum()) < max(1, int(0.05 * len(tr)))
     op_name = None
     if op_filter is not None:
         op_name, op_lo, op_hi = op_filter
         tr = tr[(tr["st"] >= op_lo) & (tr["st"] <= op_hi)].copy()
         ch = ch[(ch["st"] >= op_lo) & (ch["st"] <= op_hi)].copy()
-        if tr.empty:
-            print(f"[round-robin] {args.reg} / {op_name}: no trips in operator window — skipped")
+        n_valid = int(tr["ep"].notna().sum())
+        if n_valid < 20:  # too sparse for a meaningful per-operator briefing → skip (note it)
+            print(f"[round-robin] {args.reg} / {op_name}: only {n_valid} valid trips (< 20) — too sparse, skipped")
             return
     spec = PLOT_CFG["vehicle_specs"].get(args.reg, {})
     make = spec.get("make", "")
@@ -1229,7 +1233,8 @@ def _emit_briefing(args, op_filter=None):
     cb = int(time.time())  # run token：图片文件名缓存破坏
     cap_kwh = VEHICLES.get(args.reg, {}).get("effective_capacity_kwh")
     # No usable mass channel (e.g. YN75NMA, T88RNW) → distribution variant instead of the GVM scatters.
-    no_mass = int(tr["mass"].notna().sum()) < max(1, int(0.05 * len(tr)))
+    # Use the vehicle-level flag (computed before any operator filter) so per-operator splits are consistent.
+    no_mass = _veh_no_mass
     load_pts = _compute_load_points(args.reg, tr)
     charts, st = build_charts(tr, ch, fig_dir, args.reg, cb,
                               here_key=_load_here_key(), cap_kwh=cap_kwh,

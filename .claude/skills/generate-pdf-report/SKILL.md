@@ -43,6 +43,10 @@ produced; `pdf_report_workspace/` only holds the artefacts.
   labelled with that operator — instead of one merged "JOLT Partners" briefing. Output is
   `output/<REG>_<OPERATOR>_<op_period>/` (e.g. `EX74JXW_DP_WORLD_…`, `EX74JXW_WJF_…`). Simple
   (single-operator) vehicles, and any non-`--all-data` run, are unchanged (a single briefing).
+  An operator with **< 20 valid trips** is **skipped** (too sparse for a meaningful briefing, logged —
+  e.g. LN25NKE/DP_WORLD has only 12). The **mass-vs-distribution variant is decided at the vehicle
+  level** (over all the vehicle's data, before the operator split) so a vehicle's per-operator briefings
+  are all the same variant (a sparse operator subset can't flip to a mass briefing on its own).
 - **Two report variants, auto-selected by data**: vehicles that report gross vehicle mass get the
   standard mass-based briefing; vehicles with **no usable mass channel** (mass present on < 5 % of
   trips — e.g. YN75NMA, T88RNW) automatically get the **distribution variant** (see §4/§5) — no flag
