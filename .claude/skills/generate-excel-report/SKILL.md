@@ -47,6 +47,19 @@ Use this skill when the user asks to:
     quarter default; add `--months N` as an equal-length escape hatch (e.g. `--months 1`
     for monthly, also inclusive-end / no-overlap). For a single full-range report, call
     `generate_report.py` directly.
+  - **If the user gives NO date range, ASK — do not silently pick one.** Present explicit
+    options and mark the recommended one:
+    - **(recommended) Standard `test_data_config.json` ranges** — the fixed per-vehicle
+      quarter list kept for cross-version comparison (`batch_generate.py` with no
+      `--ds/--de`). ⚠️ Its `end` dates are **hand-maintained and can be stale**, so this
+      reproduces the *configured* span — **not necessarily "up to today"**.
+    - **Full / up-to-now ("全量")** — when the user wants everything to the present, derive
+      the end from the **current date, NOT from `test_data_config.json`** (whose ends lag
+      reality). Use `batch_generate.py --veh <REG> --ds <data-start> --de <today>`
+      (auto-splits into meteorological quarters). For the whole fleet, extend each
+      vehicle's range to today rather than trusting the config's frozen ends.
+    - **A specific period** the user names (resolve "year"/"month" phrasing to explicit
+      `-ds`/`-de`).
 - **Mode** (optional):
   - `--debug` — also write validation figures + raw telematics CSV + inspect HTML
     (needed before `/param-tuner` or `/report-finetuner`).

@@ -116,6 +116,11 @@ PYTHONUTF8=1 python .claude/skills/generate-pdf-report/generate_pdf_report.py \
 
 ### Anonymised presentation version (`--anon`)
 
+> **Default = named version only.** No anonymised version is produced unless `--anon` is
+> explicitly passed. Do NOT generate an anon version by default or offer it unprompted — only
+> add `--anon` when the user (or an external-presentation context such as SteerCo) explicitly
+> asks for anonymisation.
+
 External presentation (e.g. SteerCo) requires operator consent; the 2026-06 Nestlé approval
 was conditional on **anonymisation**. Add `--anon`:
 
@@ -368,9 +373,10 @@ automatically ships a `verification_<REG>_<period>.xlsx` verification workbook �
 
 ## To-do (ported from the original workspace README)
 
-1. The 3 logo placeholder boxes in the title bar: once real logos arrive, put them in
-   `references/logos/` and replace the template `.logo-ph` with
-   `<img src="logos/<operator>.png">` (left = operator / centre = JOLT / right = OEM).
+1. Logos: the title bar no longer carries any logo (the 3 dashed placeholder boxes were
+   removed). If real logos are ever wanted, re-add an `<img src="logos/<operator>.png">`
+   (operator / JOLT / OEM) into the `.ops-header` flex container in the template and drop
+   the files under `references/logos/`.
 2. Commercial-field interface: if the operator provides Monta cost/scheduling, add
    `--ops-data <json>` to merge into the context.
 3. Units: currently km / kWh/km; add a switch for an imperial miles version if needed.

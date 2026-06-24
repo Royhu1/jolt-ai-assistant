@@ -52,12 +52,6 @@
   .ops-header h1 { font-size:33px; font-weight:800; letter-spacing:.2px; }
   .ops-header__sub { font-size:13px; font-weight:600; letter-spacing:1px;
                      color:#c9cbef; margin-top:7px; white-space:nowrap; }
-  .ops-header__logos { display:flex; gap:10px; align-items:center; }
-  .logo-ph { width:108px; height:42px; display:flex; align-items:center; justify-content:center;
-    gap:6px; background:rgba(255,255,255,.08); border:1.4px dashed rgba(255,255,255,.5);
-    border-radius:8px; color:rgba(255,255,255,.82); font-size:12px; font-weight:800;
-    letter-spacing:1.5px; }
-  .logo-ph svg { width:16px; height:16px; opacity:.85; }
 
   .timeline { display:grid; grid-template-columns:1fr 54px 1fr 54px 1fr;
               align-items:center; margin:7mm 6mm 4mm; }
@@ -162,13 +156,6 @@
     <div>
       <h1>{{ operator }}{% if reg %} &nbsp;·&nbsp; {{ reg }}{% endif %}</h1>
       <p class="ops-header__sub">{{ vehicle_model }} &nbsp;·&nbsp; {{ period_label }}</p>
-    </div>
-    <div class="ops-header__logos">
-      {% for _ in range(3) %}
-      <span class="logo-ph">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15l-5-5L5 21"/></svg>LOGO
-      </span>
-      {% endfor %}
     </div>
   </header>
 

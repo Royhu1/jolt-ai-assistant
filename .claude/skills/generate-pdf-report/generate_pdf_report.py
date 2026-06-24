@@ -1517,7 +1517,7 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
 
     ctx = dict(
         reg=reg_disp, operator=operator_disp, vehicle_model=vehicle_model.upper(),
-        period_label=period_label, operator_logo=operator_disp.replace("_", " "), oem_logo=make.upper(),
+        period_label=period_label,
         timeline=[
             dict(tag="DAY START", icon=ICON_TRUCK, time=f"≈ {median_time(tr.groupby('date')['st'].min())}",
                  label="Median first departure"),
