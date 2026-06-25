@@ -73,6 +73,48 @@ produced; `pdf_report_workspace/` only holds the artefacts.
   underestimated to ≈5%). Vehicles with no raw / no such counter (Scania/Mercedes/diesel)
   fall back to the xlsx column (usually shows "—"). The page-1 "Energy Recuperated" only
   shows the value (kWh), no percentage.
+- **Page-1 distance / energy-used / recuperation / CHARGED TOTALS can use a RAW-TELEMATICS basis
+  (`_raw_kpi_totals`), decided PER FIELD** — these four page-1 totals (and the derived Mean EP, daily
+  avg/max, regen %) can come from whole-period sums of the raw_telematics cumulative counters
+  (`odometer`, `total_electric_energy_used`, `electric_energy_recuperation_watthours`,
+  `battery_pack_dc_watthours` + `battery_pack_ac_watthours`) instead of the filtered driving-leg /
+  charge-leg sums, so they **include non-driving consumption** (parked HVAC/thermal/aux), Total
+  Distance is the odometer's true travelled km (incl. < 3 km / excluded legs), and Total Energy
+  Charged is **all** charging (not just segmented sessions). The decision is **independent per field**:
+  - **Total Distance** → raw odometer whenever it is populated;
+  - **Total Energy Used** → raw used-energy counter whenever populated, else the driving-leg /
+    SOC-derived segment sum;
+  - **Energy Recuperated** → raw recup counter whenever populated, else `_counter_recup` / "—";
+  - **Total Energy Charged (+ AC/DC split)** → raw `battery_pack_dc + ac` counter whenever populated,
+    else the xlsx **event** charge-leg AC+DC sum. The event sum only counts SEGMENTED charge sessions
+    and **under-captures by 5–36%** (partial / un-segmented / gap-period charging); the raw counter
+    captures all of it. SoC stats (median start / mean end) always stay event-based (no raw equivalent).
+
+  So e.g. **Scania (EX74JXW/JXY), DAF (LN25NKE), Mercedes (YN25RSY/YN75NMA) populate the odometer
+  but NOT the energy/recup/charge counters** → they get a **raw (complete) Total Distance** yet keep
+  the **segment Total Energy Used** ("—" recup, "—" charged). **Volvo/Renault** populate all of them →
+  fully raw, and **Total Energy Used then reconciles with raw Total Energy Charged for every vehicle**
+  (used is 91–98 % of charged — slightly less, as round-trip/standby losses require). The OLD event-
+  charged made some vehicles look like Used ≫ Charged (e.g. CMZ6260 +52 %), which was purely the
+  event under-capture, not a real imbalance — hence charged is now raw-based on page 1.
+  Mean EP always divides Total Energy Used by distance **on the same basis as that energy** (raw
+  odometer for raw energy, driving-leg km for segment energy) so it stays a valid per-driving-km
+  efficiency, never (driving energy ÷ all-travel distance). Robust estimator = Σ per-sample
+  increments keeping only `0 ≤ Δ ≤ max_rate × Δt` — drops counter **resets** (negative steps; e.g.
+  AV24LXK's energy counter resets 15× over 2 yr) and physically-impossible **spikes** (e.g. the
+  odometer's 2 garbage jumps); energy/recup are sparse (TIMER-row only) so are dropna'd per column
+  before diffing. Daily average = Total Distance ÷ **active days**; daily max = busiest single day.
+  **`PAGE 2` analysis (per-leg EP/GVM scatters, range, temperature, conclusions) ALWAYS keeps the
+  xlsx driving-leg segment basis — it is never raw.** In the verification workbook each raw-basis
+  number is flagged **CHECK MANUALLY** (the leg sheets cannot reproduce a raw-counter whole-period
+  total; the driving-leg formula is kept in the row note), not FAIL; segment-basis rows stay PASS/FAIL.
+- **Two output versions via `--page1-basis {raw,segment}`** (default `raw`): `raw` = the per-field
+  raw basis above (the standard briefing); `segment` = page-1 totals forced to the **excel-report
+  driving-leg basis** (exactly the pre-2026-06 behaviour — energy/distance/recup all from the legs).
+  The `segment` version's artefacts get a **`_xlsxkpi`** suffix (`report_<REG>_<period>_xlsxkpi.pdf` /
+  `_xlsxkpi.html` / `verification_..._xlsxkpi.xlsx`) and **coexist in the same output dir** with the
+  raw version (unsuffixed = raw). Page 2 is identical in both. Run the generator twice (once per
+  basis) to produce both for a vehicle.
 
 ## 2. Preconditions
 

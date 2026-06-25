@@ -174,6 +174,97 @@ def _counter_recup(tr, reg, version):
     return (tot, ncov, ntot) if ntot else None
 
 
+def _raw_kpi_totals(tr, reg, version):
+    """Page-1 energy / distance / recuperation totals from the raw_telematics cumulative
+    counters — robust to counter RESETS (drops back to a lower value) and spurious SPIKES
+    (physically impossible single-step jumps).
+
+    Unlike the xlsx driving-leg sums (which cover only valid driving legs ≥ MIN_TRIP_KM),
+    these whole-period counter totals INCLUDE non-driving consumption (parked HVAC / battery
+    thermal management / aux), so ``Total Energy Used`` reconciles with ``Total Energy
+    Charged``; ``Total Distance`` is the odometer's true travelled km (incl. < 3 km / excluded
+    legs). The page-2 per-leg analysis keeps the xlsx segment basis (this is page-1 only).
+
+    Robust estimator = Σ of per-sample increments keeping only ``0 ≤ Δ ≤ max_rate × Δt``
+    (negative Δ = reset → 0; Δ above the physical rate ceiling = spike → dropped). Energy /
+    recuperation use a 1000 kW ceiling (far above real draw, only kills garbage); distance a
+    130 km/h ceiling. Returns ``dict(energy_kwh, distance_km, recup_kwh, daily_km: Series)``
+    with NaN / None for any channel the vehicle does not report, or ``None`` when there is no
+    raw_telematics at all (caller then falls back to the driving-leg segment basis).
+    """
+    raw_dir = PROJECT / "excel_report_database" / version / reg / "raw_telematics"
+    if not raw_dir.is_dir():
+        return None
+    st = tr["st"].dropna()
+    et = tr["et"].dropna()
+    if st.empty or et.empty:
+        return None
+    # Only read raw files spanning the briefing window (±1 day) — some vehicles have 100s of files.
+    lo = (st.min() - pd.Timedelta(days=1)).normalize()
+    hi = (et.max() + pd.Timedelta(days=1)).normalize()
+    want = {"eventDatetime", "total_electric_energy_used", "odometer",
+            "electric_energy_recuperation_watthours",
+            "battery_pack_dc_watthours", "battery_pack_ac_watthours"}
+    raws = []
+    for p in sorted(raw_dir.glob("raw_*.csv")):
+        m = re.search(r"raw_(\d{4}-\d{2}-\d{2})", p.name)
+        if m and lo <= pd.Timestamp(m.group(1)) <= hi:
+            raws.append(p)
+    if not raws:
+        return None
+    try:
+        tel = pd.concat([pd.read_csv(p, dtype=str, usecols=lambda c: c in want) for p in raws],
+                        ignore_index=True)
+    except Exception:
+        return None
+    tel["t"] = pd.to_datetime(tel.get("eventDatetime"), errors="coerce", utc=True)
+    tel = tel.dropna(subset=["t"]).sort_values("t")
+    if len(tel) < 2:
+        return None
+
+    GAP_HOURS = 6.0  # an increment spanning > this Δt is treated as a data-gap accumulation
+
+    def _robust(col, max_rate, scale):
+        """Σ valid increments of one cumulative counter + per-day Series (both ×scale).
+
+        IMPORTANT: drop NaN for THIS column first — energy / recuperation counters are sparse
+        (logged only on TIMER rows, NaN on the dense GPS rows), so diffing the raw column would
+        pair a value against a NaN neighbour and lose almost everything; we diff between the
+        actual consecutive readings and measure Δt between THOSE readings for the rate cap.
+
+        The TOTAL keeps every valid increment (incl. one that spans a data gap — the counter still
+        accumulated real distance/energy during the outage). The PER-DAY series additionally drops
+        gap-spanning increments (Δt > GAP_HOURS): a multi-hour/day telematics outage accumulates a
+        large jump that, dumped into the single day of the later reading, would give an absurd daily
+        max (e.g. EX74JXY's 34-day gap → a 5,117 km "day"). Daily max must stay a real busiest day.
+        """
+        if col not in tel.columns:
+            return float("nan"), None
+        sub = pd.DataFrame({"t": tel["t"], "v": pd.to_numeric(tel[col], errors="coerce")}).dropna(subset=["v"])
+        if len(sub) < 2:
+            return float("nan"), None
+        dv = sub["v"].diff()
+        dt_h = sub["t"].diff().dt.total_seconds() / 3600.0
+        ok = (dv >= 0) & (dv <= max_rate * dt_h)   # physical per-step ceiling; drops resets + spikes
+        total = float(dv.where(ok, other=0.0).sum() * scale)
+        inc_day = dv.where(ok & (dt_h <= GAP_HOURS), other=0.0) * scale  # exclude gap jumps from days
+        per_day = inc_day.groupby(sub["t"].dt.date).sum()
+        return total, per_day
+
+    energy_kwh, _ = _robust("total_electric_energy_used", 1_000_000.0, 1 / 1000.0)
+    recup_kwh, _ = _robust("electric_energy_recuperation_watthours", 1_000_000.0, 1 / 1000.0)
+    distance_km, daily_km = _robust("odometer", 130.0, 1.0)
+    # Charged from the raw battery-pack counters (whole-period) — captures ALL charging, unlike the
+    # xlsx charge-leg sum which only counts SEGMENTED sessions and under-captures (5–36%, see SKILL).
+    charged_dc_kwh, _ = _robust("battery_pack_dc_watthours", 1_000_000.0, 1 / 1000.0)
+    charged_ac_kwh, _ = _robust("battery_pack_ac_watthours", 1_000_000.0, 1 / 1000.0)
+    if not (pd.notna(energy_kwh) or pd.notna(distance_km)):
+        return None
+    return dict(energy_kwh=energy_kwh, distance_km=distance_km,
+                recup_kwh=recup_kwh, daily_km=daily_km,
+                charged_dc_kwh=charged_dc_kwh, charged_ac_kwh=charged_ac_kwh)
+
+
 def _outlier_trimmed_mean(s):
     """IQR(1.5×) 剔除离群后的均值；返回 (mean, n_kept, n_total)。有效值 < 4 个则不剔除。"""
     x = pd.to_numeric(s, errors="coerce").dropna()
@@ -935,6 +1026,15 @@ def build_verification_workbook(path, tr, ch, v):
     wa.merge_cells("A2:K2")
 
     tr_f, tr_g, tr_h = f"Trips!$F$2:$F${tn}", f"Trips!$G$2:$G${tn}", f"Trips!$H$2:$H${tn}"
+    # Page-1 distance/energy/recup totals may use the RAW-TELEMATICS counter basis (see
+    # _raw_kpi_totals), decided PER FIELD: distance from the raw odometer, energy from the raw
+    # used-energy counter — independently. A raw-basis total is a whole-period counter sum the leg
+    # sheets cannot reproduce, so that row is flagged CHECK MANUALLY (not FAIL) with the leg-sum
+    # formula kept in the note. Operational counts / charging / SoC stay leg-recomputed.
+    raw_dist = v.get("dist_basis") == "raw"
+    raw_energy = v.get("energy_basis") == "raw"
+    raw_charge = v.get("charge_basis") == "raw"
+    _raw_note = "PAGE-1 RAW-TELEMATICS counter total (robust to resets/spikes, incl. non-driving). "
     rows = [
         ("Page 1 · Summary", "Active days", v["ndays"],
          f"=COUNTA(Daily!$A$2:$A${dn})", 0.5,
@@ -952,44 +1052,69 @@ def build_verification_workbook(path, tr, ch, v):
          f'=COUNTIFS({tr_f},"<>",{tr_g},"<>")/COUNTA(Daily!$A$2:$A${dn})', 0.05,
          "Analysed driving legs (EP & GVM present) ÷ active days", "—"),
         ("Page 1 · Timeline", "Daily average distance (km)", v["daily_avg_km"],
-         f"=AVERAGE(Daily!$B$2:$B${dn})", 0.5, "Mean of per-day distance sums", "Distance (km)"),
+         ("manual" if raw_dist else f"=AVERAGE(Daily!$B$2:$B${dn})"), (None if raw_dist else 0.5),
+         (_raw_note + "Total raw odometer km ÷ active days. Leg-sum mean: =AVERAGE(Daily!$B$2:$B$" + str(dn) + ")"
+          if raw_dist else "Mean of per-day distance sums"), "odometer (raw)" if raw_dist else "Distance (km)"),
         ("Page 1 · Timeline", "Median first departure (hh:mm)", None, "manual", None,
          f"Briefing shows ≈ {v['med_dep']} — spot-check per-day minima of Trips!B", "Start Time (UTC)"),
         ("Page 1 · Timeline", "Median last arrival (hh:mm)", None, "manual", None,
          f"Briefing shows ≈ {v['med_arr']} — spot-check per-day maxima of Trips!C", "End Time (UTC)"),
         ("Page 1 · Performance", "Total distance (km)", v["tot_km"],
-         f"=SUM(Trips!$D$2:$D${tn})", 0.5, "Sum over driving legs", "Distance (km)"),
+         ("manual" if raw_dist else f"=SUM(Trips!$D$2:$D${tn})"), (None if raw_dist else 0.5),
+         (_raw_note + "Odometer travelled km. Driving-leg sum: =SUM(Trips!$D$2:$D$" + str(tn) + ")"
+          if raw_dist else "Sum over driving legs"), "odometer (raw)" if raw_dist else "Distance (km)"),
         ("Page 1 · Performance", "Max daily distance (km)", v["daily_max_km"],
-         f"=MAX(Daily!$B$2:$B${dn})", 0.5, "Max of per-day distance sums", "Distance (km)"),
+         ("manual" if raw_dist else f"=MAX(Daily!$B$2:$B${dn})"), (None if raw_dist else 0.5),
+         (_raw_note + "Max per-day odometer km. Leg-sum max: =MAX(Daily!$B$2:$B$" + str(dn) + ")"
+          if raw_dist else "Max of per-day distance sums"), "odometer (raw)" if raw_dist else "Distance (km)"),
         ("Page 1 · Performance", "Total energy used (kWh)", v["tot_e"],
-         f"=SUMPRODUCT(ABS(Trips!$E$2:$E${tn}))", 0.5, "Σ|energy change| over driving legs", "Energy Change (kWh)"),
+         ("manual" if raw_energy else f"=SUMPRODUCT(ABS(Trips!$E$2:$E${tn}))"), (None if raw_energy else 0.5),
+         (_raw_note + "Σ used-energy counter incl. non-driving (reconciles with Total Energy "
+          "Charged). Driving-leg sum: =SUMPRODUCT(ABS(Trips!$E$2:$E$" + str(tn) + "))"
+          if raw_energy else "Σ|energy change| over driving legs"),
+         "total_electric_energy_used (raw)" if raw_energy else "Energy Change (kWh)"),
         ("Page 1 · Performance", "Mean energy performance (kWh/km)", v["mean_ep"],
-         f"=SUMPRODUCT(ABS(Trips!$E$2:$E${tn}))/SUM(Trips!$D$2:$D${tn})", 0.005,
-         "Total energy ÷ total distance (NOT mean of per-leg EP)", "—"),
+         ("manual" if raw_energy else f"=SUMPRODUCT(ABS(Trips!$E$2:$E${tn}))/SUM(Trips!$D$2:$D${tn})"),
+         (None if raw_energy else 0.005),
+         (_raw_note + "Raw total energy ÷ raw odometer distance (same raw basis)"
+          if raw_energy else "Total energy ÷ total distance (NOT mean of per-leg EP); driving-leg basis"), "—"),
         ("Page 1 · Performance", "Energy recuperated (kWh)", v["recup"],
-         ("manual" if v["recup_src"] == "counter" else f"=SUM(Trips!$I$2:$I${tn})"),
-         (None if v["recup_src"] == "counter" else 0.5),
-         (f"Counter-based: Σ raw_telematics recuperation counter over {v['recup_cov']}/{v['recup_tot']} "
+         ("manual" if v["recup_src"] in ("counter", "raw_total") else f"=SUM(Trips!$I$2:$I${tn})"),
+         (None if v["recup_src"] in ("counter", "raw_total") else 0.5),
+         (_raw_note + "Σ raw_telematics recuperation counter over the whole period (robust to "
+          "resets/spikes; NOT the sparse xlsx column). Sparse xlsx-column SUM for comparison: "
+          f"=SUM(Trips!$I$2:$I${tn})"
+          if v["recup_src"] == "raw_total"
+          else f"Counter-based: Σ raw_telematics recuperation counter over {v['recup_cov']}/{v['recup_tot']} "
           f"legs (full coverage; NOT the sparse xlsx column). Sparse xlsx-column SUM for comparison: "
           f"=SUM(Trips!$I$2:$I${tn})"
           if v["recup_src"] == "counter"
           else f"Σ recuperation; only {v['recup_cov']}/{v['recup_tot']} legs have a value (known undercount)"),
-         "raw_telematics recuperation counter" if v["recup_src"] == "counter" else "Recuperation Energy (kWh)"),
+         "raw_telematics recuperation counter" if v["recup_src"] in ("counter", "raw_total")
+         else "Recuperation Energy (kWh)"),
         ("Page 1 · Performance", "Regen recovery (% of energy used)", v.get("recup_pct"),
-         ("manual" if v["recup_src"] == "counter"
+         ("manual" if v["recup_src"] in ("counter", "raw_total")
           else f"=SUM(Trips!$I$2:$I${tn})/SUMPRODUCT(ABS(Trips!$E$2:$E${tn}))*100"),
-         (None if v["recup_src"] == "counter" else 0.5),
-         ("Energy recuperated ÷ total energy used × 100 (recup is counter-based, audited above; "
-          "ratio = that kWh ÷ Σ|energy change|)"
-          if v["recup_src"] == "counter"
+         (None if v["recup_src"] in ("counter", "raw_total") else 0.5),
+         ("Energy recuperated ÷ total energy used × 100 (both raw-counter based, audited above)"
+          if v["recup_src"] in ("counter", "raw_total")
           else "Σ recuperation ÷ Σ|energy change| × 100"),
          "—"),
         ("Page 1 · Charging", "Total energy charged (kWh)", v["tot_ch"],
-         f"=SUM(Charges!$D$2:$D${cn})+SUM(Charges!$E$2:$E${cn})", 0.5, "AC + DC", "Energy Charged AC/DC (kWh)"),
+         ("manual" if raw_charge else f"=SUM(Charges!$D$2:$D${cn})+SUM(Charges!$E$2:$E${cn})"),
+         (None if raw_charge else 0.5),
+         (_raw_note + "Σ raw battery_pack DC+AC counter (ALL charging). Event charge-leg sum (under-"
+          f"captures): =SUM(Charges!$D$2:$D${cn})+SUM(Charges!$E$2:$E${cn})"
+          if raw_charge else "AC + DC"),
+         "battery_pack DC+AC (raw)" if raw_charge else "Energy Charged AC/DC (kWh)"),
         ("Page 1 · Charging", "AC charged (kWh)", v["ac"],
-         f"=SUM(Charges!$D$2:$D${cn})", 0.5, "", "Energy Charged AC (kWh)"),
+         ("manual" if raw_charge else f"=SUM(Charges!$D$2:$D${cn})"), (None if raw_charge else 0.5),
+         (_raw_note + "raw battery_pack_ac counter" if raw_charge else ""),
+         "battery_pack_ac (raw)" if raw_charge else "Energy Charged AC (kWh)"),
         ("Page 1 · Charging", "DC charged (kWh)", v["dc"],
-         f"=SUM(Charges!$E$2:$E${cn})", 0.5, "", "Energy Charged DC (kWh)"),
+         ("manual" if raw_charge else f"=SUM(Charges!$E$2:$E${cn})"), (None if raw_charge else 0.5),
+         (_raw_note + "raw battery_pack_dc counter" if raw_charge else ""),
+         "battery_pack_dc (raw)" if raw_charge else "Energy Charged DC (kWh)"),
         ("Page 1 · Charging", "Mean start SoC (%)", v["mean_ssoc"],
          f"=AVERAGE(Charges!$B$2:$B${cn})", 0.5, "", "Start SOC (%)"),
         ("Page 1 · Charging", "Mean end SoC (%)", v["mean_esoc"],
@@ -1179,6 +1304,10 @@ def main():
                          "产物为 report_anon_<period>.*（与命名版共存）")
     ap.add_argument("--all-data", action="store_true",
                     help="读取该车所有周期报告并合并（全部已采集数据，而非单一周期；忽略 --period）")
+    ap.add_argument("--page1-basis", choices=["raw", "segment"], default="raw",
+                    help="第 1 页能量/距离总量口径：raw=raw_telematics 计数器（含非行驶、真里程，默认）；"
+                         "segment=excel report 分段（行驶腿）口径。第 2 页分析始终为分段口径。"
+                         "segment 版产物加 _xlsxkpi 后缀，与 raw 版在同一目录共存。")
     args = ap.parse_args()
     df, tr, ch, xlsx_path, _cov = compute(args.reg, args.period, args.version,
                                           finetuned=not args.base, all_data=args.all_data)
@@ -1248,23 +1377,69 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
     # 无质量变体（no_mass）第 2 页是 EP/Range 分布图、不依赖 mass，故取 EP 齐全的段（否则 mass 全空
     # 会让 n_legs=0 → "0.0 trips/day"、"Driving Legs 0"）。距离/能耗总量仍按全部段。
     n_legs = int(tr["ep"].notna().sum()) if no_mass else int((tr["ep"].notna() & tr["mass"].notna()).sum())
-    tot_e = tr["ec"].abs().sum(); mean_ep = tot_e / tot_km if tot_km else float("nan")
-    # 再生能量：优先用 raw_telematics 累积计数器（全覆盖、口径正确，约占能耗 ~20%）；无 raw /
-    # 无该计数器的车（Scania/Mercedes/柴油）回退 xlsx 列（其值本就稀疏/缺 → 显示 '—'）。
-    _cr = _counter_recup(tr, args.reg, args.version)
-    if _cr is not None:
-        recup, recup_cov, recup_tot, recup_src = _cr[0], _cr[1], _cr[2], "counter"
+    # ── Page-1 totals: RAW-TELEMATICS basis (whole-period cumulative counters) ──────────────
+    # Total Distance / Total Energy Used / Energy Recuperated on PAGE 1 come from the
+    # raw_telematics counters (robust to resets + spikes, see _raw_kpi_totals), NOT the filtered
+    # driving-leg sums — so they INCLUDE non-driving consumption (parked HVAC/thermal/aux) and
+    # reconcile with Total Energy Charged, and distance is the odometer's true travelled km.
+    # PAGE 2 (per-leg EP/GVM scatters, conclusions) keeps the xlsx segment basis unchanged.
+    # Vehicles with no raw_telematics / counters fall back to the driving-leg segment basis.
+    # Decided PER FIELD (not all-or-nothing): Total Distance uses the raw odometer whenever it is
+    # populated; Total Energy Used uses the raw used-energy counter whenever populated, else the
+    # driving-leg / SOC-derived segment sum. They are INDEPENDENT — e.g. Scania/DAF/Mercedes
+    # populate the odometer but NOT the energy counter, so they get a raw (complete) Total Distance
+    # yet keep the segment Total Energy Used. Mean EP always divides Total Energy Used by distance ON
+    # THE SAME BASIS as that energy (raw odometer for raw energy; driving-leg km for segment energy)
+    # so it stays a valid per-driving-km efficiency, not (driving energy ÷ all-travel distance).
+    tot_e_seg = tr["ec"].abs().sum()   # driving-leg energy (SOC/counter-derived in the xlsx)
+    tot_km_seg = tot_km                 # driving-leg distance (tr["d"].sum() above)
+    tot_e, tot_km = tot_e_seg, tot_km_seg
+    # --page1-basis segment → 完全复刻 excel report 分段口径（不查 raw 计数器），产物为对照版。
+    raw_kpi = _raw_kpi_totals(tr, args.reg, args.version) if args.page1_basis == "raw" else None
+    dist_basis = energy_basis = "segment"
+    if raw_kpi:
+        if pd.notna(raw_kpi.get("energy_kwh")):
+            tot_e, energy_basis = raw_kpi["energy_kwh"], "raw"
+        if pd.notna(raw_kpi.get("distance_km")):
+            tot_km, dist_basis = raw_kpi["distance_km"], "raw"
+            if raw_kpi.get("daily_km") is not None and len(raw_kpi["daily_km"]):
+                daily_km = raw_kpi["daily_km"]  # per-day odometer km (robust)
+    ep_dist = tot_km if energy_basis == "raw" else tot_km_seg  # Mean-EP distance matches energy basis
+    mean_ep = tot_e / ep_dist if ep_dist else float("nan")
+    # Daily-average distance = Total Distance ÷ ACTIVE days (ties to the Active Days tile & headline);
+    # for the segment basis this equals the per-active-day mean. Max = the true busiest single day.
+    daily_avg_km = tot_km / ndays if ndays else float("nan")
+    daily_max_km = daily_km.max() if len(daily_km) else float("nan")
+    print(f"  [page-1 KPI basis] distance={dist_basis}, energy={energy_basis} "
+          f"(raw = raw_telematics counter, incl. non-driving / true odometer; segment = driving-leg sum)")
+    # 再生能量：再生计数器有值就用整段稳健计数器总量（独立于能量/距离口径；不漏复位/越界段，
+    # ≈项目"~20%"基准）；否则回退 _counter_recup（逐段插值差分）/ 稀疏 xlsx 列
+    # （DAF/Mercedes 无该列、Scania 整列空 → 显示 '—'）。
+    if raw_kpi and pd.notna(raw_kpi.get("recup_kwh")):
+        recup, recup_cov, recup_tot, recup_src = raw_kpi["recup_kwh"], 0, 0, "raw_total"
     else:
-        recup = _sum_or_na(tr["recup"]); recup_cov = int(tr["recup"].notna().sum())
-        recup_tot = len(tr); recup_src = "xlsx"
-    # 制动能量回收比例 = 周期内再生回收能量 ÷ 总用电量(净放电)×100；与项目既有口径一致
-    # (≈20% for the counter-based Volvos)。无再生数据(recup NaN)或零能耗 → NaN(summary 略过该条)。
+        _cr = _counter_recup(tr, args.reg, args.version)
+        if _cr is not None:
+            recup, recup_cov, recup_tot, recup_src = _cr[0], _cr[1], _cr[2], "counter"
+        else:
+            recup = _sum_or_na(tr["recup"]); recup_cov = int(tr["recup"].notna().sum())
+            recup_tot = len(tr); recup_src = "xlsx"
+    # 制动能量回收比例 = 再生回收 ÷ page-1 总用电量 ×100（raw 口径分母为整段总用电）。
     recup_pct = recup / tot_e * 100 if (pd.notna(recup) and tot_e) else float("nan")
+    # Charged: raw battery-pack DC+AC counter (whole-period — captures ALL charging) in raw mode when
+    # available; else the xlsx charge-leg sum (event — only segmented sessions, under-captures 5–36%).
+    # SoC stats (median start / mean end) always stay event-based (no raw equivalent).
     ac, dc = _sum_or_na(ch["ac"]), _sum_or_na(ch["dc"])
+    charge_basis = "segment"
+    if raw_kpi and (pd.notna(raw_kpi.get("charged_dc_kwh")) or pd.notna(raw_kpi.get("charged_ac_kwh"))):
+        charge_basis = "raw"
+        dc, ac = raw_kpi.get("charged_dc_kwh"), raw_kpi.get("charged_ac_kwh")
     tot_ch = np.nansum([ac, dc]) if (pd.notna(ac) or pd.notna(dc)) else float("nan")
     med_start = ch["ssoc"].median(); mean_end = ch["esoc"].mean()
     pct_low = (ch["ssoc"] < 40).mean() * 100
     dc_share = dc / tot_ch * 100 if (pd.notna(tot_ch) and tot_ch) else float("nan")
+    print(f"  [page-1 charge basis] {charge_basis} "
+          f"({'raw battery_pack DC+AC counter' if charge_basis == 'raw' else 'event charge-leg AC+DC'})")
     gvw_med = float("nan") if no_mass else tr["mass"].median() / 1000.0
     # Operating-period label: show the start year too when the span crosses a calendar year
     # (e.g. an --all-data briefing 11 Jun 2024 → 1 Dec 2025), otherwise keep the compact form.
@@ -1408,7 +1583,7 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
     # page 2 (not duplicated here).
     summary_points = [
         f"Over {ndays} active days the vehicle covered {tot_km:,.0f} km "
-        f"(~{daily_km.mean():.0f} km/day) using {tot_e:,.0f} kWh, averaging {mean_ep:.2f} kWh/km.",
+        f"(~{daily_avg_km:.0f} km/day) using {tot_e:,.0f} kWh, averaging {mean_ep:.2f} kWh/km.",
         f"Charging: {len(ch)} sessions over the period, typically plugged in from a median "
         f"{med_start:.0f}% start SoC and charged to a mean {mean_end:.0f}%.",
     ]
@@ -1442,11 +1617,12 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
         reg=args.reg, period=op_period, version=args.version, fname=fname,
         cap_kwh=cap_kwh, ndays=ndays, n_tr=n_legs, n_ch=len(ch),
         gvw_med=gvw_med, trips_per_day=n_legs / ndays if ndays else float("nan"),
-        daily_avg_km=daily_km.mean(), daily_max_km=daily_km.max(),
+        daily_avg_km=daily_avg_km, daily_max_km=daily_max_km,
         med_dep=median_time(tr.groupby("date")["st"].min()),
         med_arr=median_time(tr.groupby("date")["et"].max()),
         tot_km=tot_km, tot_e=tot_e, mean_ep=mean_ep, recup=recup, recup_cov=int(recup_cov),
         recup_tot=int(recup_tot), recup_src=recup_src, recup_pct=recup_pct,
+        dist_basis=dist_basis, energy_basis=energy_basis, charge_basis=charge_basis,
         tot_ch=tot_ch, ac=ac, dc=dc, mean_ssoc=ch["ssoc"].mean(), mean_esoc=mean_end,
         med_start=med_start, pct_low=pct_low, dc_share=dc_share,
         gvm_min=gvw_t.min(), gvm_max=gvw_t.max(),
@@ -1470,7 +1646,7 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
 
     verif_path, n_audit = None, 0
     if not args.anon and not no_mass:  # 命名版才出核实工作簿；no_mass 分布变体暂不出（mass-based 审计不适用，留作后续）
-        verif_path = outdir / f"verification_{args.reg}_{tag}.xlsx"
+        verif_path = outdir / f"verification_{args.reg}_{tag}{'_xlsxkpi' if args.page1_basis == 'segment' else ''}.xlsx"
         try:
             n_audit = build_verification_workbook(verif_path, tr, ch, vals)
         except PermissionError:
@@ -1522,7 +1698,7 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
             dict(tag="DAY START", icon=ICON_TRUCK, time=f"≈ {median_time(tr.groupby('date')['st'].min())}",
                  label="Median first departure"),
             dict(tag="", icon=ICON_CLOCK, time=f"≈ {n_legs/ndays:.1f} trips/day",
-                 label=f"{daily_km.mean():.0f} km / day average"),
+                 label=f"{daily_avg_km:.0f} km / day average"),
             dict(tag="DAY END", icon=ICON_TRUCK, time=f"≈ {median_time(tr.groupby('date')['et'].max())}",
                  label="Median last arrival"),
         ],
@@ -1536,8 +1712,8 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
         perf_title="VEHICLE PERFORMANCE",
         perf_rows=[
             dict(k="Total Distance", v=f(tot_km, 0, " km"), cls="num"),
-            dict(k="Daily Avg Distance", v=f(daily_km.mean(), 0, " km"), cls="num"),
-            dict(k="Max Daily Distance", v=f(daily_km.max(), 0, " km"), cls="num"),
+            dict(k="Daily Avg Distance", v=f(daily_avg_km, 0, " km"), cls="num"),
+            dict(k="Max Daily Distance", v=f(daily_max_km, 0, " km"), cls="num"),
             dict(k="Total Energy Used", v=f(tot_e, 0, " kWh"), cls="num"),
             dict(k="Mean Energy Performance", v=f(mean_ep, 2, " kWh/km"), cls="num"),
             dict(k="Energy Recuperated", v=f(recup, 0, " kWh"), cls="num pos"),
@@ -1566,7 +1742,8 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
 
     html = Template(TEMPLATE.read_text(encoding="utf-8")).render(**ctx)
     # 匿名版文件名不含车牌（便于直接转发），与命名版产物在同一目录共存
-    stem = f"report_anon_{tag}" if args.anon else f"report_{args.reg}_{tag}"
+    _bs = "_xlsxkpi" if args.page1_basis == "segment" else ""  # segment 对照版后缀，与 raw 版共存
+    stem = f"report_anon_{tag}{_bs}" if args.anon else f"report_{args.reg}_{tag}{_bs}"
     out_html = outdir / f"{stem}.html"
     out_html.write_text(html, encoding="utf-8")
     out_pdf = outdir / f"{stem}.pdf"
