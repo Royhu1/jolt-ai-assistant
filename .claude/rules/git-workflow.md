@@ -16,6 +16,12 @@ SemVer；项目其它模块（`data_analysis_workspace/` / `research_projects/` 
 `feat:` 新功能 / `fix:` 修复 / `refactor:` 重构 / `docs:` 文档 / `chore:` 版本 bump、依赖等维护。
 禁止无意义消息（如 "update"、"checkpoint"、"11"）。
 
+### 推送（push）需用户同意（强制）
+
+- **每次 `git push`（推送到任何远端 / 任何分支，含 `main`）必须先获得用户明确同意，不得擅自推送。**
+- commit / 建分支 / 本地合并可按工作流照常进行；但**在 push 之前一律先问用户**，并说明将推送的内容与目标
+  （分支、远端、是否含 tag）。用户在某一次对话里同意推送，**不**视为对后续 push 的长期授权——每次都要单独确认。
+
 ### 分支策略
 
 - `main` 为稳定主线，**不在 main 上直接开发**；新改动走功能分支：`feat/<描述>` / `fix/<描述>` /

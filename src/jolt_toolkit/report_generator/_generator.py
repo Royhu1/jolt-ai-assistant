@@ -81,6 +81,92 @@ CAP_WINDOW_HALF_DAYS = 15   # 半窗宽（天）；总窗口 ≈ 1 个月
 _DAY_NS = 86_400 * 1_000_000_000
 
 
+# ── v2.2.6+: 季度（报告周期）级 effective-capacity 加权平均 schema ────────────
+# vehicles.json 的 ``effective_capacity_kwh`` 不再被「最后一次生成的那个周期均值」
+# 覆盖（旧实现 = 容量漂移 / 丢失退化轨迹）。改为对 ``effective_capacity_quarterly``
+# （``{period_key: {kwh, n}}``，period_key = 报告周期串 ``YYYYMMDD_YYYYMMDD``，与
+# 季度报告 1:1）里所有「可靠」季度按 donor 数加权平均：Σ(kwh·n)/Σn。
+# 一个季度若 donor 数 ``n < MIN_DONORS`` 视为不可靠（样本太少，单个异常容量读数即
+# 可显著拉偏季度均值，标准误 ≈ σ/√n）：不计入加权平均，其存储 ``kwh`` 回退为该平均
+# 值（``n`` 照存以便识别）。保留 ``effective_capacity_kwh`` 键名 = PDF 续航 /
+# dashboard / SOC 估算种子等所有读者零改动地自动拿到稳定平均。
+# 阈值取 5：活跃电车一个季度通常有数十次 measured 充/放电 donor，远超 5；< 5 干净
+# 地标记「真正稀疏」的部分窗口（如 CMZ6260 的 ~6 周补窗）或几乎没跑的车。
+MIN_DONORS = 5
+
+
+def _cap_is_valid(v) -> bool:
+    """容量 / SOC 值是否为有效数字（非 None / 非 NaN）。"""
+    if v is None:
+        return False
+    try:
+        return not np.isnan(v)
+    except (TypeError, ValueError):
+        return False
+
+
+def _period_capacity_from_rows(rows, idx_cap, idx_soc, idx_esrc):
+    """复刻 ``_correct_effective_capacity`` 的 donor-based ``avg_eff_cap`` 定义：
+    从非 ``soc_estimate`` 段（measured charge / discharge leg）按「充电优先」取
+    effective capacity 均值。返回 ``(kwh|None, n_donors, source)``，
+    source ∈ {'charge', 'discharge', 'fallback'}。
+
+    与 ``_persist_effective_capacity`` / backfill 共用同一口径：``rows`` 既可为报告
+    row-tuple（传 ``_IDX_CAP`` / ``_IDX_SOC_CHANGE`` / ``_IDX_ESOURCE``），也可为从
+    xlsx 读出的 ``(cap, soc, src)`` 三元组（传 0, 1, 2），保证 live 与 backfill 一致。
+
+    donor 必须满足：``Energy Source`` 是真实的 measured 字符串（``isinstance str`` 且
+    != 'soc_estimate'）且 ``cap`` 为正的有效数字。前者在 live 路径下对真实 measured
+    leg 恒成立（其 energy_source 总是字符串），故对 live 数值零影响；但在 backfill 读
+    最终 xlsx 时它**排除掉 Stop 行**——Stop 行的 ``Energy Source`` / ``Battery
+    Capacity`` 是 ``=NA()`` 公式，openpyxl ``data_only=True`` 会把 ``=NA()`` 读成整数
+    ``0``，否则会被误当成 cap=0 的 donor 污染均值。``cap > 0`` 是额外保险（effective
+    capacity 物理上必为正；真实 donor 恒 > 0，故同样不影响 live 数值）。
+    """
+    charge_caps, discharge_caps = [], []
+    for row in rows:
+        cap = row[idx_cap]
+        src = row[idx_esrc]
+        soc = row[idx_soc]
+        if (isinstance(src, str) and src != 'soc_estimate'
+                and _cap_is_valid(cap) and cap > 0):
+            if _cap_is_valid(soc) and soc > 0:
+                charge_caps.append(float(cap))
+            elif _cap_is_valid(soc) and soc < 0:
+                discharge_caps.append(float(cap))
+    if charge_caps:
+        return float(np.mean(charge_caps)), len(charge_caps), 'charge'
+    if discharge_caps:
+        return float(np.mean(discharge_caps)), len(discharge_caps), 'discharge'
+    return None, 0, 'fallback'
+
+
+def _recompute_weighted_capacity(quarterly: dict, min_donors: int = MIN_DONORS):
+    """给定 ``{period_key: {kwh, n}}``，对**可靠**季度（``n >= min_donors``）按 donor
+    数加权平均：Σ(kwh·n)/Σn。就地把稀疏季度（``n < min_donors``）的存储 ``kwh`` 回填
+    为该平均值（``n`` 不动）。返回 ``(weighted_avg|None, n_reliable, n_sparse)``。
+
+    退化：若没有任何可靠季度但存在 donor 季度（``0 < n < min_donors``），改用全部
+    donor 季度做同样的加权平均，保证 ``effective_capacity_kwh`` 仍写得出（PDF 续航不
+    落空）。完全没有 donor 季度 → 返回 ``(None, 0, 0)``，调用方不动既有标量。
+    """
+    reliable = [(v['kwh'], v['n']) for v in quarterly.values()
+                if v.get('kwh') is not None and v.get('n', 0) >= min_donors]
+    n_sparse = sum(1 for v in quarterly.values()
+                   if v.get('kwh') is not None and 0 < v.get('n', 0) < min_donors)
+    pool = reliable or [(v['kwh'], v['n']) for v in quarterly.values()
+                        if v.get('kwh') is not None and v.get('n', 0) > 0]
+    if not pool:
+        return None, 0, n_sparse
+    total_n = sum(n for _, n in pool)
+    wavg = round(sum(k * n for k, n in pool) / total_n, 1)
+    # 稀疏季度的存储 kwh 回退为加权平均（n 保留以便判定）
+    for v in quarterly.values():
+        if v.get('n', 0) < min_donors:
+            v['kwh'] = wavg
+    return wavg, len(reliable), n_sparse
+
+
 # ── Logger 值转换：srf_client.pandas.to_numeric 的超集 ───────────────────────
 # srf_client 默认的 to_numeric 只处理数字和 "NaN" 字符串；遇到 J1939 布尔字段
 # （如 CCVS cruise control active / brake switch / clutch switch 的 "true"/"false"）
@@ -198,14 +284,26 @@ class JOLTReportGenerator:
                 f"车辆 {vehicle_registration!r} 未在 jolt_toolkit/report_generator/configs/vehicles.json 中注册"
             )
         reg_srf = cfg["srf_reg"]
+        # 报告周期串（YYYYMMDD_YYYYMMDD），与季度报告 / quarterly schema key 1:1
+        period_key = f"{date_start.replace('-', '')}_{date_end.replace('-', '')}"
         # v2.2.2: 柴油车没有电池，跳过所有容量相关字段
         is_diesel = str(cfg.get("fuel_type", "")).upper() == "DIESEL"
         nominal_kwh = cfg.get("nominal_kwh") if not is_diesel else None
         srf_capacity_kwh = cfg.get("srf_capacity_kwh", nominal_kwh)
-        # effective_capacity_kwh: 遥测数据分析得出；未计算时为 None，回退到 srf_capacity
+        # effective_capacity_kwh: 全量可靠季度的 donor 加权平均（v2.2.6+ schema）；
+        # 未计算时为 None，回退到 srf_capacity。
         eff_cap_kwh = cfg.get("effective_capacity_kwh")
-        # SOC estimate 用的容量：已有 effective > srf_capacity > nominal
-        soc_est_cap = eff_cap_kwh or srf_capacity_kwh or nominal_kwh
+        # SOC 估算容量种子（v2.2.6+）：优先取**本报告周期**且可靠（n ≥ MIN_DONORS）的
+        # 季度容量，否则全量加权平均 effective_capacity_kwh，再否则 srf_capacity /
+        # nominal。让每期 SOC 种子用该期对应容量（随后仍被逐 leg time-local 修正覆盖，
+        # 故仅影响 window 全无 donor 时的兜底取值，不改 measured-leg 数值）。
+        quarterly_cfg = cfg.get("effective_capacity_quarterly") or {}
+        this_q = quarterly_cfg.get(period_key)
+        if (this_q and this_q.get("n", 0) >= MIN_DONORS
+                and this_q.get("kwh") is not None):
+            soc_est_cap = this_q["kwh"]
+        else:
+            soc_est_cap = eff_cap_kwh or srf_capacity_kwh or nominal_kwh
         altitude_col = cfg.get("altitude_col")
         speed_col = cfg.get("speed_col", "wheel_based_speed")
         # v2.2.6: per-segment 质量聚合方法（vehicle > pipeline > 默认 'mean'）。
@@ -596,6 +694,8 @@ class JOLTReportGenerator:
         if is_diesel:
             computed_eff_cap = None
             cap_source = 'diesel'
+            period_cap_kwh = period_n = None
+            period_src = 'diesel'
         else:
             sorted_rows, computed_eff_cap, cap_source = self._correct_effective_capacity(
                 sorted_rows,
@@ -620,6 +720,13 @@ class JOLTReportGenerator:
                     row[_IDX_EPERF_KIN] = float('nan')
                     row[_IDX_EP_EXCL_AUX] = float('nan')
 
+            # v2.2.6+: 本报告周期的 donor-based capacity (kwh, n)，与
+            # _correct_effective_capacity 的 avg_eff_cap 同口径（充电优先 measured
+            # leg 均值）。在 Stop 行插入之前、于 _correct 后的同一 sorted_rows 上算，
+            # 供 _persist_effective_capacity 合入 quarterly 加权平均。
+            period_cap_kwh, period_n, period_src = _period_capacity_from_rows(
+                sorted_rows, _IDX_CAP, _IDX_SOC_CHANGE, _IDX_ESOURCE)
+
         # ── 后处理：填充 Stop 行（trip/charge 之间的静止段）────────────────
         # Must run AFTER sorting + effective capacity correction so that the
         # Stop rows pick up the corrected SOC/mass endpoints from their
@@ -631,9 +738,11 @@ class JOLTReportGenerator:
             logging.info("插入 %d 个 Stop 行（合计 %d 行）",
                          n_stops_added, len(sorted_rows))
 
-        # 持久化 effective_capacity_kwh 到 vehicles.json
+        # 持久化 effective_capacity 到 vehicles.json（v2.2.6+ merge 语义：写本期
+        # quarterly[period_key] = {kwh, n}，再用所有可靠季度重算 donor 加权平均）
         if not is_diesel:
-            self._persist_effective_capacity(reg, computed_eff_cap, cap_source)
+            self._persist_effective_capacity(
+                reg, period_cap_kwh, period_n, period_src, period_key)
 
         ds_str = ds.strftime("%Y%m%d")
         de_str = de.strftime("%Y%m%d")
@@ -979,14 +1088,25 @@ class JOLTReportGenerator:
         return rows, round(avg_eff_cap, 1), cap_source
 
     @staticmethod
-    def _persist_effective_capacity(reg: str, eff_cap: float, source: str):
-        """将计算得到的 effective capacity 写回 vehicles.json。
+    def _persist_effective_capacity(reg, eff_cap, n_donors, source, period_key):
+        """将本报告周期的 effective capacity 合入 vehicles.json（v2.2.6+ merge）。
 
-        仅当 source 为 'charge' 或 'discharge'（即来自遥测数据）时写入。
-        source='fallback' 表示无遥测数据，不覆盖已有值。
+        新 schema：
+        - ``effective_capacity_quarterly``: ``{period_key: {kwh, n}}``，period_key =
+          报告周期串 ``YYYYMMDD_YYYYMMDD``，与季度报告 1:1。本期写
+          ``{kwh: round(eff_cap, 1), n: n_donors}``。
+        - ``effective_capacity_kwh``: 对所有可靠季度（``n >= MIN_DONORS``）按 donor
+          数加权平均（Σ(kwh·n)/Σn）。稀疏季度（``n < MIN_DONORS``）不计入，其存储
+          ``kwh`` 由 :func:`_recompute_weighted_capacity` 回填为该平均。保留键名使
+          PDF 续航 / dashboard / SOC 种子零改动地拿到稳定平均。
+
+        仅当 source 为 'charge' / 'discharge'（来自遥测 donor）时写入；
+        source='fallback'（无 donor，如纯 soc_estimate 的 SOC-only Mercedes）不写、
+        不动既有标量。这同时修掉了旧实现「单周期均值覆盖」导致的容量漂移 bug。
         """
-        if source == 'fallback':
-            logging.info("effective capacity 来源为 fallback，不更新 vehicles.json")
+        if source == 'fallback' or eff_cap is None:
+            logging.info("effective capacity 来源为 fallback（无 donor），"
+                         "不更新 vehicles.json: %s %s", reg, period_key)
             return
 
         import json
@@ -994,17 +1114,33 @@ class JOLTReportGenerator:
         path = get_config_path('vehicles.json')
         with open(path, 'r', encoding='utf-8') as f:
             all_cfg = json.load(f)
+        if reg not in all_cfg:
+            return
 
-        old_val = all_cfg.get(reg, {}).get('effective_capacity_kwh')
-        if reg in all_cfg:
-            all_cfg[reg]['effective_capacity_kwh'] = eff_cap
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(all_cfg, f, indent=2, ensure_ascii=False)
-                f.write('\n')
-            # 同步更新内存中的 VEHICLE_CONFIG
-            VEHICLE_CONFIG[reg]['effective_capacity_kwh'] = eff_cap
-            logging.info("effective_capacity_kwh 已更新: %s  %.1f → %.1f kWh (来源=%s)",
-                         reg, old_val or 0, eff_cap, source)
+        entry = all_cfg[reg]
+        old_val = entry.get('effective_capacity_kwh')
+        quarterly = entry.get('effective_capacity_quarterly') or {}
+        quarterly[period_key] = {'kwh': round(float(eff_cap), 1), 'n': int(n_donors)}
+
+        wavg, n_rel, n_sparse = _recompute_weighted_capacity(quarterly)
+        entry['effective_capacity_quarterly'] = quarterly
+        if wavg is not None:
+            entry['effective_capacity_kwh'] = wavg
+
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(all_cfg, f, indent=2, ensure_ascii=False)
+            f.write('\n')
+        # 同步内存中的 VEHICLE_CONFIG
+        VEHICLE_CONFIG.setdefault(reg, {})
+        VEHICLE_CONFIG[reg]['effective_capacity_quarterly'] = quarterly
+        if wavg is not None:
+            VEHICLE_CONFIG[reg]['effective_capacity_kwh'] = wavg
+        logging.info(
+            "effective_capacity 已更新: %s  %.1f → %.1f kWh "
+            "(本期 %s: kwh=%.1f n=%d 来源=%s; 可靠季度=%d, 稀疏=%d)",
+            reg, old_val or 0, wavg if wavg is not None else (old_val or 0),
+            period_key, round(float(eff_cap), 1), int(n_donors), source,
+            n_rel, n_sparse)
 
     @staticmethod
     def _make_srf_data(api_key, root, cache_dir=None, verify=True):

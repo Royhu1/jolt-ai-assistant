@@ -3,7 +3,7 @@
     "srf_reg": "AV24 LXJ",
     "nominal_kwh": 360,
     "srf_capacity_kwh": 265,
-    "effective_capacity_kwh": 305.0,
+    "effective_capacity_kwh": 297.1,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -18,13 +18,51 @@
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
     "min_cluster_gap_kg": 2000.0,
-    "split_long_stops_min": 45
+    "split_long_stops_min": 45,
+    "effective_capacity_quarterly": {
+      "20240601_20240901": {
+        "kwh": 321.3,
+        "n": 164
+      },
+      "20240901_20241201": {
+        "kwh": 293.8,
+        "n": 220
+      },
+      "20241201_20250301": {
+        "kwh": 287.6,
+        "n": 168
+      },
+      "20250301_20250601": {
+        "kwh": 285.2,
+        "n": 190
+      },
+      "20250601_20250901": {
+        "kwh": 296.1,
+        "n": 200
+      },
+      "20250901_20251201": {
+        "kwh": 298.9,
+        "n": 194
+      },
+      "20251201_20260301": {
+        "kwh": 301.8,
+        "n": 178
+      },
+      "20260301_20260601": {
+        "kwh": 295.6,
+        "n": 162
+      },
+      "20260601_20260624": {
+        "kwh": 294.1,
+        "n": 42
+      }
+    }
   },
   "AV24LXK": {
     "srf_reg": "AV24 LXK",
     "nominal_kwh": 360,
     "srf_capacity_kwh": 265,
-    "effective_capacity_kwh": 309.5,
+    "effective_capacity_kwh": 308.3,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -39,13 +77,51 @@
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
     "min_cluster_gap_kg": 2000.0,
-    "split_long_stops_min": 45
+    "split_long_stops_min": 45,
+    "effective_capacity_quarterly": {
+      "20240601_20240901": {
+        "kwh": 343.1,
+        "n": 140
+      },
+      "20240901_20241201": {
+        "kwh": 320.9,
+        "n": 191
+      },
+      "20241201_20250301": {
+        "kwh": 313.5,
+        "n": 173
+      },
+      "20250301_20250601": {
+        "kwh": 306.0,
+        "n": 195
+      },
+      "20250601_20250901": {
+        "kwh": 304.3,
+        "n": 198
+      },
+      "20250901_20251201": {
+        "kwh": 302.3,
+        "n": 196
+      },
+      "20251201_20260301": {
+        "kwh": 295.3,
+        "n": 171
+      },
+      "20260301_20260601": {
+        "kwh": 291.5,
+        "n": 154
+      },
+      "20260601_20260624": {
+        "kwh": 286.8,
+        "n": 45
+      }
+    }
   },
   "AV24LXL": {
     "srf_reg": "AV24 LXL",
     "nominal_kwh": 360,
     "srf_capacity_kwh": 265,
-    "effective_capacity_kwh": 297.4,
+    "effective_capacity_kwh": 321.6,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -60,13 +136,51 @@
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
     "min_cluster_gap_kg": 2000.0,
-    "split_long_stops_min": 45
+    "split_long_stops_min": 45,
+    "effective_capacity_quarterly": {
+      "20240601_20240901": {
+        "kwh": 342.0,
+        "n": 140
+      },
+      "20240901_20241201": {
+        "kwh": 342.2,
+        "n": 179
+      },
+      "20241201_20250301": {
+        "kwh": 345.3,
+        "n": 144
+      },
+      "20250301_20250601": {
+        "kwh": 340.9,
+        "n": 163
+      },
+      "20250601_20250901": {
+        "kwh": 326.4,
+        "n": 153
+      },
+      "20250901_20251201": {
+        "kwh": 294.8,
+        "n": 190
+      },
+      "20251201_20260301": {
+        "kwh": 299.1,
+        "n": 157
+      },
+      "20260301_20260601": {
+        "kwh": 294.5,
+        "n": 141
+      },
+      "20260601_20260624": {
+        "kwh": 290.6,
+        "n": 46
+      }
+    }
   },
   "EV73SAL": {
     "srf_reg": "EV73 SAL",
     "nominal_kwh": 540,
     "srf_capacity_kwh": 378,
-    "effective_capacity_kwh": 360.5,
+    "effective_capacity_kwh": 368.3,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -81,13 +195,51 @@
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
     "min_cluster_gap_kg": 2000.0,
-    "split_long_stops_min": 30
+    "split_long_stops_min": 30,
+    "effective_capacity_quarterly": {
+      "20240601_20240901": {
+        "kwh": 398.5,
+        "n": 76
+      },
+      "20240901_20241201": {
+        "kwh": 372.7,
+        "n": 87
+      },
+      "20241201_20250301": {
+        "kwh": 370.3,
+        "n": 65
+      },
+      "20250301_20250601": {
+        "kwh": 367.4,
+        "n": 71
+      },
+      "20250601_20250901": {
+        "kwh": 367.7,
+        "n": 105
+      },
+      "20250901_20251201": {
+        "kwh": 363.5,
+        "n": 123
+      },
+      "20251201_20260301": {
+        "kwh": 363.2,
+        "n": 102
+      },
+      "20260301_20260601": {
+        "kwh": 358.7,
+        "n": 127
+      },
+      "20260601_20260624": {
+        "kwh": 355.0,
+        "n": 29
+      }
+    }
   },
   "YK73WFN": {
     "srf_reg": "YK73 WFN",
     "nominal_kwh": 540,
     "srf_capacity_kwh": 378,
-    "effective_capacity_kwh": 357.7,
+    "effective_capacity_kwh": 360.8,
     "max_torque_nm": 2400,
     "crr": null,
     "cda": null,
@@ -102,13 +254,51 @@
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
     "min_cluster_gap_kg": 2000.0,
-    "split_long_stops_min": 30
+    "split_long_stops_min": 30,
+    "effective_capacity_quarterly": {
+      "20240601_20240901": {
+        "kwh": 420.6,
+        "n": 28
+      },
+      "20240901_20241201": {
+        "kwh": 378.1,
+        "n": 32
+      },
+      "20241201_20250301": {
+        "kwh": 369.5,
+        "n": 30
+      },
+      "20250301_20250601": {
+        "kwh": 363.9,
+        "n": 60
+      },
+      "20250601_20250901": {
+        "kwh": 362.0,
+        "n": 118
+      },
+      "20250901_20251201": {
+        "kwh": 360.5,
+        "n": 125
+      },
+      "20251201_20260301": {
+        "kwh": 357.1,
+        "n": 142
+      },
+      "20260301_20260601": {
+        "kwh": 350.7,
+        "n": 172
+      },
+      "20260601_20260624": {
+        "kwh": 349.4,
+        "n": 47
+      }
+    }
   },
   "CMZ6260": {
     "srf_reg": "CMZ 6260",
     "nominal_kwh": 540,
     "srf_capacity_kwh": 378,
-    "effective_capacity_kwh": 401.7,
+    "effective_capacity_kwh": 388.1,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -123,13 +313,31 @@
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
     "min_cluster_gap_kg": 1500.0,
-    "split_by_mass": true
+    "split_by_mass": true,
+    "effective_capacity_quarterly": {
+      "20250901_20251201": {
+        "kwh": 380.8,
+        "n": 8
+      },
+      "20251201_20260301": {
+        "kwh": 390.3,
+        "n": 28
+      },
+      "20260301_20260415": {
+        "kwh": 397.5,
+        "n": 36
+      },
+      "20260416_20260624": {
+        "kwh": 381.9,
+        "n": 55
+      }
+    }
   },
   "KY24LHT": {
     "srf_reg": "KY24 LHT",
     "nominal_kwh": 540,
     "srf_capacity_kwh": 540,
-    "effective_capacity_kwh": 428.4,
+    "effective_capacity_kwh": 433.5,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -143,13 +351,31 @@
     "moving_energy_col": "electric_energy_wheelbased_speed_over_zero",
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
-    "min_cluster_gap_kg": 5000.0
+    "min_cluster_gap_kg": 5000.0,
+    "effective_capacity_quarterly": {
+      "20240601_20240901": {
+        "kwh": 437.0,
+        "n": 51
+      },
+      "20240901_20241201": {
+        "kwh": 426.2,
+        "n": 54
+      },
+      "20241201_20250301": {
+        "kwh": 444.6,
+        "n": 19
+      },
+      "20250301_20250601": {
+        "kwh": 433.5,
+        "n": 3
+      }
+    }
   },
   "N88GNW": {
     "srf_reg": "N88 GNW",
     "nominal_kwh": 540,
     "srf_capacity_kwh": 417,
-    "effective_capacity_kwh": 387.0,
+    "effective_capacity_kwh": 381.7,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -164,13 +390,47 @@
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
     "min_cluster_gap_kg": 2000.0,
-    "split_long_stops_min": 15
+    "split_long_stops_min": 15,
+    "effective_capacity_quarterly": {
+      "20240901_20241201": {
+        "kwh": 401.5,
+        "n": 47
+      },
+      "20241201_20250301": {
+        "kwh": 395.0,
+        "n": 66
+      },
+      "20250301_20250601": {
+        "kwh": 374.3,
+        "n": 57
+      },
+      "20250601_20250901": {
+        "kwh": 381.2,
+        "n": 67
+      },
+      "20250901_20251201": {
+        "kwh": 374.8,
+        "n": 72
+      },
+      "20251201_20260301": {
+        "kwh": 382.4,
+        "n": 54
+      },
+      "20260301_20260601": {
+        "kwh": 366.9,
+        "n": 44
+      },
+      "20260601_20260624": {
+        "kwh": 356.6,
+        "n": 10
+      }
+    }
   },
   "EX74JXW": {
     "srf_reg": "EX74 JXW",
     "nominal_kwh": 475,
     "srf_capacity_kwh": 518,
-    "effective_capacity_kwh": 475.6,
+    "effective_capacity_kwh": 504.0,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -185,13 +445,31 @@
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
     "min_cluster_gap_kg": 2000.0,
-    "mass_agg": "mad_tw_mean"
+    "mass_agg": "mad_tw_mean",
+    "effective_capacity_quarterly": {
+      "20250601_20250901": {
+        "kwh": 538.2,
+        "n": 115
+      },
+      "20250901_20251201": {
+        "kwh": 475.2,
+        "n": 127
+      },
+      "20251201_20260301": {
+        "kwh": 486.5,
+        "n": 6
+      },
+      "20260301_20260601": {
+        "kwh": 470.9,
+        "n": 5
+      }
+    }
   },
   "EX74JXY": {
     "srf_reg": "EX74 JXY",
     "nominal_kwh": 475,
     "srf_capacity_kwh": 475,
-    "effective_capacity_kwh": 521.0,
+    "effective_capacity_kwh": 518.3,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -205,7 +483,21 @@
     "moving_energy_col": "electric_energy_wheelbased_speed_over_zero",
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
-    "min_cluster_gap_kg": 2000.0
+    "min_cluster_gap_kg": 2000.0,
+    "effective_capacity_quarterly": {
+      "20250401_20250601": {
+        "kwh": 526.1,
+        "n": 76
+      },
+      "20250601_20250901": {
+        "kwh": 528.0,
+        "n": 85
+      },
+      "20250901_20251201": {
+        "kwh": 511.7,
+        "n": 213
+      }
+    }
   },
   "YN25RSY": {
     "srf_reg": "YN25 RSY",
@@ -229,7 +521,7 @@
     "srf_reg": "TA70 WTL",
     "nominal_kwh": 417,
     "srf_capacity_kwh": 417,
-    "effective_capacity_kwh": 387.0,
+    "effective_capacity_kwh": 382.4,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -246,13 +538,39 @@
     "min_cluster_gap_kg": 2000.0,
     "split_long_stops_min": 45,
     "min_stop_duration_min": 10,
-    "merge_by_mass": false
+    "merge_by_mass": false,
+    "effective_capacity_quarterly": {
+      "20250501_20250801": {
+        "kwh": 391.9,
+        "n": 64
+      },
+      "20250801_20251101": {
+        "kwh": 381.3,
+        "n": 62
+      },
+      "20251101_20260201": {
+        "kwh": 377.3,
+        "n": 57
+      },
+      "20260201_20260321": {
+        "kwh": 389.2,
+        "n": 24
+      },
+      "20260321_20260601": {
+        "kwh": 374.1,
+        "n": 39
+      },
+      "20260601_20260624": {
+        "kwh": 368.4,
+        "n": 7
+      }
+    }
   },
   "T88RNW": {
     "srf_reg": "T88 RNW",
     "nominal_kwh": 211,
     "srf_capacity_kwh": 211,
-    "effective_capacity_kwh": 218.0,
+    "effective_capacity_kwh": 214.6,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -266,7 +584,45 @@
     "moving_energy_col": "electric_energy_wheelbased_speed_over_zero",
     "mass_col": "gross_combination_vehicle_weight",
     "altitude_col": "gnss_altitude",
-    "min_cluster_gap_kg": 2000.0
+    "min_cluster_gap_kg": 2000.0,
+    "effective_capacity_quarterly": {
+      "20240611_20240901": {
+        "kwh": 217.7,
+        "n": 50
+      },
+      "20240901_20241201": {
+        "kwh": 219.1,
+        "n": 76
+      },
+      "20241201_20250301": {
+        "kwh": 211.4,
+        "n": 65
+      },
+      "20250301_20250601": {
+        "kwh": 213.5,
+        "n": 53
+      },
+      "20250601_20250901": {
+        "kwh": 216.8,
+        "n": 54
+      },
+      "20250901_20251201": {
+        "kwh": 216.6,
+        "n": 72
+      },
+      "20251201_20260321": {
+        "kwh": 212.7,
+        "n": 80
+      },
+      "20260321_20260601": {
+        "kwh": 207.1,
+        "n": 39
+      },
+      "20260601_20260624": {
+        "kwh": 210.7,
+        "n": 13
+      }
+    }
   },
   "WU70GLV": {
     "srf_reg": "WU70 GLV",
