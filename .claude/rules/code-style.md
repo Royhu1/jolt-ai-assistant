@@ -1,53 +1,52 @@
-> Python 代码规范 —— 由根 `CLAUDE.md` 的「## 代码规范」通过 `@import` 引用。
-> 改这里 = 改全项目的代码风格约定（团队共享，随 `.claude/` 提交）。
+> Python code style — referenced from the root `CLAUDE.md` "## Code Style" section via `@import`.
+> Editing here = editing the code-style conventions for the whole project (team-shared, committed with `.claude/`).
 
-Python 代码遵循 PEP 8，并用 `pyproject.toml` 中 `[project.optional-dependencies].dev`
-已配置的工具统一风格：
+Python code follows PEP 8, and uses the tools already configured under
+`[project.optional-dependencies].dev` in `pyproject.toml` for a uniform style:
 
-- **格式化**：`black`（默认行宽 88）。
-- **import 排序**：`isort`（标准库 / 第三方 / 本地三组分隔）。
-- **静态类型**：`mypy`；公开函数尽量给出参数与返回值的类型注解。
+- **Formatting**: `black` (default line width 88).
+- **import ordering**: `isort` (standard library / third-party / local — three separated groups).
+- **Static typing**: `mypy`; public functions should provide type annotations for parameters and return values wherever possible.
 
-### 命名规则
+### Naming rules
 
-| 对象 | 风格 | 示例 |
+| Object | Style | Example |
 |------|------|------|
-| 包 / 模块文件 | `snake_case` | `report_generator`、`segment_algorithms.py` |
-| 函数 / 方法 / 变量 | `snake_case` | `compute_ep`、`find_speed_trips` |
-| 类 | `PascalCase` | `JOLTReportGenerator`、`WeatherPatcher` |
-| 常量 / 模块级配置 | `UPPER_SNAKE_CASE` | `HEADERS`、`BASELINE`、`ETA_DT` |
-| 内部 / 私有（模块 / 函数 / 属性） | 前导下划线 | `_generator.py`、`_seg_to_row()`、`_safe_num()` |
+| Package / module file | `snake_case` | `report_generator`, `segment_algorithms.py` |
+| Function / method / variable | `snake_case` | `compute_ep`, `find_speed_trips` |
+| Class | `PascalCase` | `JOLTReportGenerator`, `WeatherPatcher` |
+| Constant / module-level config | `UPPER_SNAKE_CASE` | `HEADERS`, `BASELINE`, `ETA_DT` |
+| Internal / private (module / function / attribute) | leading underscore | `_generator.py`, `_seg_to_row()`, `_safe_num()` |
 
-- 标识符一律用英文；项目内缩写保持一致（`ep` = energy performance、`soc`、`crr`、`cda` 等）。
-- 带物理单位的量在名字或注释里标明单位，如 `delta_energy_kwh`、`mass_kg`、`v_c`（m/s）。
+- Identifiers must always be in English; keep abbreviations consistent across the project (`ep` = energy performance, `soc`, `crr`, `cda`, etc.).
+- Quantities carrying physical units should state the unit in the name or a comment, e.g. `delta_energy_kwh`, `mass_kg`, `v_c` (m/s).
 
-### 其它约定
+### Other conventions
 
-- 路径优先用 `pathlib.Path`；字符串格式化用 f-string。
-- 一次性 / 临时脚本用 `_tmp_*.py` / `_patch_*.py` 命名（已 gitignore，用完即删、不写进 README）。
-- **代码注释与 docstring 一律用英文**——即使工作 / 交流语言是中文。代码随仓库共享，注释统一
-  英文便于国际协作；终端回复、changelog、文档正文等面向人的文字仍遵循「语言规范」。
+- Prefer `pathlib.Path` for paths; use f-strings for string formatting.
+- Name one-off / temporary scripts `_tmp_*.py` / `_patch_*.py` (already gitignored; delete after use, do not write them into the README).
+- **Code comments and docstrings must always be written in English** — even when the working / communication language is Chinese. Code is shared via the repository, so keeping comments uniformly in English aids international collaboration. All content committed / pushed to the repository — code, comments, docstrings, documentation, changelogs, configs — is written in **English**; Chinese is used ONLY for (a) interactive chat replies and (b) the gitignored `*.zh.md` local reading copies.
 
-### 子项目独立性（2026-06-11 起）
+### Sub-project independence (from 2026-06-11)
 
-各 workspace（`data_analysis_workspace/`、`research_projects/`、`publication_workspace/`、
-`monthly_presentation/` 等）下的子项目必须**互相独立**——子项目是可复现的研究存档，
-应当可以被单独删除/归档而不损坏其它子项目：
+Sub-projects under each workspace (`data_analysis_workspace/`, `research_projects/`, `publication_workspace/`,
+`monthly_presentation/`, etc.) must be **mutually independent** — a sub-project is a reproducible research archive,
+and should be deletable / archivable on its own without breaking the other sub-projects:
 
-- 允许的代码依赖只有三类：stdlib / pip 包、版本化的 `src/jolt_toolkit`
-  （含 `jolt_toolkit.analysis`：计数器插值、OLS/FE 回归工具、`eta_bat` 物理模型）、
-  子项目自身文件。**禁止 `sys.path.insert` 指向其它子项目**——需要别处的代码就拷贝（vendoring）。
-- vendored 副本必须带 provenance 头：来源 repo 相对路径、拷贝日期、符号清单、
-  原因（sub-project independence）；不与来源同步意图就不要改函数体。
-- **三次法则**：被 3+ 个子项目复用且已稳定的机器代码，提升进 `jolt_toolkit.analysis`
-  （改动 route 给 jolt-toolkit-dev agent，按 SemVer minor 升版本），不要无限复制。
-- 数据依赖只允许读 `excel_report_database/<version>/`（版本化、append-only），
-  **禁止读其它子项目的 `results/`**。文档互链（README link）不受限制。
-- 旧于本约定的冻结快照（`monthly_presentation/20260422/`、`data_analysis_workspace/deprecated/`）
-  豁免（grandfathered），不保证可重跑、不得扩展。
-- 只读检查：`python .claude/scripts/check_subproject_independence.py [--verbose]`
-  （AST 解析 `sys.path.insert` 目标，违规 exit 1）。
+- Only three kinds of code dependency are allowed: stdlib / pip packages, the versioned `src/jolt_toolkit`
+  (including `jolt_toolkit.analysis`: counter interpolation, OLS/FE regression utilities, the `eta_bat` physics model),
+  and the sub-project's own files. **`sys.path.insert` pointing at other sub-projects is forbidden** — if you need code from elsewhere, copy it (vendoring).
+- A vendored copy must carry a provenance header: source repo relative path, copy date, symbol list,
+  reason (sub-project independence); do not modify the function body unless you intend to keep it in sync with the source.
+- **Rule of three**: machine code reused by 3+ sub-projects and already stable should be promoted into `jolt_toolkit.analysis`
+  (route the change to the jolt-toolkit-dev agent, bump the version by a SemVer minor); do not copy it endlessly.
+- Data dependencies may only read `excel_report_database/<version>/` (versioned, append-only),
+  and **reading other sub-projects' `results/` is forbidden**. Cross-linking documents (README links) is unrestricted.
+- Frozen snapshots older than this convention (`monthly_presentation/20260422/`, `data_analysis_workspace/deprecated/`)
+  are exempt (grandfathered), are not guaranteed to be re-runnable, and must not be extended.
+- Read-only check: `python .claude/scripts/check_subproject_independence.py [--verbose]`
+  (AST-parses `sys.path.insert` targets, exit 1 on violation).
 
-> 报告生成包的架构约定（src-layout、统一分段算法、`HEADERS` 列序、configs、deprecated 等）
-> 见 `src/jolt_toolkit/README.md`；各大目录的 agent 归属与「改其代码请 route 给对应 agent」的
-> 纪律见各 `.claude/agents/*.md` 定义（agent 描述里已声明 owner）。
+> The report-generation package's architecture conventions (src-layout, the unified segmentation algorithm, `HEADERS` column order, configs, deprecated, etc.)
+> are in `src/jolt_toolkit/README.md`; the agent ownership of each major directory and the discipline of "to change its code, route to the corresponding agent"
+> are defined in each `.claude/agents/*.md` (the owner is declared in the agent's description).

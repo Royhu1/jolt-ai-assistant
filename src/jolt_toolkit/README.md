@@ -609,7 +609,7 @@ Merges adjacent discharge segments with the same dominant mass cluster, eliminat
 
 **Algorithm steps**:
 
-1. For each discharge segment, compute the dominant `mass_cluster` (the label appearing most often within the time window). **v2.2.4**: `_get_seg_dominant_cluster` votes with **moving** rows (`mass_moving == True`) first; only if the window has no moving mass rows does it fall back to stationary-row votes (required fallback "当无可用行驶数据时仍用静止质量数据"). If the `mass_moving` column is absent it reverts to voting with all valid rows.
+1. For each discharge segment, compute the dominant `mass_cluster` (the label appearing most often within the time window). **v2.2.4**: `_get_seg_dominant_cluster` votes with **moving** rows (`mass_moving == True`) first; only if the window has no moving mass rows does it fall back to stationary-row votes (required fallback "still use stationary mass data when no moving data is available"). If the `mass_moving` column is absent it reverts to voting with all valid rows.
 2. Traverse the segment list from the start and merge greedily:
    - adjacent segments have the same dominant cluster → merge
    - adjacent segments have different dominant clusters → do not merge (loading/unloading event)
@@ -830,7 +830,7 @@ Diesel charts (y = Fuel Consumption, 0–60 L/100km):
 > The former EV `Battery Power vs Energy Change` / `SOC Change vs Energy Change`
 > and diesel `Distance vs Fuel Used` charts were dropped in the v2.2.4 visual
 > pass so both reports share one comparable `{EP | Fuel cons.} vs {Mass / Temp /
-> Speed}` set, matching the paper口径.
+> Speed}` set, matching the paper's definition.
 
 **Fixed axes** — every axis `min`/`max`/`major_unit` is a constant (never
 per-file autoscaling). Energy Performance (0–3), Vehicle Mass (0–45000) and
@@ -911,7 +911,7 @@ in range (e.g. EP ∈ (0.1, 3.0]) and the x-value in its window. Because xlsxwri
 / openpyxl charts reference cell ranges and cannot filter in place, the cleaned
 `(x, y)` pairs are written to a **hidden `GraphsData` sheet**; both the scatter
 series and its linear trendline point at that block, so the fit is computed on
-clean data only (matching the paper口径). The single filtering routine
+clean data only (matching the paper's definition). The single filtering routine
 `_filtered_chart_points()` and the fit/subtitle helper `_chart_subtitle()` are
 shared by the generator and the patch script.
 

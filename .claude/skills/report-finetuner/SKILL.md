@@ -9,7 +9,7 @@ description: |
   Triggers on:
   (1) "/report-finetuner <REG> <period>"
   (2) "finetune report for <REG>"
-  (3) "修正分段 <REG>"
+  (3) "fix segmentation <REG>"
   (4) user says param-tuner exhausted but figures still show segmentation errors
 ---
 

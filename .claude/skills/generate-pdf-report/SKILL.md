@@ -10,7 +10,7 @@ description: |
   so the subjective conclusions stay stylistically consistent across reports.
   Triggers on:
   (1) "generate the PDF briefing/report for <REG> in <period>"
-  (2) "生成 <REG> 的 PDF 简报 / 工业伙伴报告"
+  (2) "generate the PDF briefing / industrial-partner report for <REG>"
   (3) "/generate-pdf-report <REG> <period>"
   (4) partner review comments on a briefing; briefing chart / layout / commentary changes
   If no xlsx for the requested period exists — neither an exact-period report nor a

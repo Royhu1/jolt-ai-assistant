@@ -1,82 +1,82 @@
 # YN25RSY — Mercedes-Benz eActros 600
 
-## 车辆特征
+## Vehicle characteristics
 
-- 品牌/型号: Mercedes-Benz eActros 600
-- 标称容量: 600 kWh
-- 运营模式: 长途干线运输，偶尔多点配送
-- 数据特征: 遥测 SOC（整数精度 1%）+ 遥测速度（`speed` 列，~2 min 间隔）+ Logger Speed + Logger Mass；遥测无质量数据
+- Make/Model: Mercedes-Benz eActros 600
+- Nominal capacity: 600 kWh
+- Operation mode: long-haul trunk transport, occasionally multi-drop distribution
+- Data characteristics: telematics SOC (integer 1% precision) + telematics speed (`speed` column, ~2 min interval) + Logger Speed + Logger Mass; no telematics mass data
 
-## 关键发现：遥测列名差异
+## Key finding: telematics column name difference
 
-Mercedes 遥测速度列名为 `speed`，而非 Volvo/Scania/Renault 使用的 `wheel_based_speed`。
-需在 vehicles.json 中显式配置 `"speed_col": "speed"`。
+The Mercedes telematics speed column is named `speed`, not the `wheel_based_speed` used by Volvo/Scania/Renault.
+It must be explicitly configured in vehicles.json as `"speed_col": "speed"`.
 
-## 优化前状态
+## State before optimisation
 
-- 管线: `mercedes_soc` (SOC-based 放电分段)
-- 主要问题: **过度分段**（10+ 天受影响），个别天数 6 段放电
-- 次要问题: 低 SOC 时行程遗漏（1 天）
+- Pipeline: `mercedes_soc` (SOC-based discharge segmentation)
+- Main problem: **over-segmentation** (10+ days affected), with 6 discharge segments on individual days
+- Secondary problem: trips missed at low SOC (1 day)
 
-## 根因与解决方案
+## Root causes and solutions
 
-### 根因 1: SOC 整数精度导致过度分段
+### Root cause 1: SOC integer precision causes over-segmentation
 
-Mercedes SOC 精度为 1%（整数），连续行驶中出现短暂 SOC 平台期或微小回升（1-3%），
-`soc_rise_abort_pct=3.0%` 将一个连续行程切成多个片段。
+Mercedes SOC precision is 1% (integer); during continuous driving brief SOC plateaus or small rebounds (1-3%) appear,
+and `soc_rise_abort_pct=3.0%` cuts a continuous trip into multiple fragments.
 
-**解决**: 切换到 speed-based 管线 (`mercedes_speed`)，配置 `speed_col: "speed"` 使用遥测速度。
+**Solution**: switch to the speed-based pipeline (`mercedes_speed`), configuring `speed_col: "speed"` to use telematics speed.
 
-### 根因 2: Logger 速度方案不适合
+### Root cause 2: the Logger speed approach is unsuitable
 
-最初尝试使用 Logger Speed（高频 ~15s 间隔）进行行程检测。问题：
-- 依赖 Logger 数据，`--fast` 模式不可用
-- 高频数据检测到每个短停靠（5-15min），需要将 `min_stop_duration_min` 增大到 15
-- 部分天数 Logger 速度不完整（11-01），导致行程遗漏
+The Logger Speed (high-frequency ~15s interval) was initially tried for trip detection. Problems:
+- relies on Logger data, `--fast` mode unavailable
+- high-frequency data detects every short stop (5-15min), requiring `min_stop_duration_min` to be raised to 15
+- on some days the Logger speed is incomplete (11-01), causing trips to be missed
 
-**最终方案**: 使用遥测速度（`speed` 列，~2min 间隔）。优势：
-- 不依赖 Logger/Charger 数据，`--fast` 模式兼容
-- 2min 间隔自然过滤极短停靠（<2min 的停靠不可见）
-- 覆盖完整（遥测始终在线），不会因 Logger 不完整而遗漏行程
+**Final approach**: use telematics speed (`speed` column, ~2min interval). Advantages:
+- does not rely on Logger/Charger data, compatible with `--fast` mode
+- the 2min interval naturally filters out very short stops (stops <2min are invisible)
+- full coverage (telematics always online), so trips are not missed due to incomplete Logger
 
-## 最终参数
+## Final parameters
 
-| 参数 | 默认值 | 最终值 | 原因 |
+| Parameter | Default | Final | Reason |
 |------|--------|--------|------|
-| `pipeline` | `mercedes_soc` | `mercedes_speed` | SOC 精度不足，切换到速度分段 |
-| `speed_col` | `wheel_based_speed` | `speed` | Mercedes 遥测速度列名不同 |
-| `min_stop_duration_min` | 5.0 | **5.0** | 遥测 2min 间隔下 5min 即可，无需像 Logger 那样增大 |
-| `min_soc_drop` | 1.0 | **2.0** | 过滤 dSOC≤1% 噪声段 |
+| `pipeline` | `mercedes_soc` | `mercedes_speed` | insufficient SOC precision, switched to speed segmentation |
+| `speed_col` | `wheel_based_speed` | `speed` | the Mercedes telematics speed column name is different |
+| `min_stop_duration_min` | 5.0 | **5.0** | with a 2min telematics interval, 5min suffices, no need to raise it as for Logger |
+| `min_soc_drop` | 1.0 | **2.0** | filters out dSOC≤1% noise segments |
 
-## 优化结果
+## Optimisation results
 
-- 8/15 天改善或显著改善
-- 3/3 正确天保持不变
-- 11-01 修复（之前 Logger 方案遗漏的全天行驶现在被遥测速度覆盖）
-- 12-01 仍无法检测（SOC 在 ~12% 完全平坦，BMS 保护）
+- 8/15 days improved or markedly improved
+- 3/3 correct days unchanged
+- 11-01 fixed (the full-day driving previously missed by the Logger approach is now covered by telematics speed)
+- 12-01 still undetectable (SOC completely flat at ~12%, BMS protection)
 
-## Round 2 验证 (2026-03-25, v2.1.0.dev0)
+## Round 2 verification (2026-03-25, v2.1.0.dev0)
 
-全量精细检视（48 张验证图逐一审查）确认：
-- **46/48 OK、2/48 Issue** — 与 Round 1 结果完全一致
-- 15 个活跃日的 trip boundary 均与遥测速度 trace 正确对齐
-- EP 值在 0.7–2.1 kWh/km 范围内（eActros 600, 40t 级别）
-- 充电段（绿色区域）在所有活跃日正确识别
-- 2025-11-19 至 2026-01-04 的长待机期无误报
-- 12-05 重新分类为 Charge-only（仅充电，无有效放电行程）
-- **无需参数调整** — 当前参数已达到最优
+Full detailed inspection (each of 48 validation figures reviewed) confirms:
+- **46/48 OK, 2/48 Issue** — exactly consistent with the Round 1 results
+- the trip boundaries on all 15 active days are correctly aligned with the telematics speed trace
+- EP values within the 0.7–2.1 kWh/km range (eActros 600, 40t class)
+- charge segments (green regions) correctly identified on all active days
+- no false positives during the long standby period from 2025-11-19 to 2026-01-04
+- 12-05 reclassified as Charge-only (charging only, no valid discharge trip)
+- **no parameter tuning needed** — the current parameters are already optimal
 
-## 经验教训（适用于类似车辆）
+## Lessons learned (applicable to similar vehicles)
 
-1. **优先使用遥测速度，而非 Logger 速度** — 遥测始终在线且与 `--fast` 模式兼容；
-   Logger 速度作为补充验证，不作为分段依据
-2. **不同品牌的遥测列名不同** — 配置 `speed_col` 而非硬编码列名：
+1. **Prefer telematics speed over Logger speed** — telematics is always online and compatible with `--fast` mode;
+   Logger speed serves as supplementary validation, not as the basis for segmentation
+2. **Telematics column names differ between makes** — configure `speed_col` rather than hard-coding the column name:
    - Volvo/Scania/Renault: `wheel_based_speed`
    - Mercedes: `speed`
-3. **SOC 整数精度的车辆应使用 speed-based 管线** — SOC-based 对 1% 精度过于敏感
-4. **遥测速度的时间分辨率自然过滤短停靠** — 2min 间隔下 `min_stop_duration_min=5` 即可，
-   无需像高频 Logger 速度那样增大到 15
-5. **分段算法不应依赖 Logger/Charger 数据** — 确保 `--fast` 模式（仅遥测）
-   和完整模式产生相同的 trip/charge 分段结果
-6. **`min_soc_drop=2.0` 适用于大容量车辆** — 600kWh 下 1% SOC = 6kWh，
-   dSOC=1% 的移动通常是调车/挪车，不是有效行程
+3. **Vehicles with integer SOC precision should use the speed-based pipeline** — SOC-based is too sensitive at 1% precision
+4. **The time resolution of telematics speed naturally filters short stops** — with a 2min interval, `min_stop_duration_min=5` suffices,
+   no need to raise it to 15 as for high-frequency Logger speed
+5. **The segmentation algorithm should not rely on Logger/Charger data** — ensure `--fast` mode (telematics only)
+   and full mode produce the same trip/charge segmentation results
+6. **`min_soc_drop=2.0` is appropriate for large-capacity vehicles** — at 600kWh, 1% SOC = 6kWh,
+   a dSOC=1% movement is usually shunting/repositioning, not a valid trip

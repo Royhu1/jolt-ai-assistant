@@ -1,54 +1,54 @@
-# 001 — Excel 报告 / dashboard 的 regen 能量被严重低估（~5%，应 ~19%）
+# 001 — regen energy in the Excel report / dashboard is severely underestimated (~5%, should be ~19%)
 
-- **状态**：OPEN（已分析，暂缓修复）
-- **发现日期**：2026-06-17
-- **负责方**：`jolt-toolkit-dev`（`src/jolt_toolkit/` 唯一负责人）——这是源数据（xlsx 列）问题
-- **优先级**：中（不阻塞当前交付；PDF 简报已单独在 skill 内绕过，见下）
+- **Status**: OPEN (analysed, fix deferred)
+- **Date found**: 2026-06-17
+- **Owner**: `jolt-toolkit-dev` (sole owner of `src/jolt_toolkit/`) — this is a source-data (xlsx column) problem
+- **Priority**: medium (does not block the current delivery; the PDF briefing already works around it separately within the skill, see below)
 
-## 摘要
+## Summary
 
-`excel_report_database/<ver>/<REG>/jolt_report_*.xlsx` 里的 **`Recuperation Energy (kWh)`**
-列（很可能 `Propulsion Energy` 同理）**覆盖稀疏、且逐段数值偏低**，导致所有读这一列的下游
-（Excel 报告本身、data dashboard、旧版 PDF 简报）把再生能量占比显示成 **~4.5–8%**，而真实
-值约 **19%**。
+The **`Recuperation Energy (kWh)`** column in `excel_report_database/<ver>/<REG>/jolt_report_*.xlsx`
+(very likely `Propulsion Energy` too) has **sparse coverage and low per-segment values**, causing all downstream consumers that read this column
+(the Excel report itself, the data dashboard, the old PDF briefing) to display the regenerative-energy share as **~4.5–8%**, whereas the true
+value is about **19%**.
 
-实测（YK73WFN，2.2.3，`...finetuned.xlsx`）：
-- xlsx `Recuperation Energy`：495 kWh，**仅 55/115 段有值（48% 覆盖）**；60 段空白，其中
-  **39 段明明有 SRF Logger 数据**却仍没算出 recup（→ 不只是缺源，是提取漏洞），另 21 段无 Logger。
-- recup / |Energy Change| = **4.5%**（全队）/ 8.0%（仅覆盖段）。
-- 对照 `data_analysis_workspace/energy_breakdown`（用 **raw_telematics 累积计数器** 在 trip 端点
-  插值算 `E_recup`，**100% 覆盖**）：YK73 **E_recup/E_total = 19.4%**，官方汇总 `pct_recup_tot = 18.9%`。
-  口径一致（两边分母都是净电池能量），19% vs 8% 的差距**纯来自 regen 这一项的数据源/覆盖**。
+Measured (YK73WFN, 2.2.3, `...finetuned.xlsx`):
+- xlsx `Recuperation Energy`: 495 kWh, **only 55/115 segments have a value (48% coverage)**; 60 segments are blank, of which
+  **39 segments clearly have SRF Logger data** yet still produced no recup (→ not merely a missing source, but an extraction bug), and another 21 segments have no Logger.
+- recup / |Energy Change| = **4.5%** (whole fleet) / 8.0% (covered segments only).
+- Compared with `data_analysis_workspace/energy_breakdown` (which uses the **raw_telematics cumulative counters** interpolated at the trip endpoints
+  to compute `E_recup`, with **100% coverage**): YK73 **E_recup/E_total = 19.4%**, official summary `pct_recup_tot = 18.9%`.
+  The basis is consistent (the denominator on both sides is net battery energy); the 19% vs 8% gap **comes purely from the data source / coverage of this one regen item**.
 
-## 根因
+## Root cause
 
-xlsx 的 `Recuperation Energy`（及 `Propulsion Energy`）列用的是**稀疏的源**（Logger/事件提取，
-覆盖不全、漏算），而不是 **raw_telematics 的累积再生计数器**。`energy_breakdown` 的 README 已
-明确指出并刻意改用计数器：「*Energies come from raw_telematics cumulative counters … not the xlsx
-Propulsion/Recuperation columns, which have poor coverage*」。
+The xlsx `Recuperation Energy` (and `Propulsion Energy`) columns use a **sparse source** (Logger/event extraction,
+with incomplete coverage and missed counts), rather than the **raw_telematics cumulative regeneration counters**. The `energy_breakdown` README already
+explicitly points this out and deliberately switches to the counters: "*Energies come from raw_telematics cumulative counters … not the xlsx
+Propulsion/Recuperation columns, which have poor coverage*".
 
-## 影响范围
+## Scope of impact
 
-- **受影响**：Excel 报告的再生列、data dashboard、以及任何直接读 xlsx recup/propulsion 列的消费者。
-- **已绕过（DONE 2026-06-17）**：工业 **PDF 简报**已在 `generate-pdf-report` skill 内改用计数器口径
-  （`_counter_recup`，只读 `raw_telematics` + `jolt_toolkit.analysis`）算 regen，全覆盖、正确——
-  YK73 实测 495→**1,818 kWh（覆盖 107/107，~17%）**；无计数器的车（Scania/Mercedes/柴油）回退显示「—」。
-  故现在**交付物间不一致**：PDF 简报 ≈正确，但 **Excel 报告 / dashboard 仍读稀疏 xlsx 列 ~5%**——
-  这正是本问题待解决的剩余部分。
+- **Affected**: the regen column of the Excel report, the data dashboard, and any consumer that reads the xlsx recup/propulsion columns directly.
+- **Already worked around (DONE 2026-06-17)**: the industrial **PDF briefing** has already switched to the counter basis within the `generate-pdf-report` skill
+  (`_counter_recup`, reading only `raw_telematics` + `jolt_toolkit.analysis`) to compute regen, with full coverage and correct results —
+  YK73 measured 495→**1,818 kWh (coverage 107/107, ~17%)**; vehicles without counters (Scania/Mercedes/diesel) fall back to displaying "—".
+  So there is now **inconsistency between deliverables**: the PDF briefing ≈ correct, but the **Excel report / dashboard still read the sparse xlsx column ~5%** —
+  this is precisely the remaining part of this issue that is yet to be resolved.
 
-## 建议修复
+## Suggested fix
 
-在 `src/jolt_toolkit/`（由 `jolt-toolkit-dev` 实施）把 xlsx 的 `Recuperation Energy`
-（及 `Propulsion Energy`）列改为**从 raw_telematics 累积计数器算**：
-- 参考实现：`data_analysis_workspace/energy_breakdown/scripts/build_dataset.py`
-  —— 用 `jolt_toolkit.analysis` 的 `build_interp / delta / to_utc` 及计数器列常量
-  `COL_TOTAL / COL_PROP / COL_RECUP`，对每个 driving leg 取 `[Start, End]` 端点差值。
-- 仅对**有全套计数器的 EV**（Volvo FM/FH、Renault 等 10 辆）；无计数器的车
-  （Scania / Mercedes / DAF LN25NKE、柴油 WU70GLV）保持优雅 N/A。
-- 这是**改动 canonical 数据** → 需车队重跑 + 版本 bump（按惯例先征得用户同意）。
+In `src/jolt_toolkit/` (implemented by `jolt-toolkit-dev`), change the xlsx `Recuperation Energy`
+(and `Propulsion Energy`) columns to be **computed from the raw_telematics cumulative counters**:
+- Reference implementation: `data_analysis_workspace/energy_breakdown/scripts/build_dataset.py`
+  — using `build_interp / delta / to_utc` from `jolt_toolkit.analysis` and the counter-column constants
+  `COL_TOTAL / COL_PROP / COL_RECUP`, taking the `[Start, End]` endpoint difference for each driving leg.
+- Only for **EVs that have the full set of counters** (Volvo FM/FH, Renault, etc., 10 vehicles); vehicles without counters
+  (Scania / Mercedes / DAF LN25NKE, diesel WU70GLV) keep a graceful N/A.
+- This is **a change to canonical data** → it requires a fleet re-run + version bump (per convention, obtain the user's consent first).
 
-## 参考
+## References
 
-- 本次分析对话（2026-06-17）。
-- `data_analysis_workspace/energy_breakdown/`（README §「Conventions & gotchas」、`scripts/build_dataset.py`）。
-- `.claude/skills/generate-pdf-report/SKILL.md`（PDF 侧若改用计数器口径的边界说明）。
+- This analysis conversation (2026-06-17).
+- `data_analysis_workspace/energy_breakdown/` (README §"Conventions & gotchas", `scripts/build_dataset.py`).
+- `.claude/skills/generate-pdf-report/SKILL.md` (the boundary note for if the PDF side switches to the counter basis).

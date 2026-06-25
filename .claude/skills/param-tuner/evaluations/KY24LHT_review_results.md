@@ -4,23 +4,23 @@
 
 ## Round 3 — merge_by_mass=false validation (2026-05-17)
 
-历史 Round 1/2 结论"min_stop=60 无需调参"被推翻。诊断发现 mass 锁死在 ~10t →
-`merge_discharge_by_mass` 把全部 trip 合并成单条 In Transit。改动：
+The historical Round 1/2 conclusion ("min_stop=60, no parameter tuning needed") has been overturned. Diagnosis found that mass is locked at ~10t →
+`merge_discharge_by_mass` merged all trips into a single In Transit. Changes:
 - `volvo_speed_03.speed_params.min_stop_duration_min` 60 → 5
 - `vehicles.json::KY24LHT.min_cluster_gap_kg` 1000 → 2000
-- `volvo_speed_03.merge_by_mass` 新增 → false
+- `volvo_speed_03.merge_by_mass` added → false
 
-**段级 driving leg 数对比**：
+**Per-period driving leg count comparison**:
 
-| 段 | 旧 baseline | 新 (merge=false) |
+| Period | old baseline | new (merge=false) |
 |---|---|---|
 | 2024-06_2024-09 | 1 outbound | **184** |
-| 2024-09_2024-12 | 推断同量级 | **224** |
+| 2024-09_2024-12 | inferred same order of magnitude | **224** |
 | 2024-12_2025-03 | 1 outbound | **52** |
-| 2025-03_2025-06 | 1 | **2**（数据稀少段） |
+| 2025-03_2025-06 | 1 | **2** (sparse-data period) |
 
-视觉抽查 2024-07-01_0016：13:00–24:00 多 trip 切分清晰，每段 dSOC / EP 注释正常。
-无过切分。下面 Round 1/2 历史保留作参考——评估标准与当前不同。
+Visual spot-check 2024-07-01_0016: 13:00–24:00 multiple trips split clearly, with normal dSOC / EP annotations on each segment.
+No over-segmentation. The Round 1/2 history below is retained for reference — its evaluation criteria differ from the current ones.
 
 ---
 

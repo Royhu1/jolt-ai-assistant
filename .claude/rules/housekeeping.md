@@ -1,41 +1,41 @@
-> 整洁与本地存储规范 —— 由根 `CLAUDE.md` 的「## Housekeeping & Local Storage」通过 `@import` 引用。
-> 改这里 = 改全项目的临时文件清理 / 归档 / 本地存储约定（团队共享，随 `.claude/` 提交）。
+> Tidiness and local-storage conventions — referenced from the root `CLAUDE.md` "## Housekeeping & Local Storage" section via `@import`.
+> Editing here = editing the temp-file cleanup / archiving / local-storage conventions for the whole project (team-shared, committed with `.claude/`).
 
-> 本文件管**项目整洁与文件落位**：临时 / 过时文件往哪清、往哪归档，以及哪些文件该留在
-> 本地磁盘而非 OneDrive。Python 标识符 / 一次性脚本命名见 `code-style.md`；数据 / 产物 /
-> 目录命名见 `naming.md`；分支 / commit / changelog 见 `git-workflow.md`。
+> This file governs **project tidiness and where files land**: where temporary / stale files are cleaned and archived to, and which files should stay on
+> local disk rather than OneDrive. For Python identifiers / one-off script naming see `code-style.md`; for data / artefact /
+> directory naming see `naming.md`; for branch / commit / changelog see `git-workflow.md`.
 
-### 临时文件：分区与清理
+### Temporary files: zones and cleanup
 
-| 区域 | 用途 | 进 git | 清理策略 |
+| Zone | Purpose | In git | Cleanup policy |
 |------|------|--------|---------|
-| `tmp/` | 一次性 scratch（日志 / 中间 CSV / 调试图 / `_tmp_*.py`） | 否 | 用完即清；体检时整目录归档到本地 `scratch_archive/`（move，非删除） |
-| `cache/` | SRF / 天气等 API 缓存 | 否 | **不要轻易清**——重建昂贵且有 API 配额；至多清根目录游离测试文件 |
-| `archive/` | 回收站：被取代 / 退役的产物 | 否 | 只进不出；体检产生的根级 scratch 落到 `archive/root_scratch_<YYYYMMDD>/` |
-| `unarchived/` | 尚未归位的「持有区」 | 否 | 定期 triage：要么归位到蓝图目录，要么退役进 `archive/` |
+| `tmp/` | one-off scratch (logs / intermediate CSVs / debug figures / `_tmp_*.py`) | No | clean after use; during a health check archive the whole directory to the local `scratch_archive/` (move, not delete) |
+| `cache/` | API caches for SRF / weather, etc. | No | **Do not clean lightly** — rebuilding is expensive and subject to API quotas; at most clean stray test files in the root directory |
+| `archive/` | recycle bin: superseded / retired artefacts | No | in only, never out; root-level scratch produced by a health check goes to `archive/root_scratch_<YYYYMMDD>/` |
+| `unarchived/` | the "holding area" not yet slotted into place | No | triage periodically: either slot it back into a blueprint directory, or retire it into `archive/` |
 
-- **仓库根目录保持干净**：禁止把一次性脚本 / 日志直接丢在根目录；它们属于 `tmp/`，
-  或体检时移入 `archive/root_scratch_<YYYYMMDD>/`。已 gitignore 的根级 scratch 也应物理移走，
-  不只靠 gitignore 掩盖。
-- **优先归档而非删除**：清理用 `Move-Item` 到 `archive/` 或本地 `scratch_archive/`，保留可追溯性；
-  确属可重现废弃物再删。（注：sandbox 会拦截对顶层 / 受保护路径的 `Remove-Item`，move 更稳妥。）
-- **OneDrive 注意**：清理 / 重生 xlsx 前先关 Excel（锁文件会让 move 失败）；大体量 scratch
-  归档到本地盘可顺带减轻 OneDrive 同步负担。
+- **Keep the repository root clean**: do not drop one-off scripts / logs directly in the root; they belong in `tmp/`,
+  or are moved into `archive/root_scratch_<YYYYMMDD>/` during a health check. Root-level scratch that is already gitignored should also be physically moved away,
+  not merely hidden behind gitignore.
+- **Prefer archiving over deletion**: clean up by `Move-Item` to `archive/` or the local `scratch_archive/`, preserving traceability;
+  only delete what is genuinely reproducible waste. (Note: the sandbox intercepts `Remove-Item` on top-level / protected paths, so move is safer.)
+- **OneDrive note**: close Excel before cleaning / regenerating xlsx (lock files will make the move fail); archiving large-volume scratch
+  to local disk can also help ease the OneDrive sync burden.
 
-### 本地存储：OneDrive vs 本地盘
+### Local storage: OneDrive vs local disk
 
-仓库本体在 OneDrive 下随云同步。**需要留在本地、不该上云**的 JOLT 文件统一收敛到本地根
-**`D:\JOLT_local\`**（机器本地、不进 git、不上 OneDrive）：
+The repository itself lives under OneDrive and syncs to the cloud. JOLT files that **need to stay local and should not go to the cloud** are consolidated under the local root
+**`D:\JOLT_local\`** (machine-local, not in git, not on OneDrive):
 
-| 子目录 | 放什么 |
+| Sub-directory | What goes there |
 |--------|--------|
-| `git_backups/` | 旧仓库 / bare `.git` 历史备份（如 clean-rebuild 时的快照） |
-| `scratch_archive/` | 从仓库 `tmp/` 或 D 盘各处归档来的 scratch（按来源分子目录：`repo_tmp_<日期>` / `D_temp` …） |
-| `<service>/` | 本地服务 / 大体量数据（如本地路由引擎、OSM extract），按需另设 |
+| `git_backups/` | old repository / bare `.git` history backups (e.g. snapshots from a clean rebuild) |
+| `scratch_archive/` | scratch archived from the repo's `tmp/` or from various places on the D drive (organised into sub-directories by source: `repo_tmp_<date>` / `D_temp` …) |
+| `<service>/` | local services / large-volume data (e.g. a local routing engine, OSM extract), set up as needed |
 
-- 选本地盘的判据：**大体量、可重建、机器本地、或不宜上云**（备份、缓存快照、路由数据等）。
-  真正的项目源码 / 文档仍留在仓库内、随 git 与 OneDrive 走。
-- 不要把 JOLT 残余散落在 `D:\temp` / `D:\tmp` / `D:\` 根等随手位置——统一收敛到 `D:\JOLT_local\`。
+- Criteria for choosing local disk: **large-volume, rebuildable, machine-local, or unsuitable for the cloud** (backups, cache snapshots, routing data, etc.).
+  The actual project source / documentation still stays inside the repository, travelling with git and OneDrive.
+- Do not scatter JOLT leftovers in casual places like `D:\temp` / `D:\tmp` / the `D:\` root — consolidate them under `D:\JOLT_local\`.
 
-> 本规范的执行与定期体检由 `project-health-steward` agent（见 `.claude/agents/`）负责，
-> 每次体检记录留存在 `.claude/health_checks/`，经验逐次累积。
+> Enforcement of this convention and periodic health checks are the responsibility of the `project-health-steward` agent (see `.claude/agents/`);
+> each health-check record is kept in `.claude/health_checks/`, with experience accumulating run by run.

@@ -1,9 +1,9 @@
 {
-  "_description": "标准测试数据配置 — 用于跨版本一致性对比 + 全队定期补齐。每辆车列出从数据起点到 ~今天 的逐(气象)季度区间。",
+  "_description": "Standard test-data configuration — used for cross-version consistency comparison + periodic fleet-wide back-fill. For each vehicle, lists the per-(meteorological-)quarter intervals from the data start point through to ~today.",
   "_usage": "python batch_generate.py [--fast] [--debug]",
-  "_refreshed": "2026-06-24 — 各车 end 延伸到今天附近；EX74JXY/YN25RSY 由单一大窗口改为逐季度；新增柴油车 WU70GLV/YT21EFD。",
-  "_boundary_note": "区间边界沿用每辆车既有报告的命名习惯，避免重跑产生同周期不同文件名的重复报告：EV/电车用『下一季度起始日』作 end（如 ...-12-01，相邻段共享边界日，旧有约定）；柴油车 WU70GLV/YT21EFD 用『季度末日』作 end（如 ...-11-30，相邻段不重叠，auto-split 风格）。末段 end 一律为今天(2026-06-24)。",
-  "_data_gap_note": "KY24LHT 数据约止于 2025-03（已从分析排除）、WU70GLV 约止于 2025-12，其延伸区间可能为空 — 重跑后据实裁剪。",
+  "_refreshed": "2026-06-24 — each vehicle's end extended to around today; EX74JXY/YN25RSY changed from a single large window to per-quarter intervals; added diesel vehicles WU70GLV/YT21EFD.",
+  "_boundary_note": "Interval boundaries follow each vehicle's existing report naming convention, to avoid re-runs producing duplicate reports for the same period under different filenames: EV/electric vehicles use the 'next quarter start date' as the end (e.g. ...-12-01, adjacent segments share the boundary day, the legacy convention); diesel vehicles WU70GLV/YT21EFD use the 'quarter end date' as the end (e.g. ...-11-30, adjacent segments do not overlap, the auto-split style). The end of the final segment is always today (2026-06-24).",
+  "_data_gap_note": "KY24LHT data ends around 2025-03 (already excluded from the analysis) and WU70GLV around 2025-12, so their extended intervals may be empty — trim them to fit the actual data after re-running.",
   "vehicles": [
     {
       "registration": "AV24LXJ",

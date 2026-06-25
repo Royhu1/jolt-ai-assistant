@@ -1,39 +1,39 @@
-> 命名规范 —— 由根 `CLAUDE.md` 的「## Naming Convention」通过 `@import` 引用。
-> 改这里 = 改全项目的文件 / 目录 / 产物命名约定（团队共享，随 `.claude/` 提交）。
+> Naming conventions — referenced from the root `CLAUDE.md` "## Naming Convention" section via `@import`.
+> Editing here = editing the file / directory / artefact naming conventions for the whole project (team-shared, committed with `.claude/`).
 
-> 本文件只管**项目级的数据 / 产物 / 文件 / 目录命名**。Python 标识符（`snake_case` /
-> `PascalCase` / `UPPER_SNAKE` / 私有前导下划线）、缩写一致性、物理量单位后缀、一次性脚本
-> 命名（`_tmp_*.py` / `_patch_*.py` / `tools_*.py`）见 `code-style.md`；分支 / commit /
-> 版本 tag / changelog 文件名见 `git-workflow.md`。
+> This file governs only **project-level data / artefact / file / directory naming**. Python identifiers (`snake_case` /
+> `PascalCase` / `UPPER_SNAKE` / private leading underscore), abbreviation consistency, physical-unit suffixes, and one-off script
+> naming (`_tmp_*.py` / `_patch_*.py` / `tools_*.py`) are in `code-style.md`; branch / commit /
+> version tag / changelog file names are in `git-workflow.md`.
 
-### 车辆 / 目录 / skill
+### Vehicle / directory / skill
 
-- **车牌（vehicle registration）**：大写、无空格，照车牌原样（如 `YK73WFN`、`CMZ6260`）；
-  作为 `<REG>` 标记贯穿目录名、报告文件名与配置文件。
-- **文件夹**：小写 `snake_case`（如 `data_analysis_workspace`、`excel_report_database`）；
-  唯一例外是核心包目录 `src/jolt_toolkit`。
-- **skill / agent / command**：kebab-case（如 `plot-figure`、`generate-excel-report`、
-  `jolt-toolkit-dev`）。
+- **Vehicle registration**: uppercase, no spaces, exactly as on the plate (e.g. `YK73WFN`, `CMZ6260`);
+  used as the `<REG>` token throughout directory names, report file names and config files.
+- **Folders**: lowercase `snake_case` (e.g. `data_analysis_workspace`, `excel_report_database`);
+  the only exception is the core package directory `src/jolt_toolkit`.
+- **skill / agent / command**: kebab-case (e.g. `plot-figure`, `generate-excel-report`,
+  `jolt-toolkit-dev`).
 
-### 日期 / 周期
+### Date / period
 
-- 数据字段、按天的时间戳：ISO `YYYY-MM-DD`。
-- 带日期的目录（如 `monthly_presentation/<YYYYMMDD>/`）：紧凑 `YYYYMMDD`。
-- 报告周期：`YYYYMMDD_YYYYMMDD`（start_end）。
+- Data fields and per-day timestamps: ISO `YYYY-MM-DD`.
+- Date-bearing directories (e.g. `monthly_presentation/<YYYYMMDD>/`): compact `YYYYMMDD`.
+- Report period: `YYYYMMDD_YYYYMMDD` (start_end).
 
-### 报告产物
+### Report artefacts
 
-- 报告文件：`excel_report_database/<version>/<REG>/jolt_report_<REG>_<start>_<end>.xlsx`。
-- HTML 查看器：`inspect_*.html`；原始遥测：`raw_telematics/raw_*.csv`；
-  校验图：`validation_<REG>_<date>_<HHMM>.png`。
-- 后处理（finetune）产物一律加 `*_finetuned.*` 后缀，**绝不覆盖原始文件**。
+- Report file: `excel_report_database/<version>/<REG>/jolt_report_<REG>_<start>_<end>.xlsx`.
+- HTML viewer: `inspect_*.html`; raw telematics: `raw_telematics/raw_*.csv`;
+  validation figures: `validation_<REG>_<date>_<HHMM>.png`.
+- Post-processing (finetune) artefacts always take the `*_finetuned.*` suffix, and **never overwrite the original file**.
 
-### 版本化输出布局
+### Versioned output layout
 
-- `excel_report_database/<version>/<REG>/` 与 `figures/<version>/{named,anon}/`
-  （`named` = 真实 OEM 标签，`anon` = 匿名化）；`<version>` 即 `src/jolt_toolkit` 的 SemVer。
+- `excel_report_database/<version>/<REG>/` and `figures/<version>/{named,anon}/`
+  (`named` = real OEM labels, `anon` = anonymised); `<version>` is the SemVer of `src/jolt_toolkit`.
 
-### 双语文档
+### Bilingual documentation
 
-- `README.md` 为提交入库的英文权威版；`README.zh.md` 为 gitignore 的中文副本，
-  通过 `/translate-doc` 保持同步。
+- `README.md` is the committed authoritative English version; `README.zh.md` is the gitignored Chinese copy,
+  kept in sync via `/translate-doc`.

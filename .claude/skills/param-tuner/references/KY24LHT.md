@@ -2,21 +2,21 @@
 
 > Volvo FM Electric | Pipeline: volvo_speed_03 | Battery: 540 kWh | Last updated: **2026-05-17**
 
-## ⚠️ 2026-05-17 update — 历史 Round 1/2 结论已被推翻
+## ⚠️ 2026-05-17 update — historical Round 1/2 conclusion overturned
 
-之前的 "min_stop=60 完美、无需调参" 结论是误判。真正问题在
-`merge_discharge_by_mass`：KY24LHT 的 telematics mass 锁死在 ~10 t（90 天 std 0.12 t，
-100% 在 ±200 kg），全部 trip 落入同一 mass cluster → 被 merge 合并成 1 条 In Transit。
-长 stop 阈值（60 min）只是次要表象。
+The earlier conclusion ("min_stop=60 is perfect, no parameter tuning needed") was a misjudgement. The real problem lies in
+`merge_discharge_by_mass`: KY24LHT's telematics mass is locked at ~10 t (90-day std 0.12 t,
+100% within ±200 kg), so all trips fall into the same mass cluster → merged into a single In Transit.
+The long stop threshold (60 min) was only a secondary symptom.
 
-**本轮（2026-05-17）改动**：
-- `volvo_speed_03.speed_params.min_stop_duration_min`: 60.0 → **5.0**（与 fleet 对齐）
-- `vehicles.json::KY24LHT.min_cluster_gap_kg`: 1000.0 → **2000.0**（与 fleet 对齐）
-- `volvo_speed_03.merge_by_mass`: 新增 → **false**（关闭质量合并，保留 split）
+**This round's (2026-05-17) changes**:
+- `volvo_speed_03.speed_params.min_stop_duration_min`: 60.0 → **5.0** (aligned with the fleet)
+- `vehicles.json::KY24LHT.min_cluster_gap_kg`: 1000.0 → **2000.0** (aligned with the fleet)
+- `volvo_speed_03.merge_by_mass`: added → **false** (mass merging disabled, split retained)
 
-**效果**：2024-06_2024-09 段 1 outbound → **184 driving legs**；2024-12_2025-03 段 1 outbound → **52 driving legs**。视觉抽查 2024-07-01 多 trip 切分健康。
+**Effect**: 2024-06_2024-09 period 1 outbound → **184 driving legs**; 2024-12_2025-03 period 1 outbound → **52 driving legs**. Visual spot-check 2024-07-01 shows healthy multi-trip splitting.
 
-下面的 "Pipeline parameters" / "Parameter rationale" / "Validation history" 三节都是 v2.2.2 之前的旧记录，仅保留作历史参考——当前参数以本节为准。
+The three sections below — "Pipeline parameters" / "Parameter rationale" / "Validation history" — are all old records from before v2.2.2, retained only for historical reference; the current parameters are as given in this section.
 
 ---
 

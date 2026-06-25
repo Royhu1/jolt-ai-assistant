@@ -7,19 +7,19 @@
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-changelog.sh\"",
             "timeout": 10,
-            "statusMessage": "检查 changelog.md 是否已更新..."
+            "statusMessage": "Checking whether changelog.md has been updated..."
           },
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-readme-on-version-bump.sh\"",
             "timeout": 10,
-            "statusMessage": "检查版本变更后 README 是否已更新..."
+            "statusMessage": "Checking whether the README has been updated after the version change..."
           },
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-root-readme-on-new-files.sh\"",
             "timeout": 10,
-            "statusMessage": "检查新增文件后根 README 是否已更新..."
+            "statusMessage": "Checking whether the root README has been updated after adding new files..."
           }
         ]
       }

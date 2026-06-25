@@ -4,15 +4,15 @@
 
 ## Round 3 — merge_by_mass=false validation (2026-05-17)
 
-与姊妹车 EX74JXW 共享 Scania P-series BEV 数据特征，受相同的 `merge_discharge_by_mass`
-影响（同 mass cluster 相邻 trip 被合并）。改动：仅 `scania_speed_01.merge_by_mass` 新增 → false。
+Shares the Scania P-series BEV data characteristics with its sister vehicle EX74JXW, and is affected by the same `merge_discharge_by_mass`
+(adjacent trips of the same mass cluster being merged). Change: only `scania_speed_01.merge_by_mass` added → false.
 
-**2025-04_2026-02 一段 10 个月汇总**：driving legs 共 **391**（In Transit 307 + Outbound 41 +
-Return 42 + Round Trip 1）+ Charge 92 + Stop 479。视觉抽查 2025-05-08_0018: 08-12 点多个短
-trip 切分合理，质量 ~35–40 t 稳定，EP 范围正常。无过切分迹象。
+**Ten-month summary for the 2025-04_2026-02 period**: driving legs total **391** (In Transit 307 + Outbound 41 +
+Return 42 + Round Trip 1) + Charge 92 + Stop 479. Visual spot-check 2025-05-08_0018: the multiple short trips between 08:00 and 12:00 are split reasonably,
+mass stable at ~35–40 t, EP within normal range. No sign of over-segmentation.
 
-详细诊断逻辑参见 [EX74JXW_review_results.md](EX74JXW_review_results.md) Round 3。
-下面 Round 1/2 历史保留作参考——评估标准与当前不同。
+For the detailed diagnostic reasoning, see [EX74JXW_review_results.md](EX74JXW_review_results.md) Round 3.
+The Round 1/2 history below is retained for reference — its evaluation criteria differ from the current ones.
 
 ---
 

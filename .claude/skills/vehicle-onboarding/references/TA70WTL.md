@@ -1,61 +1,61 @@
 # TA70WTL — Renault Trucks E-Tech T
 
-## 车辆特征
+## Vehicle characteristics
 
-- 品牌/型号: Renault Trucks E-Tech T (ARTIC)
-- 标称容量: 417 kWh
-- 有效容量: ~375 kWh (90%, 算法自动计算均值 379.2 kWh)
-- 运营商: Welch's Transport
-- 运营模式: 城际配送，低使用率期间以 tractor-only 停放为主
-- SRF 注册号: "TA70 WTL"
-- 数据范围: 2025-04-30 ~ 2026-03-20 (312 FPS legs, 0 Charger, 80 Logger legs limited to 2025-06~08)
+- Make/Model: Renault Trucks E-Tech T (ARTIC)
+- Nominal capacity: 417 kWh
+- Effective capacity: ~375 kWh (90%, algorithm auto-computed mean 379.2 kWh)
+- Operator: Welch's Transport
+- Operation mode: inter-city distribution, predominantly tractor-only parking during low-usage periods
+- SRF registration: "TA70 WTL"
+- Data range: 2025-04-30 ~ 2026-03-20 (312 FPS legs, 0 Charger, 80 Logger legs limited to 2025-06~08)
 
-## 遥测列映射
+## Telematics column mapping
 
-与 N88GNW (Renault D Wide Z.E.) 完全一致：
+Exactly consistent with N88GNW (Renault D Wide Z.E.):
 
-| 用途 | 列名 | 备注 |
+| Purpose | Column name | Notes |
 |------|------|------|
-| 速度 | `wheel_based_speed` | 与 Volvo/Scania/Renault 标准一致 |
-| SOC | `electricBatteryLevelPercent` | 整数精度 (1%) |
-| 里程 | `high_resolution_total_vehicle_distance` | 可用 |
-| 质量 | `gross_combination_vehicle_weight` | 可用, tractor ~10000 kg |
-| 总能量 | `total_electric_energy_used_plugged_in_included` | 可用 |
-| 移动能量 | `electric_energy_wheelbased_speed_over_zero` | 可用 |
-| AC 能量 | `battery_pack_ac_watthours` | 可用 |
-| DC 能量 | `battery_pack_dc_watthours` | 可用 |
-| 海拔 | `gnss_altitude` | 可用 |
-| 经纬度 | `latitude`, `longitude` | 可用 |
+| Speed | `wheel_based_speed` | consistent with the Volvo/Scania/Renault standard |
+| SOC | `electricBatteryLevelPercent` | integer precision (1%) |
+| Distance | `high_resolution_total_vehicle_distance` | available |
+| Mass | `gross_combination_vehicle_weight` | available, tractor ~10000 kg |
+| Total energy | `total_electric_energy_used_plugged_in_included` | available |
+| Moving energy | `electric_energy_wheelbased_speed_over_zero` | available |
+| AC energy | `battery_pack_ac_watthours` | available |
+| DC energy | `battery_pack_dc_watthours` | available |
+| Altitude | `gnss_altitude` | available |
+| Latitude/Longitude | `latitude`, `longitude` | available |
 
-## 算法选择
+## Algorithm choice
 
-- **管线**: `renault_speed` (speed-based 放电分段)
-- **速度列**: 默认 `wheel_based_speed`（无需 `speed_col` 覆盖）
-- **原因**: 速度数据完整可靠；SOC 整数精度下 speed-based 更稳定
+- **Pipeline**: `renault_speed` (speed-based discharge segmentation)
+- **Speed column**: default `wheel_based_speed` (no `speed_col` override needed)
+- **Reason**: speed data is complete and reliable; with integer SOC precision, speed-based is more stable
 
-## 参数
+## Parameters
 
-使用 `renault_speed` 默认参数，无需调优：
+Use the `renault_speed` default parameters, no tuning needed:
 
-| 参数 | 值 | 说明 |
+| Parameter | Value | Notes |
 |------|-----|------|
-| speed_threshold_kmh | 1.0 | 默认 |
-| min_stop_duration_min | 5.0 | 默认 |
-| min_trip_duration_min | 2.0 | 默认 |
-| min_soc_drop | 1.0 | 默认 |
-| min_energy_kwh | 1.0 | 默认 |
-| min_cluster_gap_kg | 2000.0 | 默认 |
+| speed_threshold_kmh | 1.0 | default |
+| min_stop_duration_min | 5.0 | default |
+| min_trip_duration_min | 2.0 | default |
+| min_soc_drop | 1.0 | default |
+| min_energy_kwh | 1.0 | default |
+| min_cluster_gap_kg | 2000.0 | default |
 
-## 数据特点
+## Data characteristics
 
-1. **2 月使用率低**: 29 天中仅 4 天有放电段（02-02, 02-09, 02-10, 02-17），其余为空闲/充电日
-2. **全部 tractor-only**: 所有质量读数 ~10000 kg (< 13000 kg 阈值)，无挂车数据
-3. **短暂 yard movement**: 02-11, 02-26 出现短暂速度尖峰 (~13 km/h) 但 SOC 不变，被 min_soc_drop 正确过滤
-4. **充电模式**: 小功率夜间补电为主（+25~47 kWh），偶有大充电 (02-03: +210 kWh)
-5. **Logger 数据有限**: 仅 2025-06 ~ 2025-08 共 80 legs，后续无 Logger
+1. **Low usage in February**: only 4 of 29 days have discharge segments (02-02, 02-09, 02-10, 02-17), the rest being idle/charging days
+2. **All tractor-only**: all mass readings ~10000 kg (< 13000 kg threshold), no trailer data
+3. **Brief yard movement**: on 02-11, 02-26 brief speed spikes (~13 km/h) appear but SOC is unchanged, correctly filtered out by min_soc_drop
+4. **Charging pattern**: predominantly low-power overnight top-ups (+25~47 kWh), with the occasional large charge (02-03: +210 kWh)
+5. **Limited Logger data**: only 80 legs over 2025-06 ~ 2025-08, with no Logger thereafter
 
-## 经验教训
+## Lessons learned
 
-1. **Renault 列结构高度一致**: TA70WTL 与 N88GNW 列名完全相同，新 Renault 车辆可直接复用列映射
-2. **低使用率时期的默认参数验证**: 即使活动天数少，默认 `renault_speed` 参数也能正确工作，无过度分段
-3. **Yard movement 过滤有效**: `min_soc_drop=1.0` 成功过滤短暂移动（速度尖峰但 SOC 不变）
+1. **The Renault column structure is highly consistent**: TA70WTL has exactly the same column names as N88GNW, so new Renault vehicles can reuse the column mapping directly
+2. **Default parameter validation during low-usage periods**: even with few active days, the default `renault_speed` parameters still work correctly, with no over-segmentation
+3. **Yard movement filtering is effective**: `min_soc_drop=1.0` successfully filters out brief movements (speed spikes but unchanged SOC)

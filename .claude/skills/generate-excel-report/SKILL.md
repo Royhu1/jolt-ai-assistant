@@ -6,7 +6,7 @@ description: |
   which calls the jolt_toolkit package. Output goes to excel_report_database/<version>/.
   Triggers on:
   (1) "generate the Excel report for <REG> in <period>"
-  (2) "生成 <REG> 在 <时间> 的 excel report"
+  (2) "generate the excel report for <REG> in <period>"
   (3) "/generate-excel-report <REG> <period>"
   (4) batch-generate the standard test vehicles
   If the target vehicle is not yet configured, hand off to /vehicle-onboarding first.
@@ -53,7 +53,7 @@ Use this skill when the user asks to:
       quarter list kept for cross-version comparison (`batch_generate.py` with no
       `--ds/--de`). ⚠️ Its `end` dates are **hand-maintained and can be stale**, so this
       reproduces the *configured* span — **not necessarily "up to today"**.
-    - **Full / up-to-now ("全量")** — when the user wants everything to the present, derive
+    - **Full / up-to-now ("all data")** — when the user wants everything to the present, derive
       the end from the **current date, NOT from `test_data_config.json`** (whose ends lag
       reality). Use `batch_generate.py --veh <REG> --ds <data-start> --de <today>`
       (auto-splits into meteorological quarters). For the whole fleet, extend each

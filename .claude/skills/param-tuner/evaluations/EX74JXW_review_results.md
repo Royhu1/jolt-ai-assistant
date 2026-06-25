@@ -4,23 +4,23 @@
 
 ## Round 3 — merge_by_mass=false validation (2026-05-17)
 
-历史 Round 1/2 结论"0 分段错误、无需调参"被推翻。用户重审 2025-07-14_0005 指出上午应有 4 条 trip。
-诊断：`find_speed_trips` 本就正确切出 8 条（上午 4 + 下午 4），下游 `merge_discharge_by_mass`
-把同 mass_cluster 的相邻 trip 合并成单条 220 km In Transit。改动：仅 `scania_speed_00.merge_by_mass`
-新增 → false（其它参数不动）。
+The historical Round 1/2 conclusion ("0 segmentation errors, no parameter tuning needed") has been overturned. On re-reviewing 2025-07-14_0005, the user pointed out that the morning should have 4 trips.
+Diagnosis: `find_speed_trips` had in fact correctly split out 8 trips (4 in the morning + 4 in the afternoon); the downstream `merge_discharge_by_mass`
+merged adjacent trips of the same mass_cluster into a single 220 km In Transit. Change: only `scania_speed_00.merge_by_mass`
+added → false (all other parameters unchanged).
 
-**全段对比**（2025-06_2025-09）：
+**Whole-period comparison** (2025-06_2025-09):
 
-| Leg Type | merge ON (旧) | merge OFF (新) | Δ |
+| Leg Type | merge ON (old) | merge OFF (new) | Δ |
 |---|---|---|---|
 | In Transit | 43 | 101 | +135% |
 | Outbound + Return | 16 | 21 | +31% |
-| driving legs 总数 | 59 | 122 | +107% |
+| total driving legs | 59 | 122 | +107% |
 
-视觉抽查 07-14_0005: 上午 4 条 trip（50.7+49.3+56.1+43.5 km），下午 4 条；EP 1.23-1.49 kWh/km 合理。
-11-06_0027: 5-6 段切分健康。Per-day driving leg max 11/天（07-31），中位数 5.5，无过切分。
+Visual spot-check 07-14_0005: 4 trips in the morning (50.7+49.3+56.1+43.5 km), 4 in the afternoon; EP 1.23-1.49 kWh/km, reasonable.
+11-06_0027: healthy 5-6 segment split. Per-day driving leg max 11/day (07-31), median 5.5, no over-segmentation.
 
-下面 Round 1/2 历史保留作参考——评估标准与当前不同。
+The Round 1/2 history below is retained for reference — its evaluation criteria differ from the current ones.
 
 ---
 

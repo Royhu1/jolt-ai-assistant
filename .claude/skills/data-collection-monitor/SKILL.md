@@ -14,7 +14,7 @@ description: |
   shows the active loop cadence / last run / next due).
   Triggers on:
   (1) "/loop weekly /data-collection-monitor" (the intended use — a recurring data-intake check)
-  (2) "检查关注车辆最近有没有新数据被采集 / 更新 dashboard 并出一份采集情况报告"
+  (2) "check whether any new data has recently been collected for the watched vehicles / refresh the dashboard and produce a data-collection report"
   (3) "run the fleet data-collection monitor / generate the data collection digest"
   (4) "/data-collection-monitor [--cadence weekly]"
   When run under /loop with no cadence recorded yet, ASK the user for the cadence on the

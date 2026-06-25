@@ -2,68 +2,68 @@
 
 > Pipeline: scania_speed_00 | Last updated: **2026-05-17**
 
-## ⚠️ 2026-05-17 update — 历史 Round 1/2 结论已被推翻
+## ⚠️ 2026-05-17 update — historical Round 1/2 conclusion overturned
 
-之前两轮 thorough review 判定 "0 真正分段错误、不需要调参"。但用户重审 2025-07-14_0005 时
-明确指出 06:30–15:00 应有 4 条 trip 而非 1 条 220 km In Transit。诊断结果：
+The previous two thorough reviews judged "0 genuine segmentation errors, no parameter tuning needed". But when the user re-reviewed 2025-07-14_0005, they
+clearly pointed out that 06:30–15:00 should have 4 trips rather than 1 trip of 220 km In Transit. Diagnosis:
 
-- `find_speed_trips` 探针证明算法本来就正确切出 8 条 trip（上午 4 + 下午 4）
-- 真凶是下游 `merge_discharge_by_mass`：相邻 trip 的 dominant `mass_cluster` 相同 →
-  被合并成单条 In Transit
-- EX74JXW 真实装载 1–2 t 波动落在同一个 `min_cluster_gap_kg=2000` cluster 桶内 → merge 必然触发
+- the `find_speed_trips` probe proved the algorithm had in fact correctly split out 8 trips (4 in the morning + 4 in the afternoon)
+- the real culprit is the downstream `merge_discharge_by_mass`: adjacent trips have the same dominant `mass_cluster` →
+  merged into a single In Transit
+- EX74JXW's real load fluctuation of 1–2 t falls within the same `min_cluster_gap_kg=2000` cluster bucket → merge is bound to trigger
 
-**本轮（2026-05-17）改动**：
-- `scania_speed_00.merge_by_mass`: 新增 → **false**（关闭质量合并，保留 split）
-- 其它 speed_params / charge_params 未动
+**This round's (2026-05-17) changes**:
+- `scania_speed_00.merge_by_mass`: added → **false** (mass merging disabled, split retained)
+- the other speed_params / charge_params unchanged
 
-**效果**（2025-06_2025-09 段对比）：
-| Leg Type | merge ON (旧) | merge OFF (新) | Δ |
+**Effect** (2025-06_2025-09 period comparison):
+| Leg Type | merge ON (old) | merge OFF (new) | Δ |
 |---|---|---|---|
 | In Transit | 43 | 101 | +135% |
 | Outbound + Return | 16 | 21 | +31% |
-| **driving legs 总数** | **59** | **122** | **+107%** |
+| **total driving legs** | **59** | **122** | **+107%** |
 
-07-14_0005 上午切 4 条 trip（50.7 + 49.3 + 56.1 + 43.5 km）+ 下午 4 条；视觉验证通过。
-Per-day driving leg max 11/天（07-31），中位数 5.5，无过切分。
+07-14_0005 splits 4 trips in the morning (50.7 + 49.3 + 56.1 + 43.5 km) + 4 in the afternoon; visual verification passed.
+Per-day driving leg max 11/day (07-31), median 5.5, no over-segmentation.
 
-下面的旧记录仅保留作历史参考——当前结论以本节为准。
+The old records below are retained only for historical reference — the current conclusion is as given in this section.
 
 ---
 
 
-## 车辆特征
+## Vehicle characteristics
 
-- 品牌/型号: Scania P-series BEV
-- 标称容量: 475 kWh
-- 运营模式: mode=discharge，多点配送
-- 数据特征: 遥测 SOC（粗精度 1%），遥测速度（`wheel_based_speed`），Logger Speed（10月后可用）
+- Make/Model: Scania P-series BEV
+- Nominal capacity: 475 kWh
+- Operation mode: mode=discharge, multi-drop distribution
+- Data characteristics: telematics SOC (coarse 1% resolution), telematics speed (`wheel_based_speed`), Logger Speed (available after October)
 
-## 优化前状态
+## State before optimisation
 
-- 管线: `scania_soc_00` (SOC-based 放电分段)
-- 主要问题: **~14% 天数行程漏检** — SOC 平坦时（100% 或几乎不变）明确有速度活动但无放电段
+- Pipeline: `scania_soc_00` (SOC-based discharge segmentation)
+- Main problem: **~14% of days had trips missed** — when SOC is flat (100% or barely changing), there is clear speed activity but no discharge segment
 
-## 根因
+## Root cause
 
-Scania SOC 精度为整数（1%）。当行程较短或能效较高时，SOC 变化 < 5%（`min_soc_drop` 阈值），
-导致行程完全未被检测。典型场景：
-- 速度达 80 km/h 的真实行驶
-- Moving Energy 消耗 6-16 kWh
-- 但 SOC 保持在 97-100% 不变
+Scania SOC precision is integer (1%). When a trip is short or energy efficiency is high, the SOC change < 5% (the `min_soc_drop` threshold),
+so the trip is not detected at all. Typical scenario:
+- genuine driving reaching 80 km/h
+- Moving Energy consumption of 6-16 kWh
+- but SOC remains at 97-100% unchanged
 
-## 解决方案
+## Solution
 
-切换到 `scania_speed_00` (speed-based 放电分段)。
+Switch to `scania_speed_00` (speed-based discharge segmentation).
 
-**关键**: `run_segment_detection()` 中 speed 分支已有 fallback 机制 ——
-当 `find_discharge_segments_by_speed()` 返回空列表时自动回退到 SOC-based。
-因此对于 7 月期间遥测速度不可用的情况，算法会自动回退到 SOC-based，不会丢失数据。
+**Key point**: the speed branch in `run_segment_detection()` already has a fallback mechanism ——
+when `find_discharge_segments_by_speed()` returns an empty list, it automatically falls back to SOC-based.
+Therefore, for the case where telematics speed was unavailable during July, the algorithm automatically falls back to SOC-based, without losing data.
 
-## 最终参数
+## Final parameters
 
-使用 `scania_speed_00` 默认参数，无需额外调优：
+Use the `scania_speed_00` default parameters, no extra tuning needed:
 
-| 参数 | 值 |
+| Parameter | Value |
 |------|-----|
 | speed_threshold_kmh | 1.0 |
 | min_stop_duration_min | 5.0 |
@@ -71,25 +71,25 @@ Scania SOC 精度为整数（1%）。当行程较短或能效较高时，SOC 变
 | min_soc_drop | 1.0 |
 | min_energy_kwh | 1.0 |
 
-## 经验教训
+## Lessons learned
 
-1. **SOC-based 对粗精度 SOC 不适用于短行程检测** — 1% 精度下 min_soc_drop=5.0 会漏掉短行程
-2. **Speed-based + fallback 是最佳策略** — 有速度时用速度，无速度时回退到 SOC
-3. **不要因部分时段缺少速度数据而放弃 speed-based** — fallback 机制已覆盖这种情况
-4. **EX74JXW 和 EX74JXY 同为 Scania P-series，问题和方案一致**
+1. **SOC-based is unsuitable for short-trip detection with coarse-resolution SOC** — at 1% resolution, min_soc_drop=5.0 will miss short trips
+2. **Speed-based + fallback is the best strategy** — use speed when available, fall back to SOC when not
+3. **Do not abandon speed-based just because some periods lack speed data** — the fallback mechanism already covers this case
+4. **EX74JXW and EX74JXY are both Scania P-series, with the same problem and solution**
 
-## 调优历史
+## Tuning history
 
 | Round | Date | Action | Result |
 |-------|------|--------|--------|
-| 1 | 2026-03-23 | 初始评审 71 张验证图 | 55 OK / 16 Issue / 0 真实分段错误。不需要调参。 |
-| 2 | 2026-03-25 | Thorough mode 全量精细复审 | 确认 Round 1 所有判定。0 状态变更。不需要调参。 |
+| 1 | 2026-03-23 | Initial review of 71 validation figures | 55 OK / 16 Issue / 0 genuine segmentation errors. No parameter tuning needed. |
+| 2 | 2026-03-25 | Thorough-mode full detailed re-review | Confirmed all Round 1 judgements. 0 status changes. No parameter tuning needed. |
 
-## 数据覆盖与质量摘要（v2.1.0.dev0）
+## Data coverage and quality summary (v2.1.0.dev0)
 
-- **报告期**: 2025-06-01 至 2025-12-01（两份 xlsx）
-- **验证图**: 71 天（7月19天 + 8月13天 + 10月22天 + 11月17天）
-- **活跃行驶天**: 42/71 (59.2%)
-- **EP 范围**: 0.5-3.0 kWh/km（典型 0.8-2.2）
-- **质量范围**: 空车 ~10-14t，满载 ~20-40t
-- **数据特征**: 7月无遥测速度（SOC-fallback）；8月中旬遥测速度恢复；10月起 Logger Speed 可用
+- **Reporting period**: 2025-06-01 to 2025-12-01 (two xlsx)
+- **Validation figures**: 71 days (19 days in July + 13 in August + 22 in October + 17 in November)
+- **Active driving days**: 42/71 (59.2%)
+- **EP range**: 0.5-3.0 kWh/km (typically 0.8-2.2)
+- **Mass range**: empty ~10-14t, full load ~20-40t
+- **Data characteristics**: no telematics speed in July (SOC-fallback); telematics speed restored in mid-August; Logger Speed available from October

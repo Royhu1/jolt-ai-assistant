@@ -2,7 +2,7 @@
 name: html-artifacts
 description: |
   MANUAL TRIGGER ONLY: invoke only when user types /html-artifacts (or a
-  Chinese equivalent like "用 html-artifacts 写" / "做成 html 文档").
+  Chinese equivalent like "write with html-artifacts" / "make it an html document").
   Produce a self-contained HTML artifact instead of a markdown document
   when the user explicitly requests an HTML deliverable — typically for
   content that benefits from spatial layout, color, real diagrams,
@@ -12,7 +12,7 @@ description: |
   editors). Do NOT auto-trigger on generic "summarize / compare / explain"
   requests — those default to markdown unless the user invokes the skill.
   Before drafting, always ask the user which language to write in
-  (English / 中文 / mirror the user's prompt).
+  (English / Chinese / mirror the user's prompt).
 ---
 
 # HTML Artifacts
@@ -24,7 +24,7 @@ The use cases below are not the only places HTML helps, but they cover most of t
 ## When to reach for HTML
 
 This skill is **manually triggered** — the user has to explicitly invoke it
-(e.g. `/html-artifacts`, "用 html-artifacts 写一份...", "做成 html 文档").
+(e.g. `/html-artifacts`, "write a ... with html-artifacts", "make it an html document").
 Once invoked, evaluate the request against the categories below to decide
 what shape the HTML artifact should take. The categories are guidance for
 *how* to lay out the artifact, not for whether to produce one.
@@ -70,7 +70,7 @@ must explicitly ask the user which language to write the artifact in.
    - **header:** "Artifact language"
    - **options** (single-select):
      - `English`  — All narrative content in English
-     - `中文 (简体)` — All narrative content in Simplified Chinese
+     - `Chinese (Simplified)` — All narrative content in Simplified Chinese
      - `Same as the user's prompt` — Mirror the language the user just used
 
 2. If `AskUserQuestion` is not available in the current environment
@@ -80,7 +80,7 @@ must explicitly ask the user which language to write the artifact in.
 
 3. **Only skip the question when the user has already given an explicit
    language directive in the very same request** — e.g. "make an English
-   HTML report", "用中文写一个 HTML 计划". In that case proceed directly,
+   HTML report", "write an HTML plan in Chinese". In that case proceed directly,
    but still acknowledge the choice in one short sentence before drafting.
 
 **Scope of the language choice**

@@ -1,73 +1,73 @@
 # T88RNW — Renault E-Tech D Wide
 
-## 车辆特征
+## Vehicle characteristics
 
-- 品牌/型号: Renault Trucks E-Tech D Wide (RIGID, 19t)
+- Make/Model: Renault Trucks E-Tech D Wide (RIGID, 19t)
 - VIN: VF620JEA7PB000178
-- 标称容量: 211 kWh (SRF fuel_capacity)
-- 有效容量: ~190 kWh (算法自动计算实测均值 ~233 kWh/%)
-- 运营商: Welch's Transport (WELCH_TRANSPORT)
-- 运营模式: 城市多点配送，每日 6-17 个配送段
-- SRF 注册号: "T88 RNW"
+- Nominal capacity: 211 kWh (SRF fuel_capacity)
+- Effective capacity: ~190 kWh (algorithm auto-computed measured mean ~233 kWh/%)
+- Operator: Welch's Transport (WELCH_TRANSPORT)
+- Operation mode: city multi-drop distribution, 6-17 delivery legs per day
+- SRF registration: "T88 RNW"
 - SRF Organisation: "JOLT Welch-Volvo"
-- 数据范围: 2024-06-11 ~ 2026-03-21 (1209 legs)
+- Data range: 2024-06-11 ~ 2026-03-21 (1209 legs)
 
-## 遥测列映射
+## Telematics column mapping
 
-与 N88GNW (Renault D Wide Z.E.) 和 TA70WTL (Renault E-Tech T) 列结构一致：
+Consistent with the column structure of N88GNW (Renault D Wide Z.E.) and TA70WTL (Renault E-Tech T):
 
-| 用途 | 列名 | 备注 |
+| Purpose | Column name | Notes |
 |------|------|------|
-| 速度 | `wheel_based_speed` | 96% 填充率 |
-| SOC | `electricBatteryLevelPercent` | 整数精度 (1%) |
-| 里程 | `hr_total_vehicle_distance` | 可用 |
-| 质量 | `gross_combination_vehicle_weight` | **全部为 null — 无质量数据** |
-| 总能量 | `total_electric_energy_used_plugged_in_included` | ~20% 行有值 |
-| 移动能量 | `electric_energy_wheelbased_speed_over_zero` | ~20% 行有值 |
-| AC 能量 | `battery_pack_ac_watthours` | ~20% 行有值 |
-| DC 能量 | `battery_pack_dc_watthours` | ~20% 行有值 |
-| 海拔 | `gnss_altitude` | 96% 填充率 |
-| 经纬度 | `latitude`, `longitude` | 可用 |
+| Speed | `wheel_based_speed` | 96% fill rate |
+| SOC | `electricBatteryLevelPercent` | integer precision (1%) |
+| Distance | `hr_total_vehicle_distance` | available |
+| Mass | `gross_combination_vehicle_weight` | **all null — no mass data** |
+| Total energy | `total_electric_energy_used_plugged_in_included` | ~20% of rows have values |
+| Moving energy | `electric_energy_wheelbased_speed_over_zero` | ~20% of rows have values |
+| AC energy | `battery_pack_ac_watthours` | ~20% of rows have values |
+| DC energy | `battery_pack_dc_watthours` | ~20% of rows have values |
+| Altitude | `gnss_altitude` | 96% fill rate |
+| Latitude/Longitude | `latitude`, `longitude` | available |
 
-## 算法选择
+## Algorithm choice
 
-- **管线**: `renault_speed` (speed-based 放电分段)
-- **速度列**: 默认 `wheel_based_speed`
-- **原因**: 速度数据完整可靠；SOC 整数精度下 speed-based 更稳定
+- **Pipeline**: `renault_speed` (speed-based discharge segmentation)
+- **Speed column**: default `wheel_based_speed`
+- **Reason**: speed data is complete and reliable; with integer SOC precision, speed-based is more stable
 
-## 参数
+## Parameters
 
-使用 `renault_speed` 默认参数，无需调优：
+Use the `renault_speed` default parameters, no tuning needed:
 
-| 参数 | 值 | 说明 |
+| Parameter | Value | Notes |
 |------|-----|------|
-| speed_threshold_kmh | 1.0 | 默认 |
-| min_stop_duration_min | 5.0 | 默认，恰好区分"交通等待"和"配送停车" |
-| min_trip_duration_min | 2.0 | 默认 |
-| min_soc_drop | 1.0 | 默认，1% 是电池最小分辨率 |
-| min_energy_kwh | 1.0 | 默认 |
-| min_cluster_gap_kg | 2000.0 | 默认（无质量数据，不生效） |
+| speed_threshold_kmh | 1.0 | default |
+| min_stop_duration_min | 5.0 | default, neatly distinguishes "traffic waiting" from "delivery stops" |
+| min_trip_duration_min | 2.0 | default |
+| min_soc_drop | 1.0 | default, 1% is the battery's minimum resolution |
+| min_energy_kwh | 1.0 | default |
+| min_cluster_gap_kg | 2000.0 | default (no mass data, not in effect) |
 
-## SRF API 自动发现
+## SRF API auto-discovery
 
-首次使用 SRF API 自动读取以下信息：
-- `v.fuel_capacity` = 211 → 直接用作 `nominal_kwh`
-- `organisation.name` = "JOLT Welch-Volvo" → 映射为 WELCH_TRANSPORT
+On first use, the SRF API automatically reads the following information:
+- `v.fuel_capacity` = 211 → used directly as `nominal_kwh`
+- `organisation.name` = "JOLT Welch-Volvo" → mapped to WELCH_TRANSPORT
 - `v.description` = "2023 Renault E-Tech D Wide 19-t rigid electric (211 kWh)"
 - `v.type` = RIGID, `v.weight_class` = 18.0
 
-## 数据特点
+## Data characteristics
 
-1. **城市多点配送模式**: 每日 6-17 个 trip，平均 10.46 km/trip，日均约 112 km
-2. **无质量数据**: `gross_combination_vehicle_weight` 全部 null
-3. **SOC 分辨率受限**: 211 kWh 时 1% SOC ≈ 2.39 kWh，短程(<3 km)常出现 1% SOC 和偏高 EP
-4. **22% 的 trip 仅 1% SOC 变化**: 城市配送短距离造成，是真实运营特征
-5. **高 EP 离群值 (1.7%)**: EP > 3 kWh/km 的 trip 全部为极短距离(<1 km)，是 SOC 精度问题
-6. **充电类型**: 主要 DC Home 充电，少数 "Charge Home"（AC/DC 列均为 0 但 SOC 上升）
+1. **City multi-drop distribution mode**: 6-17 trips per day, average 10.46 km/trip, around 112 km per day
+2. **No mass data**: `gross_combination_vehicle_weight` is all null
+3. **Limited SOC resolution**: at 211 kWh, 1% SOC ≈ 2.39 kWh, so short trips (<3 km) often show 1% SOC and an elevated EP
+4. **22% of trips have only a 1% SOC change**: caused by short city-distribution distances, a genuine operational characteristic
+5. **High EP outliers (1.7%)**: trips with EP > 3 kWh/km are all extremely short distances (<1 km), an SOC precision issue
+6. **Charging types**: mainly DC Home charging, with a few "Charge Home" (AC/DC columns both 0 but SOC rises)
 
-## 经验教训
+## Lessons learned
 
-1. **Renault 列结构高度一致**: T88RNW 与 N88GNW、TA70WTL 列名完全相同，新 Renault 车辆可直接复用列映射
-2. **小电池车辆的 SOC 精度更粗**: 211 kWh 时 1% ≈ 2.39 kWh，比大电池车（540 kWh → 5.4 kWh）更容易出现边界效应
-3. **无质量数据不影响速度分段**: 速度分段只需 speed + SOC + energy 列
-4. **SRF API 可自动获取容量和运营商**: fuel_capacity + organisation.name 大幅减少 onboarding 手动输入
+1. **The Renault column structure is highly consistent**: T88RNW has exactly the same column names as N88GNW and TA70WTL, so new Renault vehicles can reuse the column mapping directly
+2. **Smaller-battery vehicles have coarser SOC precision**: at 211 kWh, 1% ≈ 2.39 kWh, making boundary effects more likely than for large-battery vehicles (540 kWh → 5.4 kWh)
+3. **No mass data does not affect speed segmentation**: speed segmentation needs only the speed + SOC + energy columns
+4. **The SRF API can auto-fetch capacity and operator**: fuel_capacity + organisation.name greatly reduces manual onboarding input

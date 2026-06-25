@@ -36,7 +36,7 @@ Read the FULL source file, then produce the output as a faithful translation.
 
 Translation rules (be faithful, not creative):
 - Translate ONLY natural-language prose. English target → **British English** (analyse,
-  optimise, behaviour, normalise, colour, centre …). Chinese target → **简体中文**.
+  optimise, behaviour, normalise, colour, centre …). Chinese target → **Simplified Chinese**.
 - Do NOT change, drop, summarise, reorder, or add anything. Every section, heading, table
   row, list item, code block and directory-tree line must be present, in the same order.
 - Keep IDENTICAL: all Markdown structure (headings, tables, code fences, blockquotes,

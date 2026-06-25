@@ -24,11 +24,11 @@ any file.** Only reads config, data, and result files to answer questions.
 
 **Before answering any question**, present the user with language options:
 
-> 请选择回复语言 / Please choose your response language:
+> Please choose your response language:
 >
-> **[1] 中文**（默认 / default）
+> **[1] Chinese** (default)
 > **[2] English**
-> **[3] 其他 / Other** — please specify
+> **[3] Other** — please specify
 
 Wait for the user's reply (or proceed with Chinese if they don't respond / reply
 with a number). Then answer the question in the chosen language.

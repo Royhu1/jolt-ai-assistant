@@ -7,7 +7,7 @@ description: |
   have telematics / logger / charger data (Events vs Raw-data bases), plus
   vehicle stats and operator info. Output: excel_report_database/X.Y.Z/data_dashboard.html.
   Triggers on:
-  (1) "基于 X.Y.Z 版本的数据生成一个 data availability dashboard"
+  (1) "generate a data availability dashboard from the data of version X.Y.Z"
   (2) "generate / refresh the data availability dashboard (for version X.Y.Z)"
   (3) "/generate-data-dashboard X.Y.Z"
   (4) regenerate the dashboard after new Excel reports / raw data were added

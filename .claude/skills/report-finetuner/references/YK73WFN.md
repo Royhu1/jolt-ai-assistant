@@ -52,7 +52,7 @@ used only to showcase overlay visualisation.
 
 ## Technical gotchas encountered
 
-Both captured as permanent lessons in `.claude/agents/report-finetuner.md` §陷阱:
+Both captured as permanent lessons in `.claude/agents/report-finetuner.md` §Pitfalls:
 
 - **`MergeOp` `new_type` is mandatory** when merging rows of different leg types,
   otherwise the merged row silently inherits the first row's type (often `Stop`)
