@@ -98,6 +98,10 @@ Thumbs.db
 # style-baseline snapshots) — skill code/SKILL.md/templates are shared, this is not
 .claude/skills/generate-pdf-report/references/
 
+# Local copy of the login-gated external SRF Python-client docs (copyright;
+# scraped for local dev reference only — readable in-repo, never pushed)
+srf_python_client_doc.md
+
 # --- Machine-local / private working notes -----------------------------------
 CLAUDE.local.md
 
