@@ -208,7 +208,7 @@ Once the user has **confirmed** that a version bump is needed, follow this proce
   the Fuel Consumption median (should be in 25–40 L/100km), the Mass fallback distribution and the weather column
   fill rate
 - Changing the configuration file: `python -c "import json; json.load(open('src/jolt_toolkit/configs/vehicles.json'))"` to validate the JSON format
-- Involving the SRF API: confirm the parameters conform to `https://data.csrf.ac.uk/python/docs/srf_client.model.html`
+- Involving the SRF API: consult the offline `srf_client` docs at `.claude/agents/references/srf_python_client_doc.md` (a local **gitignored** asset, ~85 KB, all 21 modules — read it directly instead of fetching the web page). The upstream `https://data.csrf.ac.uk/python/docs/` is login-gated, so agents cannot fetch it; if the local file is missing, re-scrape it with Playwright over CDP (recipe in the main agent-memory `reference_srf_docs_local_copy`). Confirm parameters conform to that doc's `srf_client.model` section.
 
 ## Reply conventions
 
