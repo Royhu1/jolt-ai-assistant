@@ -1435,6 +1435,12 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
         charge_basis = "raw"
         dc, ac = raw_kpi.get("charged_dc_kwh"), raw_kpi.get("charged_ac_kwh")
     tot_ch = np.nansum([ac, dc]) if (pd.notna(ac) or pd.notna(dc)) else float("nan")
+    # A vehicle WITH charging sessions but a charged-energy total of 0 is NOT "0 kWh charged" — its
+    # AC/DC channels are unpopulated (some legs carry a placeholder 0.0, not NaN, so _sum_or_na sums to
+    # 0). Show "—" rather than a self-contradictory 0 (e.g. EX74JXY: 146 charge legs, SoC 52→96 %, AC/DC
+    # counters present-but-all-NaN). Event basis only — the raw battery_pack basis has a true value.
+    if charge_basis == "segment" and len(ch) > 0 and not (pd.notna(tot_ch) and tot_ch > 0):
+        ac = dc = tot_ch = float("nan")
     med_start = ch["ssoc"].median(); mean_end = ch["esoc"].mean()
     pct_low = (ch["ssoc"] < 40).mean() * 100
     dc_share = dc / tot_ch * 100 if (pd.notna(tot_ch) and tot_ch) else float("nan")
@@ -1660,8 +1666,12 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
         analysis_sub = f"JOLT Member · {vehicle_model}"
         source_ops = source_analysis = ""  # 匿名版不显示数据来源页脚
     else:
-        operator_disp, reg_disp = operator, args.reg
-        analysis_sub = f"{operator} · {args.reg} · {vehicle_model}"
+        # Display name: SRF operator tokens are underscore-joined (e.g. "WELCH_TRANSPORT",
+        # "PORT_EXPRESS_DAIMLER") — show them with spaces. The raw `operator` value is kept for the
+        # per-leg filter, and the dir/filename tag (`_op_tag`) keeps its own filesafe underscores.
+        operator_clean = str(operator).replace("_", " ")
+        operator_disp, reg_disp = operator_clean, args.reg
+        analysis_sub = f"{operator_clean} · {args.reg} · {vehicle_model}"
         source_ops = source_analysis = ""  # source footers removed per user request (2026-06-22)
 
     def f(v, d=0, suf=""):
@@ -1739,6 +1749,15 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
         conclusion_points=conclusion_points,
         source_analysis=source_analysis,
     )
+
+    # Card VALUES render at full, consistent font — the flex layout (label wraps to ≤2 lines, value
+    # `flex:0 0 auto`) already fits every realistic value (today's longest is "193,759 kWh" = 11 ch).
+    # Only a pathologically long string (≥13 ch — never seen) is shrunk, a last-resort overflow guard.
+    def _num_size_cls(s):
+        return " v-xs" if len(str(s)) >= 13 else ""
+    for _rows in (ctx.get("perf_rows") or [], ctx.get("charge_rows") or []):
+        for _r in _rows:
+            _r["cls"] = (str(_r.get("cls", "")) + _num_size_cls(_r.get("v", ""))).strip()
 
     html = Template(TEMPLATE.read_text(encoding="utf-8")).render(**ctx)
     # 匿名版文件名不含车牌（便于直接转发），与命名版产物在同一目录共存

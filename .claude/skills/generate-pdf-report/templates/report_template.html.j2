@@ -79,7 +79,9 @@
                      letter-spacing:.3px; }
   .summary-cell__v { display:block; font-size:31px; font-weight:800; color:var(--navy); margin-top:6px; }
 
-  .ops-bottom { display:grid; grid-template-columns:1fr 1fr 0.86fr; gap:5mm; margin-top:6mm;
+  /* charge card (middle) gets extra width so its long labels ("Total Energy Charged") wrap to ≤2
+     lines at full font without the value being shrunk; the route map (3rd col) gives it back. */
+  .ops-bottom { display:grid; grid-template-columns:1fr 1.13fr 0.73fr; gap:5mm; margin-top:6mm;
                 align-items:stretch; }
   .ops-bottom > .card { height:92mm; }
   .stat-card { padding:14px 17px 13px; display:flex; flex-direction:column; }
@@ -88,26 +90,34 @@
     display:flex; align-items:center; justify-content:center; gap:7px; white-space:nowrap; }
   .stat-card__title svg { width:18px; height:18px; color:var(--accent-2); }
   .stat-list { list-style:none; display:flex; flex-direction:column; justify-content:space-around; flex:1; }
-  .stat-list li { display:flex; justify-content:space-between; align-items:baseline;
-    font-size:16.5px; padding:6px 0; border-bottom:1px dashed #eef0f6; }
+  .stat-list li { display:flex; justify-content:space-between; align-items:baseline; gap:8px;
+    font-size:16.5px; padding:4px 0; border-bottom:1px dashed #eef0f6; }
   .stat-list li:last-child { border-bottom:none; }
-  .stat-list li span { color:var(--muted); }
-  .stat-list li b { color:var(--navy); font-weight:800; white-space:nowrap; margin-left:8px; }
+  /* Label: FIXED font/style; takes the remaining width and wraps there (≤2 lines, thanks to the
+     wider charge card giving it room — the value is NOT font-resized). */
+  .stat-list li span { color:var(--muted); flex:1 1 auto; min-width:0; overflow-wrap:break-word; }
+  /* Value: never wraps; full font (the flex layout already fits every realistic value — the label
+     wraps to ≤2 lines instead of the value shrinking). v-xs is a last-resort guard the generator
+     (_num_size_cls) only applies to a pathologically long string (≥13 chars, never seen today). */
+  .stat-list li b { color:var(--navy); font-weight:800; white-space:nowrap; flex:0 0 auto;
+    text-align:right; line-height:1.15; }
+  .stat-list li b.v-xs { font-size:0.82em; }
   .map-card { padding:0; overflow:hidden; position:relative; background:#e9eef3; }
   .map-card img { width:100%; height:100%; object-fit:contain; display:block; }
   .map-card__cap { position:absolute; bottom:5px; right:6px; font-size:11px;
     color:var(--muted); font-style:italic; background:rgba(255,255,255,.45);
     padding:1px 5px; border-radius:4px; opacity:.6; }
 
-  /* page-1 plain-English Summary block (fills the rest of the page) */
-  .ops-summary { margin-top:5mm; padding:14px 22px 16px; flex:1; display:flex; flex-direction:column; }
+  /* page-1 plain-English Summary block (fills the rest of the page) — tightened so the rare 4-bullet
+     case (a no-mass vehicle that ALSO reports regen, e.g. T88RNW) fits without spilling off the page. */
+  .ops-summary { margin-top:5mm; padding:13px 22px 11px; flex:1; display:flex; flex-direction:column; }
   .ops-summary__title { font-size:18px; font-weight:800; letter-spacing:.6px; color:var(--navy);
     text-transform:uppercase; padding-bottom:8px; margin-bottom:8px;
     border-bottom:2px solid var(--chip-bg); }
   .ops-summary ul { list-style:none; display:flex; flex-direction:column;
     justify-content:space-around; flex:1; }
-  .ops-summary li { position:relative; padding-left:24px; font-size:16.5px; line-height:1.55;
-    margin:6px 0; color:var(--ink); }
+  .ops-summary li { position:relative; padding-left:24px; font-size:16.5px; line-height:1.42;
+    margin:3px 0; color:var(--ink); }
   .ops-summary li::before { content:""; position:absolute; left:0; top:7px; width:9px; height:9px;
     border-radius:50%; background:var(--accent); }
   .ops-footer { text-align:right; margin-top:8px; font-size:11.5px;

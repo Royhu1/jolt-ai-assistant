@@ -10,17 +10,34 @@ To (re)generate a briefing, type in Claude Code:
 /generate-pdf-report <REG> <yyyymmdd_yyyymmdd>
 ```
 
+## Two page-1 KPI versions: raw vs `_xlsxkpi`
+
+Each briefing can be produced in **two versions that differ only on page 1** (the page-2
+analysis — EP/GVM scatters, range, temperature, conclusions — is **identical** in both, always
+on the driving-leg basis). Choose with `--page1-basis {raw,segment}`:
+
+| File | Page-1 totals basis |
+|------|---------------------|
+| `report_<REG>_<period>.pdf` (no suffix) | **raw** — Total Distance, Energy Used, Energy Recuperated and **Energy Charged** come from the `raw_telematics/` cumulative counters (`odometer`, `total_electric_energy_used`, `electric_energy_recuperation_watthours`, `battery_pack_dc/ac_watthours`). Whole-period sums → include non-driving consumption + the true odometer distance, and energy used reconciles with energy charged. |
+| `report_<REG>_<period>_xlsxkpi.pdf` | **segment** — the same page-1 totals computed the old way: summed from the **xlsx report** (`jolt_report_*.xlsx`) driving-leg / charge-leg rows (hence "**xlsx kpi**"). The reference / comparison version. |
+
+So **`_xlsxkpi` = "page-1 KPIs taken from the xlsx report (driving-leg segment basis)"**, kept
+alongside the raw version for comparison. The raw basis is decided **per field** — a vehicle
+that reports an odometer but no energy/charge counter (Scania/DAF/Mercedes) gets a raw Total
+Distance but keeps the segment energy/charged. Full detail: the skill's `SKILL.md` §1.
+
 ## Contents (all gitignored)
 
 ```
 pdf_report_workspace/
-├── output/<REG>_<period>/        # one folder per briefing
-│   ├── report_<REG>_<period>.html    # browser-viewable briefing
-│   ├── report_<REG>_<period>.pdf     # PDF (identical to the HTML preview)
+├── output/<REG>_<period>/            # one folder per briefing
+│   ├── report_<REG>_<period>.html/pdf         # RAW page-1 version (browser-viewable + PDF)
+│   ├── report_<REG>_<period>_xlsxkpi.html/pdf # SEGMENT page-1 version (xlsx-report basis)
 │   ├── report_anon_<period>.html/pdf # anonymised version (--anon: no operator/reg/source,
 │   │                                 # label-free CARTO basemap) — safe to forward
-│   ├── verification_<REG>_<period>.xlsx  # human-verification workbook (Excel formulas
-│   │                                 # independently recompute every briefing number)
+│   ├── verification_<REG>_<period>.xlsx           # human-verification workbook (raw version)
+│   ├── verification_<REG>_<period>_xlsxkpi.xlsx   # ditto for the segment version
+│   │                                 # (Excel formulas independently recompute every number)
 │   └── figures/, figures_anon/       # chart PNGs (run-token names bust browser cache)
 └── cache/here_*.png              # HERE basemap tiles (keyed by centre/zoom/size,
                                   # reused across runs so re-runs work offline)
