@@ -325,6 +325,58 @@ def _narrow_temp_window(gvw_t, widths=(2, 3, 4, 5), min_n=15):
     return widest                                    # cap at the widest width (sparse vehicle)
 
 
+def _adaptive_temp_window(gvw_t, ep, temp, widths=(2, 3, 4, 5), min_n=15):
+    """Choose the laden mass window for the EP-vs-temperature fit, WIDENING until the sign is right.
+
+    Start narrow (mass held ~constant so the temperature effect is not confounded by mass), but a
+    too-narrow window on a weakly-temperature-dependent / single-season period can yield a SPURIOUS
+    POSITIVE slope (warmer → higher EP) that is just noise (R²≈0). So widen the densest window
+    (2→3→4→5 t, then the whole laden cluster) until the EP-vs-temperature slope is ≤ 0 — the
+    physically-expected colder→higher-EP direction. Returns ``((lo, hi) | None, status)``:
+    ``status="ok"`` (a window with slope ≤ 0 was found, incl. the full cluster) or
+    ``status="inconclusive"`` (even the full laden cluster stays positive → this period cannot
+    characterise the temperature effect; the caller states that instead of asserting a noisy sign).
+    """
+    m = pd.to_numeric(pd.Series(list(gvw_t)), errors="coerce").reset_index(drop=True)
+    e = pd.to_numeric(pd.Series(list(ep)), errors="coerce").reset_index(drop=True) if ep is not None else None
+    t = pd.to_numeric(pd.Series(list(temp)), errors="coerce").reset_index(drop=True) if temp is not None else None
+    mv = m.dropna()
+    if mv.empty:
+        return None, "ok"
+
+    def _densest(w):
+        cnt_best, lo_best = -1, float(mv.min())
+        for lo in np.unique(mv.values):
+            c = int(((mv >= lo) & (mv <= lo + w)).sum())
+            if c > cnt_best:
+                cnt_best, lo_best = c, float(lo)
+        return (lo_best, lo_best + w), cnt_best
+
+    def _slope(lo, hi):
+        if e is None or t is None:
+            return float("nan")
+        sel = (m >= lo) & (m <= hi) & e.notna() & t.notna()
+        if int(sel.sum()) < 3 or float(t[sel].std() or 0.0) == 0:
+            return float("nan")
+        return float(np.polyfit(t[sel].values, e[sel].values, 1)[0])
+
+    widest = None
+    for w in widths:
+        win, cnt = _densest(w)
+        widest = win
+        if cnt < min_n:
+            continue                                 # too sparse at this width → widen
+        s = _slope(*win)
+        if pd.isna(s) or s <= 0:
+            return win, "ok"                         # narrowest sufficient window, expected direction
+    # every populated narrow window had a +slope (or none reached min_n) → fall back to the full cluster
+    full = (float(mv.min()), float(mv.max()))
+    s_full = _slope(*full)
+    if pd.isna(s_full) or s_full <= 0:
+        return full, "ok"
+    return (widest or full), "inconclusive"          # even full laden stays positive → caveat
+
+
 def _compute_load_points(reg, tr):
     """Resolve the unladen / laden / full-laden reference masses + the unladen and laden ("dense")
     operating masks used by the page-2 conclusion and the temperature plot.
@@ -377,14 +429,17 @@ def _compute_load_points(reg, tr):
     # full dense_mask; only the temperature subset narrows.
     temp_lo = temp_hi = None
     temp_mask = dense_mask
+    temp_status = "ok"
     if dense_mask.any():
-        tw = _narrow_temp_window(gvw_t[dense_mask])
+        ep_d = tr["ep"][dense_mask] if "ep" in tr.columns else None
+        tp_d = tr["temp"][dense_mask] if "temp" in tr.columns else None
+        tw, temp_status = _adaptive_temp_window(gvw_t[dense_mask], ep_d, tp_d)
         if tw is not None:
             temp_lo, temp_hi = tw
             temp_mask = dense_mask & (gvw_t >= temp_lo) & (gvw_t <= temp_hi)
     return dict(unladen=m_un, laden=m_la, full=FULL_LADEN_T,
                 unladen_mask=unladen_mask, dense_mask=dense_mask, temp_mask=temp_mask,
-                temp_lo=temp_lo, temp_hi=temp_hi,
+                temp_lo=temp_lo, temp_hi=temp_hi, temp_status=temp_status,
                 band_lo=band_lo, band_hi=band_hi, laden_min=laden_min)
 
 
@@ -565,18 +620,20 @@ def _fetch_carto_basemap(lats, lons, w, h):
     return out, clat, clon, zoom_eff
 
 
-def _scatter_fit(ax, x, y, color=OEM_BLUE, unit=""):
+def _scatter_fit(ax, x, y, color=OEM_BLUE, unit="", fit=True):
     """JOLT 风格：散点 + 线性趋势线（无图例 / 无 ±1σ 阴影带）。
 
     拟合的斜率 / R² / σ 仍返回给调用方用于结论文字，但**不画进图里**（合作方要求图面只
     保留散点与趋势线）。``unit`` 参数保留以兼容调用方签名（现已不在图例中使用）。
+    ``fit=False``：只画散点、不拟合、不画趋势线（温度分析判定为 inconclusive 时用——
+    避免画出一条只是噪声的趋势线）。
     """
     mask = np.isfinite(x) & np.isfinite(y)
     x, y = x[mask], y[mask]
     ax.scatter(x, y, s=9, color=color, alpha=0.35, edgecolors="none")
     # 需 ≥3 点且 x/y 各有方差才能拟合：否则（如某列数据缺失/全为占位 0）polyfit 的
     # Vandermonde 矩阵退化会抛 LinAlgError —— 此时只画散点、跳过拟合，不让整张图崩。
-    if len(x) >= 3 and np.ptp(x) > 0 and np.ptp(y) > 0:
+    if fit and len(x) >= 3 and np.ptp(x) > 0 and np.ptp(y) > 0:
         m, b = np.polyfit(x, y, 1)
         xs = np.linspace(x.min(), x.max(), 100)
         ys = m * xs + b
@@ -746,7 +803,9 @@ def build_charts(tr, ch, outdir, reg, cb, here_key=None, cap_kwh=None, anon=Fals
     sub = lp.get("temp_mask"); sub = sub if sub is not None else lp.get("dense_mask")
     td = tr if no_mass else (tr[sub] if sub is not None else tr)
     fig, ax = plt.subplots(figsize=(SQ, SQ))
-    r = _scatter_fit(ax, td["temp"].values, td["ep"].values, unit=" /°C")
+    # inconclusive（即便放宽到整个 laden 簇 EP-温度仍正相关）→ 只画散点、不画趋势线（结论改文字说明）。
+    _temp_fit = lp.get("temp_status", "ok") != "inconclusive"
+    r = _scatter_fit(ax, td["temp"].values, td["ep"].values, unit=" /°C", fit=_temp_fit)
     ax.set_xlabel("Ambient Temperature (°C)"); ax.set_ylabel("EP (kWh/km)")
     ax.set_ylim(EP_MIN, EP_MAX); ax.set_yticks([0, 1, 2, 3])
     ax.set_xlim(*TEMP_XLIM); ax.set_xticks(TEMP_XTICKS)
@@ -1555,9 +1614,17 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
     if pd.notna(gvm_slope):
         conclusion_points.append(
             f"Each extra tonne of load adds ~{gvm_slope:.2f} kWh/km.")
-    conclusion_points.append(
-        f"Temperature (laden trips, {laden_gmin:.0f}–{laden_gmax:.0f} t): energy performance changes "
-        f"~{abs(t_per10):.2f} kWh/km per 10 °C {'colder' if t_per10 < 0 else 'warmer'}.")
+    if load_pts.get("temp_status") == "inconclusive" or pd.isna(t_per10):
+        # Even widening the mass window to the whole laden cluster could not show the expected
+        # colder→higher-EP trend (a narrow / single-season temperature range with no real signal):
+        # state that honestly rather than asserting a noise-driven direction.
+        conclusion_points.append(
+            "Temperature: the temperature range observed in this period is too limited to "
+            "characterise a reliable temperature effect on energy performance.")
+    else:
+        conclusion_points.append(
+            f"Temperature (laden trips, {laden_gmin:.0f}–{laden_gmax:.0f} t): energy performance changes "
+            f"~{abs(t_per10):.2f} kWh/km per 10 °C {'colder' if t_per10 < 0 else 'warmer'}.")
 
     # No-mass variant: replace the load-point conclusions with EP & projected-range distribution stats.
     ep_mean = ep_med = ep_sd_d = ep_q1 = ep_q3 = float("nan"); ep_n_d = 0
