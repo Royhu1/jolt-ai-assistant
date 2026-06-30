@@ -109,7 +109,7 @@ src/jolt_toolkit/
 │   ├── weather_patch.py           # unified weather-patch entry point — default coarse, fine opt-in (patch_weather + CLI)
 │   ├── validation_generator.py    # EV overlay-regenerate path: re-paint validation figures + inspect HTML from raw_telematics CSVs. v2.2.6: groups a day's per-leg raw CSVs → ONE figure per calendar day (`_concat_day_raw`); diesel routes to `diesel_pipeline.regenerate_diesel_validation`
 │   ├── rerender_inspect.py        # standalone CLI: re-render inspect_*.html from existing figures + .boxes.json sidecars (no figure regen); drives the current v2.2.6 viewer; skips *_finetuned
-│   ├── data_dashboard.py          # data-availability dashboard generator (v2.2.3): scans the report DB → self-contained 3-panel interactive data_dashboard.html (+ optional --details drill-down)
+│   ├── data_dashboard.py          # data-availability dashboard generator (v2.2.3): scans the report DB → self-contained 3-panel interactive data_dashboard.html (+ optional --details drill-down). Operator overlay is DATA-DRIVEN from each report's `Operator` column (v2.2.6+): per-day operator → dated periods (1 distinct = Fixed, ≥2 = Round-robin); `plot_config.json` `company_assignment` is only a fallback for vehicles with no operator in the data; operators absent from `colors.company` (e.g. `HTL`) get a stable fallback colour; names show underscores as spaces
 │   ├── data_dashboard_detail.py   # per-vehicle drill-down detail page (detail_<REG>.html): offline uPlot day-by-day channel viewer with event bands/markers + dashed per-event mean-mass line (report's mass_agg)
 │   ├── pedal_histogram.py         # accelerator/brake pedal histogram computation
 │   ├── data_fetcher.py            # SRF API data fetching

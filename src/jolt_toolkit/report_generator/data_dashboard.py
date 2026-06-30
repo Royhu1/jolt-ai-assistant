@@ -92,22 +92,35 @@ double-counted.
 
 Operator overlay
 ----------------
-Operator / trial-type information is sourced **offline** from the locally-curated
-``configs/plot_config.json`` (the canonical map maintained at vehicle-onboarding)
-— no SRF API call. ``company_assignment.simple`` lists fixed-operator vehicles
-(one company each) and ``company_assignment.round_robin`` lists dated assignment
-spans; ``colors.company`` gives each company a CSS colour. Each vehicle is
-embedded with a compact ``periods`` list (``[{c, s, e}]`` with ISO bounds;
-``s``/``e`` ``None`` = open-ended whole-axis period for fixed vehicles) and a
-``trial_type``; the fleet-level ``operatorColors`` / ``operatorNames`` maps and
-the neutral grey are embedded once. The JS resolves a date's operator by scanning
-the (few) periods — no per-day expansion. On the calendar, every **data-bearing**
-day cell (in the active mode) gets a 3px border in the operator's colour for
-that date; a round-robin day inside a gap between periods gets the neutral grey
-(``#94a3b8``) so gaps stay visible; vehicles with no assignment (e.g. WU70GLV)
-get no border. The per-vehicle operator legend (hollow rings, to distinguish it
-from the solid-fill category swatches) lists only the relevant operators plus the
-neutral entry when applicable, recomputed on vehicle change and mode toggle.
+Operator / trial-type information is **data-driven** from the reports' ``Operator``
+column (the SRF ``leg.trip.trial.description`` / ``vehicle.organisation.name``
+value resolved by :mod:`report_generator.operators`), so the overlay tracks
+operator handovers automatically with no manual config edit. Per vehicle, the
+non-blank per-leg operator codes are collapsed to one operator per day (daily
+majority), and consecutive days carrying the same operator are grouped into dated
+periods. A single distinct operator over the whole timeline ⇒ ``trial_type``
+"Fixed" (one open-ended whole-axis period); two or more ⇒ "Round-robin" (one
+dated period per run). The locally-curated ``configs/plot_config.json``
+``company_assignment`` (``simple`` / ``round_robin``) is kept only as a
+**fallback** for a vehicle whose reports carry no operator at all, so nothing
+regresses. ``colors.company`` still supplies each operator's CSS colour; any
+operator absent from the config (e.g. ``HTL``) is given a stable, deterministic
+fallback colour. Display names show underscores as spaces (e.g.
+``WELCH_TRANSPORT`` → "WELCH TRANSPORT"), matching the report generator / PDF
+briefing.
+
+Each vehicle is embedded with a compact ``periods`` list (``[{c, s, e}]`` with
+ISO bounds; ``s``/``e`` ``None`` = open-ended whole-axis period for fixed
+vehicles) and a ``trial_type``; the fleet-level ``operatorColors`` /
+``operatorNames`` maps and the neutral grey are embedded once. The JS resolves a
+date's operator by scanning the (few) periods — no per-day expansion. On the
+calendar, every **data-bearing** day cell (in the active mode) gets a 3px border
+in the operator's colour for that date; a round-robin day inside a gap between
+periods gets the neutral grey (``#94a3b8``) so gaps stay visible; vehicles with
+no operator at all get no border. The per-vehicle operator legend (hollow rings,
+to distinguish it from the solid-fill category swatches) lists only the relevant
+operators plus the neutral entry when applicable, recomputed on vehicle change
+and mode toggle.
 
 Usage
 -----
@@ -122,12 +135,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import html
 import json
 import logging
 import math
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -201,6 +215,13 @@ ENERGY_AC_COL = "Energy Charged AC (kWh)"
 ENERGY_DC_COL = "Energy Charged DC (kWh)"
 ENERGY_PERF_COL = "Energy Performance (kWh/km)"
 BATTERY_CAP_COL = "Battery Capacity (kWh)"
+
+# Per-leg operator CODE (last column of both HEADERS and DIESEL_HEADERS since
+# v2.2.5; resolved from SRF by ``report_generator.operators``). Drives the
+# data-driven operator overlay. Looked up via the live header row (idx.get) — NOT
+# asserted against HEADERS — so the dashboard still reads older artefacts whose
+# reports predate the column (those vehicles just fall back to plot_config).
+OPERATOR_COL = "Operator"
 
 # Defensive: keep the signal column names in lock-step with report_builder.
 assert START_COL in HEADERS and START_COL in DIESEL_HEADERS
@@ -407,21 +428,15 @@ def _load_plot_config() -> dict:
 
 
 def _prettify_company(code: str) -> str:
-    """Prettify an operator code for display.
+    """Prettify an operator code for display: underscores become spaces.
 
-    Underscores become spaces; words longer than three characters are
-    title-cased while short all-caps tokens (acronyms such as ``JLP`` / ``WJF`` /
-    ``SJG`` / ``WS`` / ``DP``) are kept verbatim. So ``WELCH_TRANSPORT`` ->
-    ``Welch Transport`` and ``DP_WORLD`` -> ``DP World``.
+    Operator codes are upper-case project tokens (``WELCH_TRANSPORT`` /
+    ``DP_WORLD`` / ``PORT_EXPRESS_DAIMLER``); the only transformation is replacing
+    underscores with spaces (case preserved), matching the report generator / PDF
+    briefing convention — so ``WELCH_TRANSPORT`` -> ``WELCH TRANSPORT`` and
+    ``DP_WORLD`` -> ``DP WORLD``.
     """
-    words = code.replace("_", " ").split()
-    out = []
-    for w in words:
-        if len(w) <= 3:
-            out.append(w.upper())
-        else:
-            out.append(w[:1].upper() + w[1:].lower())
-    return " ".join(out)
+    return code.replace("_", " ")
 
 
 def _yyyymmdd_to_iso(value: str) -> str | None:
@@ -432,34 +447,106 @@ def _yyyymmdd_to_iso(value: str) -> str | None:
         return None
 
 
-def build_operator_assignment(plot_cfg: dict) -> dict:
-    """Build per-vehicle operator assignment + fleet colour / name maps.
+def _clean_operator(value) -> str | None:
+    """Normalise a raw ``Operator`` cell to a project code (or ``None``).
 
-    Returns ``{"vehicles": {REG: {"trial_type", "periods"}}, "operatorColors",
-    "operatorNames", "neutralColour"}``. ``periods`` is a compact list
-    ``[{"c": company, "s": iso|None, "e": iso|None}]`` — ``s`` / ``e`` ``None``
-    means open-ended, used for the single whole-axis period of a fixed-operator
-    vehicle. Round-robin vehicles carry one period per assignment span (ISO
-    bounds parsed from the ``YYYYMMDD`` config dates). The renderer's JS resolves
-    a date's operator by scanning these few periods (no per-day expansion).
+    Treats ``None``, NaN, blanks and the literal ``nan`` / ``none`` / ``#N/A``
+    placeholders as "no operator" so those legs are simply skipped. Otherwise the
+    code is returned stripped (case preserved — codes are UPPER_SNAKE tokens).
+    """
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    s = str(value).strip()
+    if not s or s.lower() in ("nan", "none", "#n/a") or s.upper().startswith("=NA"):
+        return None
+    return s
+
+
+# Stable fallback palette for operators with no ``colors.company`` entry (e.g.
+# ``HTL``): a deterministic md5-indexed pick keeps the colour identical across
+# runs and visually distinct from the neutral grey + the named company colours.
+_FALLBACK_OPERATOR_PALETTE = (
+    "#0EA5E9", "#22C55E", "#EF4444", "#A855F7", "#F97316",
+    "#14B8A6", "#EAB308", "#EC4899", "#6366F1", "#84CC16",
+    "#06B6D4", "#F43F5E",
+)
+
+
+def _stable_operator_colour(code: str) -> str:
+    """Deterministic CSS colour for an operator code absent from the config."""
+    h = int(hashlib.md5(code.encode("utf-8")).hexdigest(), 16)
+    return _FALLBACK_OPERATOR_PALETTE[h % len(_FALLBACK_OPERATOR_PALETTE)]
+
+
+def _operator_days_from_legs(legs: list[dict]) -> dict[date, str]:
+    """Collapse a leg list into ``{date: operator_code}`` (one operator per day).
+
+    Each leg's ``operator`` (set by :func:`read_report_legs`) is bucketed by its
+    calendar day; blank operators are ignored. A day with legs from more than one
+    operator (a handover day) resolves to the **daily majority** (ties keep the
+    first-seen operator), so the per-day operator is stable and single-valued.
+    """
+    by_day: dict[date, Counter] = defaultdict(Counter)
+    for leg in legs:
+        op = leg.get("operator")
+        if op:
+            by_day[leg["day"]][op] += 1
+    return {d: c.most_common(1)[0][0] for d, c in by_day.items() if c}
+
+
+def _periods_from_operator_days(
+    op_days: dict[date, str]
+) -> tuple[str, list[dict]] | None:
+    """Derive ``(trial_type, periods)`` from a ``{date: operator}`` map.
+
+    Consecutive days (in date order) carrying the same operator are grouped into
+    one dated run; a new run starts whenever the operator changes. A single
+    distinct operator across the whole timeline ⇒ ``("Fixed", [open-ended
+    period])`` (so the border applies to every data day and the middle panel
+    shows the clean single-operator line); two or more distinct operators ⇒
+    ``("Round-robin", [dated period per run])``. Returns ``None`` when the map is
+    empty (no data-driven operator → caller falls back to plot_config).
+    """
+    if not op_days:
+        return None
+    runs: list[list] = []  # [code, first_date, last_date]
+    for d in sorted(op_days):
+        code = op_days[d]
+        if runs and runs[-1][0] == code:
+            runs[-1][2] = d
+        else:
+            runs.append([code, d, d])
+    distinct = {r[0] for r in runs}
+    if len(distinct) == 1:
+        # Single operator over the whole timeline → one open-ended period.
+        return "Fixed", [{"c": runs[0][0], "s": None, "e": None}]
+    periods = [
+        {"c": code, "s": s.isoformat(), "e": e.isoformat()} for code, s, e in runs
+    ]
+    return "Round-robin", periods
+
+
+def _config_operator_vehicles(plot_cfg: dict) -> dict[str, dict]:
+    """Build the plot_config-derived per-vehicle operator periods (fallback layer).
+
+    Mirrors the pre-v2.2.6 behaviour: ``company_assignment.simple`` →
+    fixed-operator vehicles (one open-ended period), ``company_assignment
+    .round_robin`` → one dated period per assignment span (ISO bounds parsed from
+    the ``YYYYMMDD`` config dates). Used only for a vehicle whose reports carry no
+    operator at all.
     """
     ca = plot_cfg.get("company_assignment", {}) or {}
     simple = ca.get("simple", {}) or {}
     round_robin = ca.get("round_robin", {}) or {}
-    company_colours = (plot_cfg.get("colors", {}) or {}).get("company", {}) or {}
 
-    vehicles: dict[str, dict] = {}
-    used: set[str] = set()
-
-    # Fixed-operator vehicles: one open-ended whole-axis period.
+    out: dict[str, dict] = {}
     for reg, company in simple.items():
-        vehicles[reg] = {
+        out[reg] = {
             "trial_type": "Fixed",
             "periods": [{"c": company, "s": None, "e": None}],
         }
-        used.add(company)
-
-    # Round-robin vehicles: one dated period per assignment span.
     for reg, spans in round_robin.items():
         periods = []
         for span in spans:
@@ -473,10 +560,58 @@ def build_operator_assignment(plot_cfg: dict) -> dict:
                     "e": _yyyymmdd_to_iso(str(span.get("date_end", ""))),
                 }
             )
-            used.add(company)
-        vehicles[reg] = {"trial_type": "Round-robin", "periods": periods}
+        out[reg] = {"trial_type": "Round-robin", "periods": periods}
+    return out
 
-    operator_colours = {c: company_colours[c] for c in used if company_colours.get(c)}
+
+def build_operator_assignment(
+    plot_cfg: dict, op_days_by_reg: dict[str, dict[date, str]] | None = None
+) -> dict:
+    """Build per-vehicle operator assignment + fleet colour / name maps.
+
+    **Data-driven**: ``op_days_by_reg`` (``{REG: {date: operator_code}}``, derived
+    from the reports' ``Operator`` column by :func:`_operator_days_from_legs`) is
+    the primary source — each vehicle's per-day operators are grouped into dated
+    periods (see :func:`_periods_from_operator_days`). The locally-curated
+    ``plot_cfg`` ``company_assignment`` is only a **fallback** for a vehicle that
+    has no operator in the data (or when ``op_days_by_reg`` is omitted, e.g. an
+    older caller), so nothing regresses.
+
+    Returns ``{"vehicles": {REG: {"trial_type", "periods"}}, "operatorColors",
+    "operatorNames", "neutralColour"}``. ``periods`` is a compact list
+    ``[{"c": company, "s": iso|None, "e": iso|None}]`` — ``s`` / ``e`` ``None``
+    means open-ended (the single whole-axis period of a fixed-operator vehicle).
+    The renderer's JS resolves a date's operator by scanning these few periods
+    (no per-day expansion). Each operator gets its ``colors.company`` colour where
+    present, else a stable :func:`_stable_operator_colour`.
+    """
+    op_days_by_reg = op_days_by_reg or {}
+    company_colours = (plot_cfg.get("colors", {}) or {}).get("company", {}) or {}
+    config_vehicles = _config_operator_vehicles(plot_cfg)
+
+    vehicles: dict[str, dict] = {}
+    used: set[str] = set()
+
+    # Data-driven primary + plot_config fallback, per vehicle. The union of both
+    # key sets so config-only vehicles (no data) still surface, and data-only
+    # vehicles (absent from the config, e.g. WU70GLV) are picked up automatically.
+    for reg in set(config_vehicles) | set(op_days_by_reg):
+        derived = _periods_from_operator_days(op_days_by_reg.get(reg, {}))
+        if derived is not None:
+            trial_type, periods = derived
+            vehicles[reg] = {"trial_type": trial_type, "periods": periods}
+        elif reg in config_vehicles:
+            vehicles[reg] = config_vehicles[reg]
+        else:
+            continue
+        for p in vehicles[reg]["periods"]:
+            if p.get("c"):
+                used.add(p["c"])
+
+    operator_colours = {
+        c: (company_colours[c] if company_colours.get(c) else _stable_operator_colour(c))
+        for c in used
+    }
     operator_names = {c: _prettify_company(c) for c in used}
     return {
         "vehicles": vehicles,
@@ -534,6 +669,10 @@ def read_report_legs(xlsx_path: Path) -> list[dict]:
         dc_i = idx.get(ENERGY_DC_COL)
         ep_i = idx.get(ENERGY_PERF_COL)
         cap_i = idx.get(BATTERY_CAP_COL)
+        # Operator code — drives the data-driven operator overlay. ``idx.get`` ->
+        # None for artefacts predating the v2.2.5 column, so it degrades to the
+        # plot_config fallback (operator simply stays None on every leg).
+        op_i = idx.get(OPERATOR_COL)
 
         for row in ws.iter_rows(min_row=2):
             n = len(row)
@@ -571,6 +710,11 @@ def read_report_legs(xlsx_path: Path) -> list[dict]:
 
             end_val = row[end_i].value if (end_i is not None and end_i < n) else None
             sig = (_iso_key(start_cell.value), _iso_key(end_val), leg_class)
+            operator = (
+                _clean_operator(row[op_i].value)
+                if (op_i is not None and op_i < n)
+                else None
+            )
             # Raw per-event metrics carried through to build_day_segments, which
             # turns them into the drill-down info-label fields (dsoc/dkwh/cap/ep).
             metrics = {
@@ -589,6 +733,7 @@ def read_report_legs(xlsx_path: Path) -> list[dict]:
                     "leg_class": leg_class,
                     "distance_km": distance_km,
                     "metrics": metrics,
+                    "operator": operator,
                 }
             )
     finally:
@@ -649,6 +794,10 @@ def _collect_legs_by_reg(db_root: Path, version: str) -> dict[str, list[dict]]:
                         if m0.get(k) is None and v is not None:
                             m0[k] = v
                     merged[sig]["metrics"] = m0
+                    # Same physical leg → backfill the operator if the first
+                    # occurrence (e.g. a short diagnostic file) lacked it.
+                    if merged[sig].get("operator") is None and leg.get("operator"):
+                        merged[sig]["operator"] = leg["operator"]
                 else:
                     merged[sig] = leg
         if merged:
@@ -907,6 +1056,10 @@ def scan_report_database_full(
         out[reg] = {
             "avail": avail,
             "avail_raw": avail_raw,
+            # Per-day operator (data-driven overlay source); not embedded in the
+            # HTML directly — consumed by build_operator_assignment to build the
+            # compact periods list. Empty for diesel/EV reports with no operator.
+            "operator_days": _operator_days_from_legs(legs),
             "stats": compute_vehicle_stats(legs, avail, cfg.get(reg, {}), avail_raw),
         }
     return out
@@ -1448,11 +1601,13 @@ def render_dashboard_html(
         raise ValueError("No availability data to render.")
     d_min, d_max = min(all_dates), max(all_dates)
 
-    # Operator assignment + trial type, sourced from the locally-curated
-    # plot_config.json (no SRF API call). Vehicles absent from both the fixed
-    # (``simple``) and ``round_robin`` maps (e.g. WU70GLV) get no operator: an
-    # empty period list and "—" trial type, handled gracefully by the JS.
-    operator = build_operator_assignment(_load_plot_config())
+    # Operator assignment + trial type, DATA-DRIVEN from each vehicle's reports'
+    # ``Operator`` column (the SRF-resolved code), with plot_config.json kept only
+    # as a fallback for vehicles with no operator in the data. Vehicles with no
+    # operator anywhere get an empty period list and "—" trial type, handled
+    # gracefully by the JS.
+    op_days_by_reg = {reg: full[reg].get("operator_days", {}) for reg in regs}
+    operator = build_operator_assignment(_load_plot_config(), op_days_by_reg)
     op_vehicles = operator["vehicles"]
 
     # Embedded data blob: per reg, the stat block + operator assignment + two

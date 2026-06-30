@@ -1073,6 +1073,7 @@ def write_detail_pages(
         _collect_legs_by_reg,
         _load_plot_config,
         _load_vehicles_cfg,
+        _operator_days_from_legs,
         build_operator_assignment,
     )
 
@@ -1089,7 +1090,12 @@ def write_detail_pages(
 
     # Operator assignment (per-vehicle periods + fleet colour / name maps), shared
     # with the dashboard so the detail header resolves & colours operators per day.
-    operator = build_operator_assignment(_load_plot_config())
+    # Data-driven from each vehicle's reports' Operator column (plot_config is a
+    # fallback only), so detail pages track operator handovers like the dashboard.
+    op_days_by_reg = {
+        reg: _operator_days_from_legs(legs) for reg, legs in legs_by_reg.items()
+    }
+    operator = build_operator_assignment(_load_plot_config(), op_days_by_reg)
 
     uplot_js, uplot_css = _load_uplot_assets()
 
