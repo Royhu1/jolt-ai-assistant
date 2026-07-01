@@ -80,28 +80,6 @@ _IDX_START      = _row_idx('Start Time (UTC)')
 CAP_WINDOW_HALF_DAYS = 15   # 半窗宽（天）；总窗口 ≈ 1 个月
 _DAY_NS = 86_400 * 1_000_000_000
 
-# ── step-2 outlier-correction mode（v2.2.7，A/B 方法对比用，可切换）────────────
-# 'gate'       (MODE A): 固定 ±1σ 检测异常 implied capacity；对异常行只修容量列，
-#              energy 反算**仅**对 soc_estimate 段生效（counter-sourced 段保留计数器
-#              energy）。这是已提交的默认修复。
-# 'soc_scaled' (MODE B): 用「随 ΔSOC 缩放的逐 leg 不确定度」检测异常。implied
-#              capacity C = |ΔE| / (|ΔSOC|/100) 自身的量化噪声 σ_soc = C·q/|ΔSOC%|
-#              （q = SOC 半量子 0.5%），故 σ_soc/C ≈ 0.5/|ΔSOC%|（1% 时 ±50%，10% 时
-#              ±5%）。σ_true 由「干净」大 ΔSOC(≥10%) 段的稳健离散度估计（避开被量化
-#              污染的全局 σ）。σ_i = sqrt(σ_true² + σ_soc(i)²)，|C_i − μ| > k·σ_i
-#              (k=2) 判为异常。异常行的 energy **无论 energy_source** 都用
-#              ΔSOC×replacement_capacity 反算（大 ΔSOC 时 SOC 变可靠，真异常计数器
-#              段理应由 SOC 重算）；小 ΔSOC 段 σ_soc 巨大几乎不会被判异常 → 保留计数器
-#              energy → 伪低带同样被修掉。可用环境变量 JOLT_CAP_OUTLIER_MODE 覆盖。
-CAP_OUTLIER_MODE = os.environ.get('JOLT_CAP_OUTLIER_MODE', 'gate')
-CAP_SOC_HALF_QUANTUM_PCT = 0.5   # SOC 整数% 量化半量子（percent）
-CAP_OUTLIER_K = 2.0              # MODE B 的 sigma 倍数阈值
-CAP_CLEAN_SOC_MIN_PCT = 10.0     # σ_true 的「干净段」ΔSOC 下限（不足则放宽到 5%）
-CAP_CLEAN_SOC_RELAX_PCT = 5.0
-# MODE B 仪表化：记录每个被重算的 counter-sourced leg（= A/B 差异集）。
-# 每辆车单独进程运行，故整表即该车的差异集；由 _correct_effective_capacity 追加。
-_MODE_B_RECOMPUTE_LOG: list[dict] = []
-
 
 # ── v2.2.6+: 季度（报告周期）级 effective-capacity 加权平均 schema ────────────
 # vehicles.json 的 ``effective_capacity_kwh`` 不再被「最后一次生成的那个周期均值」
@@ -909,6 +887,29 @@ class JOLTReportGenerator:
                 kinetics 一律保留计数器原值 —— 异常的 IMPLIED capacity 源于分母
                 ΔSOC 的整数 % 量化不可靠（短程/小 ΔSOC 被低估），而非计数器 energy
                 有误，用 SOC 反算会把整数 % 的低估注入短程 leg 形成伪低 EP 带。
+
+        已评估并否决的替代方案（MODE B，v2.2.7 A/B 对比，不采用）
+        --------------------------------------------------------------
+        曾评估一个「随 ΔSOC 缩放的异常阈值」方案：把固定 ±1σ 换成逐 leg 的
+        σ_i = sqrt(σ_true² + σ_soc²)（σ_soc = C·0.5/|ΔSOC%| 为量化噪声，σ_true 由
+        干净大 ΔSOC(≥10%) 段稳健估计），|C−μ| > 2σ_i 判异常，且异常行**无论
+        energy_source** 都用 SOC 反算。**否决**：AV24LXJ/K/L 全量对比显示它主要在
+        **中等 ΔSOC（中位 8%，仅约 1/3 ≥10%）**触发——此处 SOC 量化仍达 ±5–12%——
+        用「ΔSOC×车队平均容量」这个**推断值**覆盖了原始计数器的**实测能量**
+        （逐 trip 计数器增量与报告 E 吻合、零 reset、基本单调，且首尾快照多紧贴 trip
+        边界，是可信的直接能量测量），把真实 EP 变异同质化、单车造出几十条不合理
+        EP（>2.0 kWh/km，例如把教科书级 EP 1.00 改写成 1.51、1.23 改写成 0.81）。两法
+        对原始伪低带的修复完全一致（小 ΔSOC 段两法都不触发、保留计数器）。故保留此
+        二元门控（MODE A）。
+
+        待查（FUTURE，勿在此处理）
+        --------------------------
+        1. 差异集里计数器 energy **系统性低于** SOC 推断（约 248 升 vs 65 降），
+           可能是 SOC 表在短/中程 trip 上的非线性；值得单独排查，但不应由「盲目
+           SOC 替换」来掩盖。
+        2. 少数「陈旧快照」导致的 anchor spillover（首快照早于 trip 起点很久 → 计数器
+           增量多计 → EP 虚高，如 AV24LXJ 2024-06-24 07:45 EP 2.34）应由**专门的
+           anchor-spillover 守卫**处理，而非全盘 SOC 反算。
         """
         import numpy as np
 
@@ -1065,18 +1066,14 @@ class JOLTReportGenerator:
             widened_half_max, n_global, n_fallback,
             len(charge_donors), len(discharge_donors), avg_eff_cap, cap_source)
 
-        # ── 步骤 2：异常 implied capacity 检测 + 时间局部 inlier 均值替换 ──────
-        # 可切换两法（CAP_OUTLIER_MODE）：
-        #   'gate'       = MODE A：固定 ±1σ 检测；energy 反算**仅**对 soc_estimate 段。
-        #   'soc_scaled' = MODE B：随 ΔSOC 缩放的逐 leg 不确定度检测；异常行无论来源
-        #                  都用 SOC 反算。两法共用「inlier 时间局部窗口均值」作 μ/替换。
+        # ── 步骤 2：全局 ±1σ 检测 + 时间局部 inlier 均值替换 ─────────────
         all_caps = [row[idx_cap] for row in rows if _is_valid(row[idx_cap])]
         if len(all_caps) >= 3:
             cap_mean = float(np.mean(all_caps))
             cap_std  = float(np.std(all_caps))
             lo = cap_mean - cap_std
             hi = cap_mean + cap_std
-            # inlier donors（±1σ 内）连同时间戳，供异常行做时间局部替换（两模式共用）
+            # inlier donors（±1σ 内）连同时间戳，供异常行做时间局部替换
             inlier_donors = [
                 (n, row[idx_cap])
                 for row, n in zip(rows, row_ns)
@@ -1084,139 +1081,48 @@ class JOLTReportGenerator:
             ]
             inlier_global_mean = (float(np.mean([c for _, c in inlier_donors]))
                                   if inlier_donors else cap_mean)
-
-            def _apply_soc_recompute(row, repl):
-                """异常行：capacity 列替换为 repl，并由 ΔSOC×repl 反算 energy 及派生列。"""
-                row[idx_cap] = round(repl, 2)
-                soc_chg = row[idx_soc]
-                if _is_valid(soc_chg) and soc_chg != 0:
-                    row[idx_energy] = round(soc_chg / 100.0 * repl, 3)
-                    dist = row[idx_dist]
-                    if _is_valid(dist) and dist > 0:
-                        row[idx_eperf] = round(abs(row[idx_energy]) / dist, 4)
-                    dur_days = row[idx_dur]
-                    if _is_valid(dur_days) and dur_days > 0:
-                        row[idx_bpower] = round(
-                            row[idx_energy] / (dur_days * 24.0), 3)
-                    _recalc_eperf_corrected(row)
-
-            if CAP_OUTLIER_MODE == 'soc_scaled':
-                # ── MODE B：SOC 缩放不确定度检测 ──────────────────────────────
-                # σ_true：干净大 ΔSOC(≥10%，不足放宽 5%) 的非 soc_estimate 段的稳健
-                # 离散度（1.4826·MAD），避开被整数% 量化污染的全局 σ。
-                def _clean_caps(min_soc):
-                    out = []
-                    for row in rows:
-                        c = row[idx_cap]
-                        s = row[idx_soc]
-                        if (_is_valid(c) and row[idx_esrc] != 'soc_estimate'
-                                and _is_valid(s) and abs(s) >= min_soc):
-                            out.append(c)
-                    return out
-                clean = _clean_caps(CAP_CLEAN_SOC_MIN_PCT)
-                relaxed = False
-                if len(clean) < 3:
-                    clean = _clean_caps(CAP_CLEAN_SOC_RELAX_PCT)
-                    relaxed = True
-                if len(clean) >= 2:
-                    arr = np.array(clean, dtype=float)
-                    med = float(np.median(arr))
-                    mad = float(np.median(np.abs(arr - med)))
-                    sigma_true = 1.4826 * mad if mad > 0 else float(np.std(arr))
-                    if not (sigma_true > 0):
-                        sigma_true = cap_std
-                else:
-                    sigma_true = cap_std   # 极少：无干净段 → 退回全局 σ
-                q = CAP_SOC_HALF_QUANTUM_PCT
-                k = CAP_OUTLIER_K
-                corrected = n_repl_local = 0
-                n_counter_recompute = n_socest_recompute = 0
-                for row, t_ns in zip(rows, row_ns):
-                    cap = row[idx_cap]
-                    soc = row[idx_soc]
-                    if not (_is_valid(cap) and _is_valid(soc) and soc != 0):
-                        continue
-                    mu, _, _ = _window_mean(inlier_donors, t_ns,
-                                            CAP_WINDOW_HALF_DAYS)
-                    is_local = mu is not None
-                    if mu is None:
-                        mu = inlier_global_mean
-                    sigma_soc = cap * q / abs(soc)
-                    sigma_i = (sigma_true ** 2 + sigma_soc ** 2) ** 0.5
-                    if abs(cap - mu) > k * sigma_i:
-                        src = row[idx_esrc]
-                        e_counter = row[idx_energy]     # MODE A 会保留的值
-                        dist = row[idx_dist]
-                        _apply_soc_recompute(row, mu)
-                        e_soc = row[idx_energy]         # MODE B 反算后的值
-                        if is_local:
-                            n_repl_local += 1
-                        if src in ('total_energy', 'moving_energy'):
-                            n_counter_recompute += 1
-                            ep_c = (round(abs(e_counter) / dist, 4)
-                                    if _is_valid(dist) and dist > 0
-                                    and _is_valid(e_counter) else None)
-                            ep_s = (round(abs(e_soc) / dist, 4)
-                                    if _is_valid(dist) and dist > 0
-                                    and _is_valid(e_soc) else None)
-                            t_str = (str(row[idx_start])
-                                     if idx_start is not None else None)
-                            _MODE_B_RECOMPUTE_LOG.append({
-                                'time': t_str, 'src': src, 'dsoc': soc,
-                                'C': round(float(cap), 2), 'mu': round(float(mu), 2),
-                                'E_counter': e_counter, 'E_soc': e_soc,
-                                'EP_counter': ep_c, 'EP_soc': ep_s, 'dist': dist,
-                                'sigma_soc': round(float(sigma_soc), 2),
-                                'sigma_true': round(float(sigma_true), 2),
-                            })
-                            logging.info(
-                                "[MODE_B_RECOMPUTE_COUNTER] time=%s src=%s dsoc=%s "
-                                "C=%.1f mu=%.1f E_counter=%s E_soc=%s EP_counter=%s "
-                                "EP_soc=%s dist=%s sigma_soc=%.1f sigma_true=%.1f",
-                                t_str, src, soc, cap, mu, e_counter, e_soc,
-                                ep_c, ep_s, dist, sigma_soc, sigma_true)
-                        else:
-                            n_socest_recompute += 1
-                        corrected += 1
-                logging.info(
-                    "步骤 2 (MODE B soc_scaled, k=%.1f): SOC 反算 %d 行异常 "
-                    "(counter-sourced %d 行=A/B 差异集; soc_estimate %d 行; "
-                    "局部窗口 %d 行); σ_true=%.1f(clean=%d%s), inlier donor=%d, "
-                    "全局均值=%.1f σ=%.1f",
-                    k, corrected, n_counter_recompute, n_socest_recompute,
-                    n_repl_local, sigma_true, len(clean),
-                    ' relaxed>=5%' if relaxed else '', len(inlier_donors),
-                    cap_mean, cap_std)
-            else:
-                # ── MODE A：固定 ±1σ 检测 + energy_source 门控 ────────────────
-                # counter-sourced 段（total_energy / moving_energy）的异常 IMPLIED
-                # capacity 源于分母 ΔSOC 的整数% 量化不可靠，而非计数器 energy 有误，
-                # 故只修容量列、保留计数器 energy；只有 soc_estimate 段（无计数器）
-                # 才由 SOC 反算 energy。
-                corrected = n_repl_local = n_energy_kept = 0
-                for row, t_ns in zip(rows, row_ns):
-                    cap = row[idx_cap]
-                    if _is_valid(cap) and (cap < lo or cap > hi):
-                        repl, _, _ = _window_mean(inlier_donors, t_ns,
-                                                  CAP_WINDOW_HALF_DAYS)
-                        if repl is not None:
-                            n_repl_local += 1
-                        else:
-                            repl = inlier_global_mean
-                        if row[idx_esrc] == 'soc_estimate':
-                            _apply_soc_recompute(row, repl)
-                        else:
-                            # counter-sourced：仅修容量列，保留计数器 energy/EP。
-                            row[idx_cap] = round(repl, 2)
-                            n_energy_kept += 1
-                        corrected += 1
-                logging.info(
-                    "步骤 2 (MODE A gate, 全局 ±1σ): 修正 %d 行异常 effective "
-                    "capacity (其中 %d 行用局部窗口均值; %d 行为 counter-sourced，仅"
-                    "修容量列、保留计数器 energy; 全局均值=%.1f, σ=%.1f, "
-                    "范围=[%.1f, %.1f], inlier donor=%d)",
-                    corrected, n_repl_local, n_energy_kept, cap_mean, cap_std,
-                    lo, hi, len(inlier_donors))
+            corrected = n_repl_local = n_energy_kept = 0
+            for row, t_ns in zip(rows, row_ns):
+                cap = row[idx_cap]
+                if _is_valid(cap) and (cap < lo or cap > hi):
+                    repl, _, _ = _window_mean(inlier_donors, t_ns,
+                                              CAP_WINDOW_HALF_DAYS)
+                    if repl is not None:
+                        n_repl_local += 1
+                    else:
+                        repl = inlier_global_mean
+                    # 始终修正 capacity 列本身：既让展示合理，也让本周期最终
+                    # 持久化的均值不被异常 IMPLIED capacity 污染（持久化语义不变）。
+                    row[idx_cap] = round(repl, 2)
+                    # energy 反算**仅**适用于 soc_estimate 段（无可靠能量计数器，
+                    # 其 energy 本就由 SOC × capacity 推得）。对 counter-sourced 段
+                    # （energy_source ∈ {total_energy, moving_energy}），异常的
+                    # IMPLIED capacity 说明分母 ΔSOC 不可靠（整数 % 量化，短程/小
+                    # ΔSOC 被低估），而非计数器 energy 有误 —— 因此必须保留计数器
+                    # 给出的 energy / EP / corrected / kinetics，绝不能用 SOC 反算
+                    # 覆盖（否则短程 leg 会得到虚低 EP，形成伪低带）。
+                    if row[idx_esrc] == 'soc_estimate':
+                        soc_chg = row[idx_soc]
+                        if _is_valid(soc_chg) and soc_chg != 0:
+                            row[idx_energy] = round(soc_chg / 100.0 * repl, 3)
+                            dist = row[idx_dist]
+                            if _is_valid(dist) and dist > 0:
+                                row[idx_eperf] = round(abs(row[idx_energy]) / dist, 4)
+                            dur_days = row[idx_dur]
+                            if _is_valid(dur_days) and dur_days > 0:
+                                dur_h = dur_days * 24.0
+                                row[idx_bpower] = round(row[idx_energy] / dur_h, 3)
+                            _recalc_eperf_corrected(row)
+                    else:
+                        n_energy_kept += 1
+                    corrected += 1
+            logging.info(
+                "步骤 2 (全局 ±1σ 检测 + time-local 替换): 修正 %d 行异常 effective "
+                "capacity (其中 %d 行用局部窗口均值; %d 行为 counter-sourced，仅修"
+                "容量列、保留计数器 energy; 全局均值=%.1f, σ=%.1f, "
+                "范围=[%.1f, %.1f], inlier donor=%d)",
+                corrected, n_repl_local, n_energy_kept, cap_mean, cap_std, lo, hi,
+                len(inlier_donors))
             # 步骤 2 后的全周期均值作为最终持久化的 effective capacity（语义不变）
             final_caps = [row[idx_cap] for row in rows if _is_valid(row[idx_cap])]
             if final_caps:
