@@ -878,8 +878,15 @@ class JOLTReportGenerator:
         4. 全局也没有 donor → ``fallback_kwh``。
 
         步骤 1：按上述时间局部逻辑替代每个 soc_estimate 段的容量值并反算 energy。
-        步骤 2：用**全局 ±1σ** 检测异常 effective capacity，但其替换值同样取
-                「inlier donor 的时间局部窗口均值」，避免把错误季节的偏差重新注入。
+        步骤 2：用**全局 ±1σ** 检测异常 effective capacity，替换值同样取「inlier
+                donor 的时间局部窗口均值」，避免把错误季节的偏差重新注入。
+                **energy 反算按 ``energy_source`` 门控**：只有 soc_estimate 段
+                （energy 本就由 SOC × capacity 推得）才重算 energy / EP / corrected
+                / kinetics；counter-sourced 段（``energy_source`` ∈ {total_energy,
+                moving_energy}）只修正 capacity 列本身，其 energy / EP / corrected /
+                kinetics 一律保留计数器原值 —— 异常的 IMPLIED capacity 源于分母
+                ΔSOC 的整数 % 量化不可靠（短程/小 ΔSOC 被低估），而非计数器 energy
+                有误，用 SOC 反算会把整数 % 的低估注入短程 leg 形成伪低 EP 带。
         """
         import numpy as np
 
@@ -1051,7 +1058,7 @@ class JOLTReportGenerator:
             ]
             inlier_global_mean = (float(np.mean([c for _, c in inlier_donors]))
                                   if inlier_donors else cap_mean)
-            corrected = n_repl_local = 0
+            corrected = n_repl_local = n_energy_kept = 0
             for row, t_ns in zip(rows, row_ns):
                 cap = row[idx_cap]
                 if _is_valid(cap) and (cap < lo or cap > hi):
@@ -1061,24 +1068,37 @@ class JOLTReportGenerator:
                         n_repl_local += 1
                     else:
                         repl = inlier_global_mean
+                    # 始终修正 capacity 列本身：既让展示合理，也让本周期最终
+                    # 持久化的均值不被异常 IMPLIED capacity 污染（持久化语义不变）。
                     row[idx_cap] = round(repl, 2)
-                    soc_chg = row[idx_soc]
-                    if _is_valid(soc_chg) and soc_chg != 0:
-                        row[idx_energy] = round(soc_chg / 100.0 * repl, 3)
-                        dist = row[idx_dist]
-                        if _is_valid(dist) and dist > 0:
-                            row[idx_eperf] = round(abs(row[idx_energy]) / dist, 4)
-                        dur_days = row[idx_dur]
-                        if _is_valid(dur_days) and dur_days > 0:
-                            dur_h = dur_days * 24.0
-                            row[idx_bpower] = round(row[idx_energy] / dur_h, 3)
-                        _recalc_eperf_corrected(row)
+                    # energy 反算**仅**适用于 soc_estimate 段（无可靠能量计数器，
+                    # 其 energy 本就由 SOC × capacity 推得）。对 counter-sourced 段
+                    # （energy_source ∈ {total_energy, moving_energy}），异常的
+                    # IMPLIED capacity 说明分母 ΔSOC 不可靠（整数 % 量化，短程/小
+                    # ΔSOC 被低估），而非计数器 energy 有误 —— 因此必须保留计数器
+                    # 给出的 energy / EP / corrected / kinetics，绝不能用 SOC 反算
+                    # 覆盖（否则短程 leg 会得到虚低 EP，形成伪低带）。
+                    if row[idx_esrc] == 'soc_estimate':
+                        soc_chg = row[idx_soc]
+                        if _is_valid(soc_chg) and soc_chg != 0:
+                            row[idx_energy] = round(soc_chg / 100.0 * repl, 3)
+                            dist = row[idx_dist]
+                            if _is_valid(dist) and dist > 0:
+                                row[idx_eperf] = round(abs(row[idx_energy]) / dist, 4)
+                            dur_days = row[idx_dur]
+                            if _is_valid(dur_days) and dur_days > 0:
+                                dur_h = dur_days * 24.0
+                                row[idx_bpower] = round(row[idx_energy] / dur_h, 3)
+                            _recalc_eperf_corrected(row)
+                    else:
+                        n_energy_kept += 1
                     corrected += 1
             logging.info(
                 "步骤 2 (全局 ±1σ 检测 + time-local 替换): 修正 %d 行异常 effective "
-                "capacity (其中 %d 行用局部窗口均值; 全局均值=%.1f, σ=%.1f, "
+                "capacity (其中 %d 行用局部窗口均值; %d 行为 counter-sourced，仅修"
+                "容量列、保留计数器 energy; 全局均值=%.1f, σ=%.1f, "
                 "范围=[%.1f, %.1f], inlier donor=%d)",
-                corrected, n_repl_local, cap_mean, cap_std, lo, hi,
+                corrected, n_repl_local, n_energy_kept, cap_mean, cap_std, lo, hi,
                 len(inlier_donors))
             # 步骤 2 后的全周期均值作为最终持久化的 effective capacity（语义不变）
             final_caps = [row[idx_cap] for row in rows if _is_valid(row[idx_cap])]
