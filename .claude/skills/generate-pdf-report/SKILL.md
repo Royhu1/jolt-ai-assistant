@@ -4,7 +4,7 @@ description: |
   Generate the industrial-partner one-page PDF/HTML briefing for a vehicle + period
   from the JOLT xlsx pipeline artefacts (excel_report_database/<ver>/<REG>/), by running
   generate_pdf_report.py (KPIs + matplotlib figures + HERE route map + Jinja2 template
-  + headless-Chrome PDF). Output goes to pdf_report_workspace/output/<REG>_<period>/.
+  + headless-Chrome PDF). Output goes to pdf_report_workspace/output/<REG>_<OPERATOR>_<period>/.
   This skill OWNS the briefing's layout and commentary style guide — also use it for
   chart/layout changes, commentary rewording, and applying partner review comments,
   so the subjective conclusions stay stylistically consistent across reports.
@@ -44,7 +44,10 @@ produced; `pdf_report_workspace/` only holds the artefacts.
   trip date span, labelled with that operator — instead of one merged briefing. Output is
   `output/<REG>_<OPERATOR>_<op_period>/` (e.g. `CMZ6260_JLP_…` / `CMZ6260_SJG_…` / `CMZ6260_HTL_…`).
   A single distinct operator → one briefing; non-`--all-data` runs → one briefing. An operator with
-  **< 20 valid trips** is **skipped** (too sparse, logged). The **mass-vs-distribution variant is decided
+  **< 20 valid trips** is **skipped** (too sparse, logged) — the threshold is `--min-operator-trips N`
+  (default 20); lower it to FORCE a briefing for a sparse operator (e.g. `--min-operator-trips 10` for
+  EX74JXW/WELCH_TRANSPORT ~11 trips), but note its load-points / temperature trend are then unreliable
+  (the temperature analysis self-caveats to "inconclusive" when its laden window has < 15 points). The **mass-vs-distribution variant is decided
   at the vehicle level** (over all the vehicle's data, before the split) so a vehicle's per-operator
   briefings are all the same variant (a sparse operator subset can't flip to a mass briefing on its own).
 - **Two report variants, auto-selected by data**: vehicles that report gross vehicle mass get the
@@ -142,15 +145,21 @@ PYTHONUTF8=1 python .claude/skills/generate-pdf-report/generate_pdf_report.py \
     --reg YK73WFN --period 20250301_20250601 [--version 2.2.3] [--base]
 ```
 
-- Artefacts → `pdf_report_workspace/output/<REG>_<op_period>/`: `report_*.html`,
+- Artefacts → `pdf_report_workspace/output/<REG>_<OPERATOR>_<op_period>/`: `report_*.html`,
   `report_*.pdf`, `figures/*_<token>.png` (figure names carry a run token to bust the Chrome
   cache), `verification_*.xlsx` (the manual-verification workbook, see §7). All gitignored.
+  - **Naming ALWAYS carries the operator**: the dir + every filename is
+    `<REG>_<OPERATOR>_<op_period>` for BOTH the per-operator split AND the single-operator case
+    (the single case uses the dominant operator, e.g. `AV24LXK_KNOWLES_…`, `YK73WFN_NESTLE_…`,
+    `YN25RSY_WJF_…`) — so every briefing carries its operator consistently. `<OPERATOR>` is the
+    filesafe form (non-alphanumerics → `_`, e.g. `WELCH_TRANSPORT`); the page header still shows
+    the spaced display name.
   - **Naming aligns to the OPERATING PERIOD**: `<op_period>` = **the real span of valid
     trips** (first departure → last arrival, `YYYYMMDD_YYYYMMDD`), matching the page-header
     OPERATING PERIOD, **not** the nominal `<period>` passed on the command line (the latter
     is only used to locate the source xlsx). Example: passing `YN25RSY 20251001_20260201` but
     valid trips only run to 11-18 → the artefact directory/filenames are
-    `YN25RSY_20251021_20251118`. With no valid trip it falls back to the nominal `<period>`.
+    `YN25RSY_WJF_20251021_20251118`. With no valid trip it falls back to the nominal `<period>`.
 - **Directory hygiene**: each run automatically cleans up the generator's historical
   timestamped copies (pdf/xlsx with a `_<unix-timestamp>` suffix, written as a fallback when
   the canonical name was locked) — only one latest named version and one latest anonymised
@@ -168,7 +177,8 @@ was conditional on **anonymisation**. Add `--anon`:
 
 - Page-header operator → "JOLT MEMBER", **registration hidden**; model retained (the real
   model from vehicles.json).
-- **Both Source footers fully hidden** (including the xlsx filename and library path).
+- **Data-source footers stay hidden**, but the **page-2 chart trip-filtering footnote is kept** (it is
+  methodology, not an identifying source — same text as the named version).
 - Basemap switched to **CARTO light_nolabels** (OSM data, no place names; tile stitching +
   the same Web Mercator georeferencing), keeping route lines and start/end points; copyright
   note "© OpenStreetMap © CARTO".
@@ -190,11 +200,16 @@ was conditional on **anonymisation**. Add `--anon`:
   `@page` height injection** (the old 1280×720 16:9 / measure-and-inject scheme is retired, do
   not restore it). Both pages share the same **~11 mm side / ~7 mm bottom margins**; the navy
   headers are full-bleed.
-- **Page 1 (operations dashboard)**: full-bleed header → timeline → operating band → 4-cell
-  summary strip → 3-card row (Vehicle Performance / Charging Sessions / route map, ~92 mm tall)
-  → **Summary** card (plain-English bullets, see §5) → source footer.
-- **Page 2 — four figures in a 2×2 grid** + a **Conclusions** block (the daily-traction-energy
-  figure was removed). Grid cells, in order:
+- **Page 1 (operations dashboard) — UNFILTERED (all trips)**: full-bleed header → timeline →
+  operating band → 4-cell summary strip → 3-card row (Vehicle Performance / Charging Sessions /
+  route map, ~92 mm tall) → **Summary** card (plain-English bullets, see §5). Page-1 footer is
+  **empty** (the trip-filtering footnote lives on page 2, where the filtering applies). Every page-1
+  count/total (Active Days, Driving Legs, Median GVM, timeline, distance/energy) is computed over
+  **all** driving legs — see §5 Cleaning.
+- **Page 2 — four figures in a 2×2 grid (FILTERED)** + a **Conclusions** block + the
+  **chart trip-filtering footnote** (`.analysis-footer`, italic muted, right-aligned: the valid-trip
+  distance filter, see §5 Cleaning; shown on both named and anon versions). The daily-traction-energy
+  figure was removed. Grid cells, in order:
   1. Energy Performance vs Gross Vehicle Mass
   2. Projected Range vs Gross Vehicle Mass
   3. Energy Performance vs Ambient Temperature (**restricted to the laden cluster** to control
@@ -323,13 +338,28 @@ mass. Page-1 "Median GVM" shows "—" (forced for the no-mass variant even if a 
 verification workbook (a mass-based audit) is **not** emitted for this variant (follow-up: add a
 distribution-stats audit).
 
-### Cleaning (unchanged)
-- **Valid-trip filter** (`MIN_TRIP_KM` = 3 km): drop driving legs with distance < 3 km (or
-  missing). The OPERATING PERIOD (page-header span), active days and all stats use only valid
-  trips — the period is the real span of valid events, not the nominal `<period>` argument.
+### Cleaning — PAGE 2 ONLY (page 1 is unfiltered)
+> `compute()` returns **two** trip sets. `tr_all` = **every** driving leg → the **PAGE-1** operations
+> dashboard is UNFILTERED (Active Days, Driving Legs, Median GVM, timeline and the distance/energy
+> totals count every leg the vehicle drove, incl. < 3 km / SOC-quantised legs; no EP nulling). `tr` =
+> the **cleaned PAGE-2 analysis set** below (figures / fits / conclusions only). The **OPERATING PERIOD
+> label and the output directory naming stay keyed to the valid-trip (`tr`) span** so naming is stable.
+- **Valid-trip filter** (`MIN_TRIP_KM` = 3 km): for **page 2**, drop driving legs with distance
+  < 3 km (or missing) — too-short/residual legs with unreliable EP.
 - **EP cleaning** (`EP_CLEAN_MIN/MAX` = 0.3 / 3): EP outside [0.3, 3] kWh/km is dropped from
   scatter / fit / conclusion stats (0.3 lower bound kills the spurious thousand-km range from
   too-short residual legs); the EP y-axis stays fixed 0–3.
+- **SOC-quantisation guard — REMOVED (2026-07-02).** A `|SOC Change| ≤ 1 %` EP-nulling guard used
+  to sit here: short trips whose energy the (old) generator re-derived from the coarse integer SOC
+  came out at a spurious low EP (~0.7), forming an isolated low band on EP-vs-GVM (e.g. AV24LXJ at
+  28–33 t). That was a **downstream workaround**; the ROOT CAUSE is now fixed in **`jolt_toolkit`
+  ≥ 2.2.7** — the `_correct_effective_capacity` ±1σ step no longer overwrites reliable counter energy
+  (MODE A), and capacity uses a ΔSOC-weighted aggregation. Short-trip EP is therefore correct at
+  source (the AV24 trucks' `|ΔSOC| ≤ 1 %` legs now sit at a realistic ~1.17 kWh/km median, not 0.7),
+  so the guard would only wrongly discard now-valid short-trip points — hence removed. Only the
+  distance filter remains.
+- The remaining filter is stated in the **page-2 footer footnote** (built from `MIN_TRIP_KM`):
+  *"Figures exclude driving legs shorter than 3 km."* — shown on named and anon versions.
 
 ## 6. Field applicability (do not fabricate N/A fields)
 
@@ -371,8 +401,10 @@ applicable — **never fabricated**.
 **Manual verification (before external delivery, done by a human)**: each generation
 automatically ships a `verification_<REG>_<period>.xlsx` verification workbook —
 
-- The `Trips`/`Charges`/`Daily` sheets are the period's raw legs copied from the canonical
-  xlsx (a self-contained data basis);
+- The leg sheets copied from the canonical xlsx are the self-contained data basis, split to match
+  the two-page filtering: **`Trips`** = the cleaned page-2 analysis legs (≥ 3 km, EP-cleaned +
+  SOC-guarded) — page-2 EP/GVM formulas run over it; **`AllTrips`** + the all-legs **`Daily`** =
+  every driving leg — the UNFILTERED page-1 counts/totals recompute over it. `Charges` = charge legs;
 - The `Audit` sheet lists **every number that appears in the briefing**, one per row (~46
   items), and recomputes each from the raw legs on the fly using **native Excel formulas**
   (SUM/MEDIAN/AVERAGEIFS/SLOPE/RSQ/PERCENTILE…) — an independent computation path from the

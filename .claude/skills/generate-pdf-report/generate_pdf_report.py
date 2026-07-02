@@ -61,6 +61,12 @@ EP_MIN, EP_MAX = 0.0, 3.0  # EP 图 y 轴范围（恒 0–3，与清洗界限分
 # 极低 EP（极短/残段，如续航投影被 600/0.08 拉到上千 km 的伪值）；上限 3 排除异常高值。
 EP_CLEAN_MIN, EP_CLEAN_MAX = 0.3, 3.0
 
+# (Removed 2026-07-02) The SOC-quantisation guard `SOC_QUANT_GUARD_PCT` — a |SOC change| ≤ 1%
+# filter that dropped short-trip EP — is gone. It was a downstream workaround for a jolt_toolkit
+# ±1σ effective-capacity correction that re-derived short-trip energy from the coarse integer SOC
+# (spurious low-EP band). Fixed at source in jolt_toolkit ≥ 2.2.7, so the guard is no longer needed
+# (and would now discard valid short-trip points). Only the MIN_TRIP_KM distance filter remains.
+
 # 有效 trip 的最小里程（km）：里程 < MIN_TRIP_KM（或里程缺失）的行驶段视为无效（极短/残段，
 # EP 不可靠），从一切分析中剔除——OPERATING PERIOD、活跃天数、KPI、散点/拟合/点评统计均只基于
 # 有效 trip（故运营周期 = 有效 event 决定的真实跨度）。
@@ -333,9 +339,12 @@ def _adaptive_temp_window(gvw_t, ep, temp, widths=(2, 3, 4, 5), min_n=15):
     POSITIVE slope (warmer → higher EP) that is just noise (R²≈0). So widen the densest window
     (2→3→4→5 t, then the whole laden cluster) until the EP-vs-temperature slope is ≤ 0 — the
     physically-expected colder→higher-EP direction. Returns ``((lo, hi) | None, status)``:
-    ``status="ok"`` (a window with slope ≤ 0 was found, incl. the full cluster) or
-    ``status="inconclusive"`` (even the full laden cluster stays positive → this period cannot
-    characterise the temperature effect; the caller states that instead of asserting a noisy sign).
+    ``status="ok"`` (a window with ≥ ``min_n`` valid points and slope ≤ 0 was found) or
+    ``status="inconclusive"`` — when even the full laden cluster either (a) has **fewer than
+    ``min_n`` valid points** (too sparse to fit a reliable slope, e.g. a sparse operator like
+    EX74JXW/WELCH with ~6 laden trips → would otherwise show an absurd ~1 kWh/km-per-10 °C slope),
+    or (b) still has a positive slope. The caller then states the period cannot characterise the
+    temperature effect instead of asserting a noisy / over-fitted sign.
     """
     m = pd.to_numeric(pd.Series(list(gvw_t)), errors="coerce").reset_index(drop=True)
     e = pd.to_numeric(pd.Series(list(ep)), errors="coerce").reset_index(drop=True) if ep is not None else None
@@ -352,29 +361,31 @@ def _adaptive_temp_window(gvw_t, ep, temp, widths=(2, 3, 4, 5), min_n=15):
                 cnt_best, lo_best = c, float(lo)
         return (lo_best, lo_best + w), cnt_best
 
-    def _slope(lo, hi):
+    def _fit(lo, hi):
+        """(slope, n_valid) of EP-vs-temp over the window's valid (ep & temp present) points."""
         if e is None or t is None:
-            return float("nan")
+            return float("nan"), 0
         sel = (m >= lo) & (m <= hi) & e.notna() & t.notna()
-        if int(sel.sum()) < 3 or float(t[sel].std() or 0.0) == 0:
-            return float("nan")
-        return float(np.polyfit(t[sel].values, e[sel].values, 1)[0])
+        n = int(sel.sum())
+        if n < 3 or float(t[sel].std() or 0.0) == 0:
+            return float("nan"), n
+        return float(np.polyfit(t[sel].values, e[sel].values, 1)[0]), n
 
-    widest = None
     for w in widths:
-        win, cnt = _densest(w)
-        widest = win
-        if cnt < min_n:
-            continue                                 # too sparse at this width → widen
-        s = _slope(*win)
+        win = _densest(w)[0]
+        s, n = _fit(*win)
+        if n < min_n:
+            continue                                 # too few valid points at this width → widen
         if pd.isna(s) or s <= 0:
-            return win, "ok"                         # narrowest sufficient window, expected direction
-    # every populated narrow window had a +slope (or none reached min_n) → fall back to the full cluster
+            return win, "ok"                         # ≥min_n points, expected colder→higher-EP direction
+    # no narrow window reached min_n with a non-positive slope → fall back to the full laden cluster
     full = (float(mv.min()), float(mv.max()))
-    s_full = _slope(*full)
+    s_full, n_full = _fit(*full)
+    if n_full < min_n:
+        return full, "inconclusive"                  # too few valid points overall → unreliable temp fit
     if pd.isna(s_full) or s_full <= 0:
         return full, "ok"
-    return (widest or full), "inconclusive"          # even full laden stays positive → caveat
+    return full, "inconclusive"                      # enough points but slope still positive → caveat
 
 
 def _compute_load_points(reg, tr):
@@ -803,8 +814,9 @@ def build_charts(tr, ch, outdir, reg, cb, here_key=None, cap_kwh=None, anon=Fals
     sub = lp.get("temp_mask"); sub = sub if sub is not None else lp.get("dense_mask")
     td = tr if no_mass else (tr[sub] if sub is not None else tr)
     fig, ax = plt.subplots(figsize=(SQ, SQ))
-    # inconclusive（即便放宽到整个 laden 簇 EP-温度仍正相关）→ 只画散点、不画趋势线（结论改文字说明）。
-    _temp_fit = lp.get("temp_status", "ok") != "inconclusive"
+    # inconclusive（laden 窗口样本过少 / 即便放宽到整簇仍正相关）→ 只画散点、不画趋势线（结论改文字
+    # 说明）。仅对 LADEN(有质量)分析生效;no-mass 变体按全行程拟合,与 laden 低样本判定无关,始终拟合。
+    _temp_fit = no_mass or lp.get("temp_status", "ok") != "inconclusive"
     r = _scatter_fit(ax, td["temp"].values, td["ep"].values, unit=" /°C", fit=_temp_fit)
     ax.set_xlabel("Ambient Temperature (°C)"); ax.set_ylabel("EP (kWh/km)")
     ax.set_ylim(EP_MIN, EP_MAX); ax.set_yticks([0, 1, 2, 3])
@@ -952,30 +964,44 @@ def compute(reg, period, version, finetuned, all_data=False):
     else:
         xlsx, subset = _resolve_xlsx(rdir, reg, period, finetuned)
         df = pd.read_excel(xlsx)
-    tr = df[df["Leg Type"].isin(DRIVE)].copy()
+    tr_all = df[df["Leg Type"].isin(DRIVE)].copy()
     ch = df[df["Leg Type"].isin(CHARGE)].copy()
     for c, col in [("d", "Distance (km)"), ("ep", "Energy Performance (kWh/km)"),
                    ("ec", "Energy Change (kWh)"), ("temp", "Average Temperature (C)"),
                    ("mass", "Vehicle Mass (kg)"), ("recup", "Recuperation Energy (kWh)")]:
-        tr[c] = num(tr[col])
+        tr_all[c] = num(tr_all[col])
     # Operator is DATA-DRIVEN: read the report's per-leg `Operator` column (the generator derives it
     # from SRF leg.trip.trial.description / vehicle.organisation.name). This is the source of truth for
     # the page header and the per-operator split — NOT the manual plot_config company_assignment.
-    tr["operator"] = tr["Operator"].astype(str).str.strip() if "Operator" in tr.columns else ""
-    # 有效 trip 过滤：里程 < MIN_TRIP_KM（或里程缺失）的行驶段不计入任何分析与运营周期
-    # （极短/残段，EP 不可靠）。须在统计前剔除：OPERATING PERIOD、活跃天数、KPI、散点均基于有效 trip。
+    tr_all["operator"] = tr_all["Operator"].astype(str).str.strip() if "Operator" in tr_all.columns else ""
+    tr_all["st"] = pd.to_datetime(tr_all["Start Time (UTC)"], errors="coerce")
+    tr_all["et"] = pd.to_datetime(tr_all["End Time (UTC)"], errors="coerce")
+    tr_all["date"] = tr_all["st"].dt.date
+    # Two trip sets, by page:
+    #   tr_all = EVERY driving leg — the PAGE-1 operations dashboard is UNFILTERED (Active Days,
+    #            Driving Legs, Median GVM, timeline and the totals count every leg the vehicle drove,
+    #            incl. < MIN_TRIP_KM residual legs; no EP nulling).
+    #   tr     = the cleaned analysis set, used ONLY for the PAGE-2 figures / fits / conclusions:
+    #            valid-trip distance filter + EP cleaning (the old SOC-quantisation guard was
+    #            removed once jolt_toolkit ≥ 2.2.7 fixed the short-trip EP at source — see below).
+    tr = tr_all.copy()
+    # 有效 trip 过滤（仅第 2 页分析）：里程 < MIN_TRIP_KM（或缺失）的行驶段极短/残段、EP 不可靠。
     n_before = len(tr)
     tr = tr[tr["d"] >= MIN_TRIP_KM].copy()
     if len(tr) < n_before:
-        print(f"  [Trip 过滤] 剔除 {n_before - len(tr)} 个里程 < {MIN_TRIP_KM} km（或缺失）的行驶段")
+        print(f"  [Trip 过滤·第2页] 剔除 {n_before - len(tr)} 个里程 < {MIN_TRIP_KM} km（或缺失）的行驶段")
     # EP 超出 [EP_CLEAN_MIN, EP_CLEAN_MAX] 视为不合理数据，剔除（散点/拟合/点评统计均不计）
     bad = (tr["ep"] < EP_CLEAN_MIN) | (tr["ep"] > EP_CLEAN_MAX)
     tr.loc[bad, "ep"] = np.nan
     if bad.sum():
         print(f"  [EP 清洗] 剔除 {int(bad.sum())} 个超出 [{EP_CLEAN_MIN}, {EP_CLEAN_MAX}] 的 EP 值")
-    tr["st"] = pd.to_datetime(tr["Start Time (UTC)"], errors="coerce")
-    tr["et"] = pd.to_datetime(tr["End Time (UTC)"], errors="coerce")
-    tr["date"] = tr["st"].dt.date
+    # NOTE: the earlier |SOC change| ≤ 1% "SOC-quantisation guard" was REMOVED (2026-07-02).
+    # It was a downstream workaround for a jolt_toolkit bug where the ±1σ effective-capacity
+    # correction back-calculated short-trip energy from the coarse integer SOC, producing a
+    # spurious low-EP band. That ROOT CAUSE is now fixed in jolt_toolkit ≥ 2.2.7 (MODE A: EP
+    # keeps the counter energy; capacity uses ΔSOC-weighted aggregation), so short-trip EP is
+    # already correct at source. Keeping the guard here would now wrongly discard those
+    # now-valid short-trip points, so it is gone; only the MIN_TRIP_KM distance filter remains.
     ch["ssoc"] = num(ch["Start SOC (%)"]); ch["esoc"] = num(ch["End SOC (%)"])
     ch["ac"] = num(ch["Energy Charged AC (kWh)"]); ch["dc"] = num(ch["Energy Charged DC (kWh)"])
     ch["st"] = pd.to_datetime(ch["Start Time (UTC)"], errors="coerce")
@@ -986,10 +1012,11 @@ def compute(reg, period, version, finetuned, all_data=False):
         win_hi = tgt_e + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
         n_tr0, n_ch0 = len(tr), len(ch)
         tr = tr[(tr["st"] >= win_lo) & (tr["st"] <= win_hi)].copy()
+        tr_all = tr_all[(tr_all["st"] >= win_lo) & (tr_all["st"] <= win_hi)].copy()
         ch = ch[(ch["st"] >= win_lo) & (ch["st"] <= win_hi)].copy()
         print(f"  [covering] 选用覆盖周期报告 {xlsx.name}，裁剪到窗口 {period}："
               f"trips {n_tr0}->{len(tr)}, charges {n_ch0}->{len(ch)}")
-    return df, tr, ch, xlsx, subset
+    return df, tr_all, tr, ch, xlsx, subset
 
 
 def median_time(times):
@@ -1011,14 +1038,20 @@ def _cell(x):
     return x
 
 
-def build_verification_workbook(path, tr, ch, v):
+def build_verification_workbook(path, tr_all, tr, ch, v):
     """Write the human-verification workbook (verification_<REG>_<period>.xlsx).
 
     Two INDEPENDENT computation paths: this script (pandas) produced the briefing
     values; the workbook recomputes each of them with native Excel formulas over
-    the raw legs copied into the Trips/Charges/Daily sheets. Any discrepancy shows
-    up as FAIL. The reviewer checks FAILs, spot-checks PASSes and the MANUAL rows,
-    and records the outcome in the Verified by / Date / Notes columns.
+    the raw legs copied into the leg sheets. Any discrepancy shows up as FAIL. The
+    reviewer checks FAILs, spot-checks PASSes and the MANUAL rows, and records the
+    outcome in the Verified by / Date / Notes columns.
+
+    Two leg sheets, matching the two-page split: `Trips` = the CLEANED page-2 analysis
+    set (distance ≥ MIN_TRIP_KM, EP cleaned + SOC-guarded) — page-2 EP/GVM formulas run
+    over it; `AllTrips` (+ the all-legs `Daily`) = EVERY driving leg — the UNFILTERED
+    page-1 operational counts/totals (Active Days, Driving Legs, Median GVM, timeline,
+    segment totals) recompute over it.
     """
     from openpyxl import Workbook
     from openpyxl.formatting.rule import CellIsRule
@@ -1061,14 +1094,27 @@ def build_verification_workbook(path, tr, ch, v):
         c.font = bold; c.fill = head_fill
     wc.freeze_panes = "A2"
 
-    # ---- Daily sheet (unique dates as values; per-day sums as Excel formulas) ----
+    # ---- AllTrips sheet (EVERY driving leg — page-1 unfiltered basis) ----
+    # Page-1 operational counts/totals are computed over ALL legs (tr_all), which the cleaned Trips
+    # sheet cannot reproduce; this sheet is the independent all-legs recompute for those rows.
+    wat = wb.create_sheet("AllTrips")
+    wat.append(["Date", "Distance_km", "EnergyChange_kWh", "GVM_t", "Recup_kWh"])
+    for _, r in tr_all.iterrows():
+        wat.append([_cell(r["date"]), _cell(r["d"]), _cell(r["ec"]),
+                    _cell(r["mass"] / 1000.0 if pd.notna(r["mass"]) else None), _cell(r["recup"])])
+    an = len(tr_all) + 1  # last AllTrips data row
+    for c in wat[1]:
+        c.font = bold; c.fill = head_fill
+    wat.freeze_panes = "A2"
+
+    # ---- Daily sheet (per-day sums over ALL legs; page-1 is unfiltered) ----
     wd = wb.create_sheet("Daily")
     wd.append(["Date", "Distance_km", "TractionEnergy_kWh"])
-    dates = sorted(d for d in tr["date"].dropna().unique())
+    dates = sorted(d for d in tr_all["date"].dropna().unique())
     for i, d in enumerate(dates, start=2):
         wd.cell(row=i, column=1).value = d
-        wd.cell(row=i, column=2).value = f"=SUMIF(Trips!$A$2:$A${tn},A{i},Trips!$D$2:$D${tn})"
-        wd.cell(row=i, column=3).value = f"=SUMPRODUCT((Trips!$A$2:$A${tn}=A{i})*ABS(Trips!$E$2:$E${tn}))"
+        wd.cell(row=i, column=2).value = f"=SUMIF(AllTrips!$A$2:$A${an},A{i},AllTrips!$B$2:$B${an})"
+        wd.cell(row=i, column=3).value = f"=SUMPRODUCT((AllTrips!$A$2:$A${an}=A{i})*ABS(AllTrips!$C$2:$C${an}))"
     dn = len(dates) + 1
     for c in wd[1]:
         c.font = bold; c.fill = head_fill
@@ -1085,6 +1131,10 @@ def build_verification_workbook(path, tr, ch, v):
     wa.merge_cells("A2:K2")
 
     tr_f, tr_g, tr_h = f"Trips!$F$2:$F${tn}", f"Trips!$G$2:$G${tn}", f"Trips!$H$2:$H${tn}"
+    # AllTrips ranges (page-1 unfiltered, all legs): A=Date B=Distance C=EnergyChange D=GVM E=Recup
+    at_a, at_b, at_c, at_d, at_e = (f"AllTrips!$A$2:$A${an}", f"AllTrips!$B$2:$B${an}",
+                                    f"AllTrips!$C$2:$C${an}", f"AllTrips!$D$2:$D${an}",
+                                    f"AllTrips!$E$2:$E${an}")
     # Page-1 distance/energy/recup totals may use the RAW-TELEMATICS counter basis (see
     # _raw_kpi_totals), decided PER FIELD: distance from the raw odometer, energy from the raw
     # used-energy counter — independently. A raw-basis total is a whole-period counter sum the leg
@@ -1097,19 +1147,19 @@ def build_verification_workbook(path, tr, ch, v):
     rows = [
         ("Page 1 · Summary", "Active days", v["ndays"],
          f"=COUNTA(Daily!$A$2:$A${dn})", 0.5,
-         "Distinct dates with ≥1 driving leg", "Start Time (UTC) → date"),
+         "Distinct dates with ≥1 driving leg (ALL legs — page-1 unfiltered)", "Start Time (UTC) → date"),
         ("Page 1 · Summary", "Driving legs", v["n_tr"],
-         f'=COUNTIFS({tr_f},"<>",{tr_g},"<>")', 0.5,
-         "Analysed driving legs = legs with valid EP & GVM (matches the chart n; "
-         "excludes EP-cleaned outliers)", "Leg Type / EP / GVM"),
+         f"=COUNTA({at_a})", 0.5,
+         "ALL driving legs (page-1 unfiltered — every leg the vehicle drove, incl. < "
+         f"{MIN_TRIP_KM:.0f} km / SOC-quantised)", "Leg Type ∈ DRIVE"),
         ("Page 1 · Summary", "Charging sessions", v["n_ch"],
          f"=ROWS(Charges!$A$2:$A${cn})", 0.5, "Count of charging legs (Leg Type ∈ CHARGE)", "Leg Type"),
         ("Page 1 · Summary", "Median GVM (t)", v["gvw_med"],
-         f"=MEDIAN(Trips!$G$2:$G${tn})", 0.05,
-         "Median of per-leg GVM (page-1 'Median GVM' tile)", "Vehicle Mass (kg)/1000"),
+         f"=MEDIAN({at_d})", 0.05,
+         "Median of per-leg GVM over ALL legs (page-1 'Median GVM' tile)", "Vehicle Mass (kg)/1000"),
         ("Page 1 · Timeline", "Trips per day", v["trips_per_day"],
-         f'=COUNTIFS({tr_f},"<>",{tr_g},"<>")/COUNTA(Daily!$A$2:$A${dn})', 0.05,
-         "Analysed driving legs (EP & GVM present) ÷ active days", "—"),
+         f"=COUNTA({at_a})/COUNTA(Daily!$A$2:$A${dn})", 0.05,
+         "All driving legs ÷ active days (page-1 unfiltered)", "—"),
         ("Page 1 · Timeline", "Daily average distance (km)", v["daily_avg_km"],
          ("manual" if raw_dist else f"=AVERAGE(Daily!$B$2:$B${dn})"), (None if raw_dist else 0.5),
          (_raw_note + "Total raw odometer km ÷ active days. Leg-sum mean: =AVERAGE(Daily!$B$2:$B$" + str(dn) + ")"
@@ -1119,41 +1169,41 @@ def build_verification_workbook(path, tr, ch, v):
         ("Page 1 · Timeline", "Median last arrival (hh:mm)", None, "manual", None,
          f"Briefing shows ≈ {v['med_arr']} — spot-check per-day maxima of Trips!C", "End Time (UTC)"),
         ("Page 1 · Performance", "Total distance (km)", v["tot_km"],
-         ("manual" if raw_dist else f"=SUM(Trips!$D$2:$D${tn})"), (None if raw_dist else 0.5),
-         (_raw_note + "Odometer travelled km. Driving-leg sum: =SUM(Trips!$D$2:$D$" + str(tn) + ")"
-          if raw_dist else "Sum over driving legs"), "odometer (raw)" if raw_dist else "Distance (km)"),
+         ("manual" if raw_dist else f"=SUM({at_b})"), (None if raw_dist else 0.5),
+         (_raw_note + "Odometer travelled km. All-legs sum: =SUM(" + at_b + ")"
+          if raw_dist else "Sum over ALL driving legs"), "odometer (raw)" if raw_dist else "Distance (km)"),
         ("Page 1 · Performance", "Max daily distance (km)", v["daily_max_km"],
          ("manual" if raw_dist else f"=MAX(Daily!$B$2:$B${dn})"), (None if raw_dist else 0.5),
          (_raw_note + "Max per-day odometer km. Leg-sum max: =MAX(Daily!$B$2:$B$" + str(dn) + ")"
           if raw_dist else "Max of per-day distance sums"), "odometer (raw)" if raw_dist else "Distance (km)"),
         ("Page 1 · Performance", "Total energy used (kWh)", v["tot_e"],
-         ("manual" if raw_energy else f"=SUMPRODUCT(ABS(Trips!$E$2:$E${tn}))"), (None if raw_energy else 0.5),
+         ("manual" if raw_energy else f"=SUMPRODUCT(ABS({at_c}))"), (None if raw_energy else 0.5),
          (_raw_note + "Σ used-energy counter incl. non-driving (reconciles with Total Energy "
-          "Charged). Driving-leg sum: =SUMPRODUCT(ABS(Trips!$E$2:$E$" + str(tn) + "))"
-          if raw_energy else "Σ|energy change| over driving legs"),
+          "Charged). All-legs sum: =SUMPRODUCT(ABS(" + at_c + "))"
+          if raw_energy else "Σ|energy change| over ALL driving legs"),
          "total_electric_energy_used (raw)" if raw_energy else "Energy Change (kWh)"),
         ("Page 1 · Performance", "Mean energy performance (kWh/km)", v["mean_ep"],
-         ("manual" if raw_energy else f"=SUMPRODUCT(ABS(Trips!$E$2:$E${tn}))/SUM(Trips!$D$2:$D${tn})"),
+         ("manual" if raw_energy else f"=SUMPRODUCT(ABS({at_c}))/SUM({at_b})"),
          (None if raw_energy else 0.005),
          (_raw_note + "Raw total energy ÷ raw odometer distance (same raw basis)"
-          if raw_energy else "Total energy ÷ total distance (NOT mean of per-leg EP); driving-leg basis"), "—"),
+          if raw_energy else "Total energy ÷ total distance (NOT mean of per-leg EP); all-legs basis"), "—"),
         ("Page 1 · Performance", "Energy recuperated (kWh)", v["recup"],
-         ("manual" if v["recup_src"] in ("counter", "raw_total") else f"=SUM(Trips!$I$2:$I${tn})"),
+         ("manual" if v["recup_src"] in ("counter", "raw_total") else f"=SUM({at_e})"),
          (None if v["recup_src"] in ("counter", "raw_total") else 0.5),
          (_raw_note + "Σ raw_telematics recuperation counter over the whole period (robust to "
           "resets/spikes; NOT the sparse xlsx column). Sparse xlsx-column SUM for comparison: "
-          f"=SUM(Trips!$I$2:$I${tn})"
+          f"=SUM({at_e})"
           if v["recup_src"] == "raw_total"
           else f"Counter-based: Σ raw_telematics recuperation counter over {v['recup_cov']}/{v['recup_tot']} "
           f"legs (full coverage; NOT the sparse xlsx column). Sparse xlsx-column SUM for comparison: "
-          f"=SUM(Trips!$I$2:$I${tn})"
+          f"=SUM({at_e})"
           if v["recup_src"] == "counter"
           else f"Σ recuperation; only {v['recup_cov']}/{v['recup_tot']} legs have a value (known undercount)"),
          "raw_telematics recuperation counter" if v["recup_src"] in ("counter", "raw_total")
          else "Recuperation Energy (kWh)"),
         ("Page 1 · Performance", "Regen recovery (% of energy used)", v.get("recup_pct"),
          ("manual" if v["recup_src"] in ("counter", "raw_total")
-          else f"=SUM(Trips!$I$2:$I${tn})/SUMPRODUCT(ABS(Trips!$E$2:$E${tn}))*100"),
+          else f"=SUM({at_e})/SUMPRODUCT(ABS({at_c}))*100"),
          (None if v["recup_src"] in ("counter", "raw_total") else 0.5),
          ("Energy recuperated ÷ total energy used × 100 (both raw-counter based, audited above)"
           if v["recup_src"] in ("counter", "raw_total")
@@ -1363,13 +1413,17 @@ def main():
                          "产物为 report_anon_<period>.*（与命名版共存）")
     ap.add_argument("--all-data", action="store_true",
                     help="读取该车所有周期报告并合并（全部已采集数据，而非单一周期；忽略 --period）")
+    ap.add_argument("--min-operator-trips", type=int, default=20,
+                    help="round-robin 拆分时,某运营方有效行程 < 此值则跳过(默认 20)。调低可为稀疏"
+                         "运营方(如 EX74JXW/WELCH_TRANSPORT ~11 行程)强制出报告;注意样本过少时"
+                         "载重点/温度趋势等统计不可靠。")
     ap.add_argument("--page1-basis", choices=["raw", "segment"], default="raw",
                     help="第 1 页能量/距离总量口径：raw=raw_telematics 计数器（含非行驶、真里程，默认）；"
                          "segment=excel report 分段（行驶腿）口径。第 2 页分析始终为分段口径。"
                          "segment 版产物加 _xlsxkpi 后缀，与 raw 版在同一目录共存。")
     args = ap.parse_args()
-    df, tr, ch, xlsx_path, _cov = compute(args.reg, args.period, args.version,
-                                          finetuned=not args.base, all_data=args.all_data)
+    df, tr_all, tr, ch, xlsx_path, _cov = compute(args.reg, args.period, args.version,
+                                                   finetuned=not args.base, all_data=args.all_data)
     fname = xlsx_path.name
     # no_mass 按**全车**数据判定（在 operator 拆分之前），使同一车各 operator 子集变体一致。
     veh_no_mass = int(tr["mass"].notna().sum()) < max(1, int(0.05 * len(tr)))
@@ -1380,28 +1434,33 @@ def main():
         return int(((tr["operator"] == o) & tr["ep"].notna()).sum())
     ops_all = [o for o in tr["operator"].dropna().unique()
                if str(o).strip() and str(o).strip().lower() != "nan"]
-    eligible = [o for o in ops_all if _valid_n(o) >= 20]
+    _min_op = args.min_operator_trips
+    eligible = [o for o in ops_all if _valid_n(o) >= _min_op]
     if args.all_data and len(eligible) > 1:
         print(f"[operator-split] {args.reg}: {len(eligible)} operator(s) → " + ", ".join(eligible))
         for o in ops_all:
             if o not in eligible:
-                print(f"[operator-split] {args.reg} / {o}: only {_valid_n(o)} valid trips (<20) — skipped")
+                print(f"[operator-split] {args.reg} / {o}: only {_valid_n(o)} valid trips (<{_min_op}) — skipped")
         for o in eligible:
-            _emit_briefing(args, tr, ch, fname, veh_no_mass, op_filter=o)
+            _emit_briefing(args, tr_all, tr, ch, fname, veh_no_mass, op_filter=o)
     else:
-        _emit_briefing(args, tr, ch, fname, veh_no_mass, op_filter=None)
+        _emit_briefing(args, tr_all, tr, ch, fname, veh_no_mass, op_filter=None)
 
 
-def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
+def _emit_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
     # op_filter = an operator name → trips filtered by the data-driven `operator` column, charges by that
     # operator's trip date span. None → single briefing, labelled by the dominant operator in the data.
+    # tr_all = every driving leg (PAGE-1 unfiltered counts); tr = the cleaned PAGE-2 analysis set. Both
+    # are operator-scoped identically; the charge span + operating period stay keyed to the VALID trips
+    # (tr) so the OPERATING PERIOD label and the output directory naming are unchanged.
     if op_filter is not None:
         tr = tr_full[tr_full["operator"] == op_filter].copy()
+        tr_all = tr_all_full[tr_all_full["operator"] == op_filter].copy()
         d0f, d1f = tr["st"].min(), tr["et"].max()
         ch = ch_full[(ch_full["st"] >= d0f) & (ch_full["st"] <= d1f)].copy()
         operator = op_filter
     else:
-        tr, ch = tr_full.copy(), ch_full.copy()
+        tr, tr_all, ch = tr_full.copy(), tr_all_full.copy(), ch_full.copy()
         _op = tr["operator"][tr["operator"].astype(str).str.strip().ne("")
                              & tr["operator"].astype(str).str.lower().ne("nan")]
         operator = _op.mode().iloc[0] if not _op.mode().empty else args.reg
@@ -1414,7 +1473,9 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
     d0, d1 = tr["st"].min(), tr["et"].max()
     op_period = (f"{d0:%Y%m%d}_{d1:%Y%m%d}" if pd.notna(d0) and pd.notna(d1) else args.period)
     _op_tag = re.sub(r"[^A-Za-z0-9]+", "_", str(operator)).strip("_") or "OP"
-    tag = f"{_op_tag}_{op_period}" if op_filter is not None else op_period   # operator-scoped naming when split
+    # ALWAYS operator-scoped naming (<REG>_<OPERATOR>_<period>), for both the per-operator split AND
+    # the single-operator case — so every briefing's dir/filename carries its operator consistently.
+    tag = f"{_op_tag}_{op_period}"
 
     outdir = WORKSPACE / "output" / f"{args.reg}_{tag}"
     fig_rel = "figures_anon" if args.anon else "figures"  # 匿名版独立图目录，与命名版产物共存
@@ -1430,12 +1491,13 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
                               anon=args.anon, rel=fig_rel, load_pts=load_pts, no_mass=no_mass)
 
     # ---- 真实 KPI ----
-    daily_km = tr.dropna(subset=["date"]).groupby("date")["d"].sum()
-    tot_km = tr["d"].sum(); ndays = tr["date"].nunique()
-    # 分析用的有效行驶段数 = 图表 n。标准变体取 EP & GVM 齐全（与第 2 页散点/拟合 n 一致）；
-    # 无质量变体（no_mass）第 2 页是 EP/Range 分布图、不依赖 mass，故取 EP 齐全的段（否则 mass 全空
-    # 会让 n_legs=0 → "0.0 trips/day"、"Driving Legs 0"）。距离/能耗总量仍按全部段。
-    n_legs = int(tr["ep"].notna().sum()) if no_mass else int((tr["ep"].notna() & tr["mass"].notna()).sum())
+    # PAGE 1 is UNFILTERED: every operational count / total below is computed over tr_all (all driving
+    # legs, incl. < MIN_TRIP_KM and SOC-quantised legs). Only PAGE 2 (charts / fits / conclusions) uses
+    # the cleaned `tr`. Active Days, Driving Legs, timeline and Median GVM therefore reflect every trip.
+    daily_km = tr_all.dropna(subset=["date"]).groupby("date")["d"].sum()
+    tot_km = tr_all["d"].sum(); ndays = tr_all["date"].nunique()
+    # Driving Legs = ALL driving legs (unfiltered) — not the analysed-leg (chart n) count any more.
+    n_legs = int(len(tr_all))
     # ── Page-1 totals: RAW-TELEMATICS basis (whole-period cumulative counters) ──────────────
     # Total Distance / Total Energy Used / Energy Recuperated on PAGE 1 come from the
     # raw_telematics counters (robust to resets + spikes, see _raw_kpi_totals), NOT the filtered
@@ -1450,11 +1512,11 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
     # yet keep the segment Total Energy Used. Mean EP always divides Total Energy Used by distance ON
     # THE SAME BASIS as that energy (raw odometer for raw energy; driving-leg km for segment energy)
     # so it stays a valid per-driving-km efficiency, not (driving energy ÷ all-travel distance).
-    tot_e_seg = tr["ec"].abs().sum()   # driving-leg energy (SOC/counter-derived in the xlsx)
-    tot_km_seg = tot_km                 # driving-leg distance (tr["d"].sum() above)
+    tot_e_seg = tr_all["ec"].abs().sum()  # driving-leg energy over ALL legs (SOC/counter-derived)
+    tot_km_seg = tot_km                     # driving-leg distance (tr_all["d"].sum() above)
     tot_e, tot_km = tot_e_seg, tot_km_seg
     # --page1-basis segment → 完全复刻 excel report 分段口径（不查 raw 计数器），产物为对照版。
-    raw_kpi = _raw_kpi_totals(tr, args.reg, args.version) if args.page1_basis == "raw" else None
+    raw_kpi = _raw_kpi_totals(tr_all, args.reg, args.version) if args.page1_basis == "raw" else None
     dist_basis = energy_basis = "segment"
     if raw_kpi:
         if pd.notna(raw_kpi.get("energy_kwh")):
@@ -1477,12 +1539,12 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
     if raw_kpi and pd.notna(raw_kpi.get("recup_kwh")):
         recup, recup_cov, recup_tot, recup_src = raw_kpi["recup_kwh"], 0, 0, "raw_total"
     else:
-        _cr = _counter_recup(tr, args.reg, args.version)
+        _cr = _counter_recup(tr_all, args.reg, args.version)
         if _cr is not None:
             recup, recup_cov, recup_tot, recup_src = _cr[0], _cr[1], _cr[2], "counter"
         else:
-            recup = _sum_or_na(tr["recup"]); recup_cov = int(tr["recup"].notna().sum())
-            recup_tot = len(tr); recup_src = "xlsx"
+            recup = _sum_or_na(tr_all["recup"]); recup_cov = int(tr_all["recup"].notna().sum())
+            recup_tot = len(tr_all); recup_src = "xlsx"
     # 制动能量回收比例 = 再生回收 ÷ page-1 总用电量 ×100（raw 口径分母为整段总用电）。
     recup_pct = recup / tot_e * 100 if (pd.notna(recup) and tot_e) else float("nan")
     # Charged: raw battery-pack DC+AC counter (whole-period — captures ALL charging) in raw mode when
@@ -1505,7 +1567,7 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
     dc_share = dc / tot_ch * 100 if (pd.notna(tot_ch) and tot_ch) else float("nan")
     print(f"  [page-1 charge basis] {charge_basis} "
           f"({'raw battery_pack DC+AC counter' if charge_basis == 'raw' else 'event charge-leg AC+DC'})")
-    gvw_med = float("nan") if no_mass else tr["mass"].median() / 1000.0
+    gvw_med = float("nan") if no_mass else tr_all["mass"].median() / 1000.0  # PAGE 1: all legs
     # Operating-period label: show the start year too when the span crosses a calendar year
     # (e.g. an --all-data briefing 11 Jun 2024 → 1 Dec 2025), otherwise keep the compact form.
     period_label = (
@@ -1691,8 +1753,8 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
         cap_kwh=cap_kwh, ndays=ndays, n_tr=n_legs, n_ch=len(ch),
         gvw_med=gvw_med, trips_per_day=n_legs / ndays if ndays else float("nan"),
         daily_avg_km=daily_avg_km, daily_max_km=daily_max_km,
-        med_dep=median_time(tr.groupby("date")["st"].min()),
-        med_arr=median_time(tr.groupby("date")["et"].max()),
+        med_dep=median_time(tr_all.groupby("date")["st"].min()),
+        med_arr=median_time(tr_all.groupby("date")["et"].max()),
         tot_km=tot_km, tot_e=tot_e, mean_ep=mean_ep, recup=recup, recup_cov=int(recup_cov),
         recup_tot=int(recup_tot), recup_src=recup_src, recup_pct=recup_pct,
         dist_basis=dist_basis, energy_basis=energy_basis, charge_basis=charge_basis,
@@ -1721,17 +1783,25 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
     if not args.anon and not no_mass:  # 命名版才出核实工作簿；no_mass 分布变体暂不出（mass-based 审计不适用，留作后续）
         verif_path = outdir / f"verification_{args.reg}_{tag}{'_xlsxkpi' if args.page1_basis == 'segment' else ''}.xlsx"
         try:
-            n_audit = build_verification_workbook(verif_path, tr, ch, vals)
+            n_audit = build_verification_workbook(verif_path, tr_all, tr, ch, vals)
         except PermissionError:
             verif_path = verif_path.with_name(f"{verif_path.stem}_{int(time.time())}.xlsx")
-            n_audit = build_verification_workbook(verif_path, tr, ch, vals)
+            n_audit = build_verification_workbook(verif_path, tr_all, tr, ch, vals)
             print(f"[verify] 原核实工作簿被占用，改写到：{verif_path.name}")
 
+    # PAGE-2 footnote: the trip-filtering rule that shapes the PAGE-2 figures (only the MIN_TRIP_KM
+    # valid-trip distance filter now — the SOC-quantisation guard was removed once jolt_toolkit ≥ 2.2.7
+    # fixed short-trip EP at source). It lives on PAGE 2 because PAGE 1 is unfiltered (all trips) — the
+    # filtering only affects the analysis charts. Shown on BOTH the named and the anon version
+    # (methodology, not an identifying data source); the page-1 footer stays empty.
+    filter_note = (
+        f"Figures exclude driving legs shorter than {MIN_TRIP_KM:.0f} km."
+    )
     # ---- 匿名化展示版（SteerCo）：隐去运营方与车牌；型号/数据/图保持不变 ----
     if args.anon:
         operator_disp, reg_disp = "JOLT MEMBER", ""
         analysis_sub = f"JOLT Member · {vehicle_model}"
-        source_ops = source_analysis = ""  # 匿名版不显示数据来源页脚
+        source_ops, source_analysis = "", filter_note  # 匿名版：第2页显示筛选脚注，不显示数据来源
     else:
         # Display name: SRF operator tokens are underscore-joined (e.g. "WELCH_TRANSPORT",
         # "PORT_EXPRESS_DAIMLER") — show them with spaces. The raw `operator` value is kept for the
@@ -1739,7 +1809,7 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
         operator_clean = str(operator).replace("_", " ")
         operator_disp, reg_disp = operator_clean, args.reg
         analysis_sub = f"{operator_clean} · {args.reg} · {vehicle_model}"
-        source_ops = source_analysis = ""  # source footers removed per user request (2026-06-22)
+        source_ops, source_analysis = "", filter_note  # 脚注在第2页(图过滤说明)；第1页页脚空；来源页脚已移除
 
     def f(v, d=0, suf=""):
         return "—" if pd.isna(v) else f"{v:,.{d}f}{suf}"
@@ -1772,11 +1842,11 @@ def _emit_briefing(args, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
         reg=reg_disp, operator=operator_disp, vehicle_model=vehicle_model.upper(),
         period_label=period_label,
         timeline=[
-            dict(tag="DAY START", icon=ICON_TRUCK, time=f"≈ {median_time(tr.groupby('date')['st'].min())}",
+            dict(tag="DAY START", icon=ICON_TRUCK, time=f"≈ {median_time(tr_all.groupby('date')['st'].min())}",
                  label="Median first departure"),
             dict(tag="", icon=ICON_CLOCK, time=f"≈ {n_legs/ndays:.1f} trips/day",
                  label=f"{daily_avg_km:.0f} km / day average"),
-            dict(tag="DAY END", icon=ICON_TRUCK, time=f"≈ {median_time(tr.groupby('date')['et'].max())}",
+            dict(tag="DAY END", icon=ICON_TRUCK, time=f"≈ {median_time(tr_all.groupby('date')['et'].max())}",
                  label="Median last arrival"),
         ],
         operating_days=f"OPERATING PERIOD · {period_label.upper()} · {ndays} ACTIVE DAYS",
