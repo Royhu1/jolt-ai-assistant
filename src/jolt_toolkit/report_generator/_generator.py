@@ -105,39 +105,82 @@ def _cap_is_valid(v) -> bool:
         return False
 
 
+def _soc_weighted_cap(caps, weights):
+    """ΔSOC-weighted (combined-ratio) donor effective capacity — replaces the
+    plain mean of per-segment implied capacities.
+
+    Each donor's implied capacity is ``C_i = |ΔE_i| / (|ΔSOC_i|/100)``. SOC is
+    integer-% quantised, so a single leg's ``C_i`` is noisy AND upward-biased for
+    small ``|ΔSOC|`` (σ_C/C ≈ 0.5/|ΔSOC|, and Jensen makes ``E[1/ΔSOC] > 1/ΔSOC``);
+    a **plain mean** of donor ``C_i`` is therefore inflated whenever the donor pool
+    contains small-ΔSOC legs. This helper instead returns the ΔSOC-weighted mean
+
+        C_eff = Σ(C_i · |ΔSOC_i|) / Σ|ΔSOC_i|  ==  100 · Σ|ΔE_i| / Σ|ΔSOC_i|
+
+    i.e. the combined-ratio estimator — it uses all data (no arbitrary ΔSOC
+    cutoff), smoothly down-weights the noisy short legs, and never divides by a
+    single small ΔSOC, removing the small-ΔSOC bias entirely.
+
+    Rejected alternatives (verified on AV24LXJ discharge donors): a hard
+    ``|ΔSOC| ≥ X%`` cutoff (threshold-sensitive — ≥5% ok but ≥10% over-restricts
+    and drifts, and discards data) and ``ΔSOC²`` / inverse-variance weighting
+    (over-weights the largest legs and drifts low).
+
+    ``weights`` are the per-donor ``|ΔSOC|`` (%). Entries whose weight is invalid
+    / non-positive are excluded from the weighted sum (they can't be weighted); if
+    the total usable weight is 0 the result degrades to a plain mean of ``caps``
+    (guards ``Σ|ΔSOC| == 0``). Returns ``None`` for an empty pool.
+    """
+    caps = [float(c) for c in caps]
+    if not caps:
+        return None
+    ws = [abs(float(w)) if (_cap_is_valid(w) and float(w) != 0.0) else 0.0
+          for w in weights]
+    tot = sum(ws)
+    if tot <= 0.0:
+        return float(np.mean(caps))
+    return sum(c * w for c, w in zip(caps, ws)) / tot
+
+
 def _period_capacity_from_rows(rows, idx_cap, idx_soc, idx_esrc):
     """复刻 ``_correct_effective_capacity`` 的 donor-based ``avg_eff_cap`` 定义：
     从非 ``soc_estimate`` 段（measured charge / discharge leg）按「充电优先」取
-    effective capacity 均值。返回 ``(kwh|None, n_donors, source)``，
-    source ∈ {'charge', 'discharge', 'fallback'}。
+    effective capacity，donor 集内用 **ΔSOC 加权均值**（组合比估计
+    ``100·Σ|ΔE|/Σ|ΔSOC|``，见 :func:`_soc_weighted_cap`）而非普通均值——普通均值在
+    donor 池含小 ΔSOC 段时上偏（整数 % 量化 + Jensen）。返回
+    ``(kwh|None, n_donors, source)``，source ∈ {'charge', 'discharge', 'fallback'}。
+    ``n_donors`` 仍为 donor **计数**（供跨季度 donor 数加权平均，语义不变）。
 
     与 ``_persist_effective_capacity`` / backfill 共用同一口径：``rows`` 既可为报告
     row-tuple（传 ``_IDX_CAP`` / ``_IDX_SOC_CHANGE`` / ``_IDX_ESOURCE``），也可为从
     xlsx 读出的 ``(cap, soc, src)`` 三元组（传 0, 1, 2），保证 live 与 backfill 一致。
 
     donor 必须满足：``Energy Source`` 是真实的 measured 字符串（``isinstance str`` 且
-    != 'soc_estimate'）且 ``cap`` 为正的有效数字。前者在 live 路径下对真实 measured
-    leg 恒成立（其 energy_source 总是字符串），故对 live 数值零影响；但在 backfill 读
-    最终 xlsx 时它**排除掉 Stop 行**——Stop 行的 ``Energy Source`` / ``Battery
-    Capacity`` 是 ``=NA()`` 公式，openpyxl ``data_only=True`` 会把 ``=NA()`` 读成整数
-    ``0``，否则会被误当成 cap=0 的 donor 污染均值。``cap > 0`` 是额外保险（effective
-    capacity 物理上必为正；真实 donor 恒 > 0，故同样不影响 live 数值）。
+    != 'soc_estimate'）、``cap`` 为正的有效数字、且 ``SOC Change`` 为可用的非零数值
+    （作为加权权重；缺 ΔSOC 的段无法加权，故排除）。measured-leg 判据在 live 路径下对
+    真实 measured leg 恒成立（其 energy_source 总是字符串），故对 live donor 集零影响；
+    但在 backfill 读最终 xlsx 时它**排除掉 Stop 行**——Stop 行的 ``Energy Source`` /
+    ``Battery Capacity`` 是 ``=NA()`` 公式，openpyxl ``data_only=True`` 会把 ``=NA()``
+    读成整数 ``0``，否则会被误当成 cap=0 的 donor 污染均值。``cap > 0`` 是额外保险
+    （effective capacity 物理上必为正；真实 donor 恒 > 0，故同样不影响 live 数值）。
     """
-    charge_caps, discharge_caps = [], []
+    charge, discharge = [], []   # list[(cap, |ΔSOC|)]
     for row in rows:
         cap = row[idx_cap]
         src = row[idx_esrc]
         soc = row[idx_soc]
         if (isinstance(src, str) and src != 'soc_estimate'
-                and _cap_is_valid(cap) and cap > 0):
-            if _cap_is_valid(soc) and soc > 0:
-                charge_caps.append(float(cap))
-            elif _cap_is_valid(soc) and soc < 0:
-                discharge_caps.append(float(cap))
-    if charge_caps:
-        return float(np.mean(charge_caps)), len(charge_caps), 'charge'
-    if discharge_caps:
-        return float(np.mean(discharge_caps)), len(discharge_caps), 'discharge'
+                and _cap_is_valid(cap) and cap > 0 and _cap_is_valid(soc)):
+            if soc > 0:
+                charge.append((float(cap), abs(float(soc))))
+            elif soc < 0:
+                discharge.append((float(cap), abs(float(soc))))
+    if charge:
+        caps, ws = zip(*charge)
+        return _soc_weighted_cap(caps, ws), len(charge), 'charge'
+    if discharge:
+        caps, ws = zip(*discharge)
+        return _soc_weighted_cap(caps, ws), len(discharge), 'discharge'
     return None, 0, 'fallback'
 
 
@@ -970,50 +1013,63 @@ class JOLTReportGenerator:
         max_half_days = max(float(CAP_WINDOW_HALF_DAYS), period_span_days)
 
         def _window_mean(donors, t_ns, base_half_days):
-            """donors: list[(ns, cap)]。在 ±base_half 天窗口内取均值，无 donor 则
-            逐步加倍半宽直至找到或覆盖整个周期。返回 (mean|None, n_used, half_used)。"""
+            """donors: list[(ns, cap, w)]，w = |ΔSOC|。在 ±base_half 天窗口内取
+            **ΔSOC 加权均值**（组合比估计 Σ(cap·w)/Σw，见 :func:`_soc_weighted_cap`），
+            无 donor 则逐步加倍半宽直至找到或覆盖整个周期。返回
+            (mean|None, n_used, half_used)；窗口内 Σw==0 时降级为普通均值。"""
             if not donors or t_ns is None:
                 return None, 0, base_half_days
             arr_ns = np.array([d[0] for d in donors], dtype=np.int64)
             arr_cap = np.array([d[1] for d in donors], dtype=float)
+            arr_w = np.array([d[2] for d in donors], dtype=float)
             half = float(base_half_days)
             while True:
                 win_ns = int(half * _DAY_NS)
                 mask = np.abs(arr_ns - t_ns) <= win_ns
                 if mask.any():
-                    return float(arr_cap[mask].mean()), int(mask.sum()), half
+                    caps_w = arr_cap[mask]
+                    ws_w = arr_w[mask]
+                    tot = float(ws_w.sum())
+                    m = (float((caps_w * ws_w).sum() / tot) if tot > 0.0
+                         else float(caps_w.mean()))
+                    return m, int(mask.sum()), half
                 if half >= max_half_days:
                     return None, 0, half
                 half = min(half * 2.0, max_half_days)
 
         # ── 步骤 1：time-local effective capacity 替换 soc_estimate 段 ────
         # 充电段: SOC 上升 (soc > 0)；放电段: SOC 下降 (soc < 0)
-        charge_donors = []      # list[(ns, cap)]
+        # donor 携带 |ΔSOC| 作为组合比权重（充/放电容量在段内用 ΔSOC 加权均值，
+        # 消除小 ΔSOC 段的整数 % 量化上偏；见 _soc_weighted_cap）。
+        charge_donors = []      # list[(ns, cap, w)] ; w = |ΔSOC|
         discharge_donors = []
-        charge_caps = []        # 全周期 cap 值（不要求有时间戳）
+        charge_caps = []        # list[(cap, w)]  全周期（不要求有时间戳）
         discharge_caps = []
         for row, n in zip(rows, row_ns):
             cap = row[idx_cap]
             src = row[idx_esrc]
             soc = row[idx_soc]
-            if _is_valid(cap) and src != 'soc_estimate':
-                if _is_valid(soc) and soc > 0:
-                    charge_caps.append(cap)
+            if _is_valid(cap) and src != 'soc_estimate' and _is_valid(soc):
+                w = abs(float(soc))
+                if soc > 0:
+                    charge_caps.append((cap, w))
                     if n is not None:
-                        charge_donors.append((n, cap))
-                elif _is_valid(soc) and soc < 0:
-                    discharge_caps.append(cap)
+                        charge_donors.append((n, cap, w))
+                elif soc < 0:
+                    discharge_caps.append((cap, w))
                     if n is not None:
-                        discharge_donors.append((n, cap))
+                        discharge_donors.append((n, cap, w))
 
-        # 全周期均值（充电优先），用于退化与最终持久化语义（保持不变）。
+        # 全周期 ΔSOC 加权均值（充电优先），用于退化与最终持久化语义（口径不变）。
         # 用不依赖时间戳的 *_caps，确保即使 idx_start=None（旧调用）也能给出
-        # 正确的全局 charge/discharge 均值而非误落到 fallback。
+        # 正确的全局 charge/discharge 加权均值而非误落到 fallback。
         if charge_caps:
-            avg_eff_cap = float(np.mean(charge_caps))
+            caps, ws = zip(*charge_caps)
+            avg_eff_cap = _soc_weighted_cap(caps, ws)
             cap_source = 'charge'
         elif discharge_caps:
-            avg_eff_cap = float(np.mean(discharge_caps))
+            caps, ws = zip(*discharge_caps)
+            avg_eff_cap = _soc_weighted_cap(caps, ws)
             cap_source = 'discharge'
         else:
             avg_eff_cap = fallback_kwh
@@ -1073,14 +1129,19 @@ class JOLTReportGenerator:
             cap_std  = float(np.std(all_caps))
             lo = cap_mean - cap_std
             hi = cap_mean + cap_std
-            # inlier donors（±1σ 内）连同时间戳，供异常行做时间局部替换
+            # inlier donors（±1σ 内）连同时间戳 + |ΔSOC| 权重，供异常行做时间局部
+            # 替换。替换均值同样用 ΔSOC 加权（组合比估计），避免小 ΔSOC 段的量化上偏
+            # 重新注入替换值。缺 ΔSOC 的行权重记 0（自然排除出加权和）。
             inlier_donors = [
-                (n, row[idx_cap])
+                (n, row[idx_cap],
+                 abs(float(row[idx_soc])) if _is_valid(row[idx_soc]) else 0.0)
                 for row, n in zip(rows, row_ns)
                 if n is not None and _is_valid(row[idx_cap]) and lo <= row[idx_cap] <= hi
             ]
-            inlier_global_mean = (float(np.mean([c for _, c in inlier_donors]))
-                                  if inlier_donors else cap_mean)
+            inlier_global_mean = (
+                _soc_weighted_cap([c for _, c, _ in inlier_donors],
+                                  [w for _, _, w in inlier_donors])
+                if inlier_donors else cap_mean)
             corrected = n_repl_local = n_energy_kept = 0
             for row, t_ns in zip(rows, row_ns):
                 cap = row[idx_cap]
