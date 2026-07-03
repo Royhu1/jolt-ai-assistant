@@ -1617,6 +1617,28 @@ def _seg_to_row(
 # =============================================================================
 
 
+def _write_na(ws, ri: int, ci: int, cell_format) -> None:
+    """Write the ``=NA()`` "no data" formula with an EMPTY cached result.
+
+    xlsxwriter's ``write`` / ``write_formula`` default the cached formula result
+    to ``0``. Readers that do not recalculate the workbook — openpyxl
+    ``data_only=True`` and ``pandas.read_excel`` — then surface a blank cell as
+    ``0`` instead of NaN. For the ``Vehicle Mass (kg)`` column that
+    mis-classifies a no-GVM leg (T88RNW / YN75NMA …) as mass-bearing, and more
+    generally makes every empty numeric cell read as a spurious ``0``.
+
+    Passing an empty string as the cached result makes those readers see the
+    cell as blank (``None`` → NaN), which matches (a) Excel's own recalculated
+    ``#N/A`` and (b) the convention of every report that has been round-tripped
+    through openpyxl afterwards (weather / logger / charger patchers, the chart
+    re-patch) — those re-saves strip xlsxwriter's cached ``0`` to blank, which is
+    why the full-regen path never exhibited the ``0`` but the single-pass
+    SRF-free recompute did. Excel still recalculates ``NA()`` to ``#N/A`` on
+    load, so the on-screen value and the (data_only=False) formula are unchanged.
+    """
+    ws.write_formula(ri, ci, "=NA()", cell_format, "")
+
+
 def _write_excel_report(
     rows: list[tuple],
     reg: str,
@@ -1746,12 +1768,10 @@ def _write_excel_report(
             ):
                 ws.write_url(ri, ci, val, string="Link", cell_format=fmt["url"])
             elif col_name == "Duration (HH:MM:SS)":
-                ws.write(
-                    ri,
-                    ci,
-                    val if (val is not None and not _is_nan(val)) else "=NA()",
-                    fmt["dur"],
-                )
+                if val is not None and not _is_nan(val):
+                    ws.write(ri, ci, val, fmt["dur"])
+                else:
+                    _write_na(ws, ri, ci, fmt["dur"])
             elif col_name in ("Start Time (UTC)", "End Time (UTC)") and isinstance(
                 val, pd.Timestamp
             ):
@@ -1759,7 +1779,7 @@ def _write_excel_report(
                 naive = val.tz_localize(None) if val.tzinfo else val
                 ws.write_datetime(ri, ci, naive.to_pydatetime(), fmt["ts"])
             elif _is_nan(val):
-                ws.write(ri, ci, "=NA()", fmt["def"])
+                _write_na(ws, ri, ci, fmt["def"])
             elif val is None:
                 ws.write(ri, ci, "", fmt["def"])
             else:
