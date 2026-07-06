@@ -3,7 +3,7 @@
     "srf_reg": "AV24 LXJ",
     "nominal_kwh": 360,
     "srf_capacity_kwh": 265,
-    "effective_capacity_kwh": 297.1,
+    "effective_capacity_kwh": 297.2,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -55,6 +55,10 @@
       "20260601_20260624": {
         "kwh": 294.1,
         "n": 42
+      },
+      "20260625_20260706": {
+        "kwh": 302.9,
+        "n": 19
       }
     }
   },
@@ -62,7 +66,7 @@
     "srf_reg": "AV24 LXK",
     "nominal_kwh": 360,
     "srf_capacity_kwh": 265,
-    "effective_capacity_kwh": 308.3,
+    "effective_capacity_kwh": 308.0,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -114,6 +118,10 @@
       "20260601_20260624": {
         "kwh": 286.8,
         "n": 45
+      },
+      "20260625_20260706": {
+        "kwh": 286.4,
+        "n": 19
       }
     }
   },
@@ -121,7 +129,7 @@
     "srf_reg": "AV24 LXL",
     "nominal_kwh": 360,
     "srf_capacity_kwh": 265,
-    "effective_capacity_kwh": 321.6,
+    "effective_capacity_kwh": 321.3,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -173,6 +181,10 @@
       "20260601_20260624": {
         "kwh": 290.6,
         "n": 46
+      },
+      "20260625_20260706": {
+        "kwh": 292.5,
+        "n": 14
       }
     }
   },
@@ -180,7 +192,7 @@
     "srf_reg": "EV73 SAL",
     "nominal_kwh": 540,
     "srf_capacity_kwh": 378,
-    "effective_capacity_kwh": 368.3,
+    "effective_capacity_kwh": 368.1,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -232,6 +244,10 @@
       "20260601_20260624": {
         "kwh": 355.0,
         "n": 29
+      },
+      "20260625_20260706": {
+        "kwh": 359.5,
+        "n": 11
       }
     }
   },
@@ -239,7 +255,7 @@
     "srf_reg": "YK73 WFN",
     "nominal_kwh": 540,
     "srf_capacity_kwh": 378,
-    "effective_capacity_kwh": 360.8,
+    "effective_capacity_kwh": 360.6,
     "max_torque_nm": 2400,
     "crr": null,
     "cda": null,
@@ -291,6 +307,10 @@
       "20260601_20260624": {
         "kwh": 349.4,
         "n": 47
+      },
+      "20260625_20260706": {
+        "kwh": 354.9,
+        "n": 22
       }
     }
   },
@@ -330,6 +350,10 @@
       "20260416_20260624": {
         "kwh": 381.9,
         "n": 55
+      },
+      "20260625_20260706": {
+        "kwh": 388.1,
+        "n": 1
       }
     }
   },
@@ -375,7 +399,7 @@
     "srf_reg": "N88 GNW",
     "nominal_kwh": 540,
     "srf_capacity_kwh": 417,
-    "effective_capacity_kwh": 381.7,
+    "effective_capacity_kwh": 381.5,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -423,6 +447,10 @@
       "20260601_20260624": {
         "kwh": 356.6,
         "n": 10
+      },
+      "20260625_20260706": {
+        "kwh": 370.7,
+        "n": 6
       }
     }
   },
@@ -521,7 +549,7 @@
     "srf_reg": "TA70 WTL",
     "nominal_kwh": 417,
     "srf_capacity_kwh": 417,
-    "effective_capacity_kwh": 382.4,
+    "effective_capacity_kwh": 381.8,
     "max_torque_nm": null,
     "crr": null,
     "cda": null,
@@ -563,6 +591,10 @@
       "20260601_20260624": {
         "kwh": 368.4,
         "n": 7
+      },
+      "20260625_20260706": {
+        "kwh": 364.7,
+        "n": 8
       }
     }
   },
@@ -621,6 +653,10 @@
       "20260601_20260624": {
         "kwh": 210.7,
         "n": 13
+      },
+      "20260625_20260706": {
+        "kwh": 216.4,
+        "n": 7
       }
     }
   },
