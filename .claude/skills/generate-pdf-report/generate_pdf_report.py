@@ -970,6 +970,11 @@ def compute(reg, period, version, finetuned, all_data=False):
                    ("ec", "Energy Change (kWh)"), ("temp", "Average Temperature (C)"),
                    ("mass", "Vehicle Mass (kg)"), ("recup", "Recuperation Energy (kWh)")]:
         tr_all[c] = num(tr_all[col])
+    # A Vehicle Mass of 0 means "no GVM signal" — some vehicles report 0 rather than blank when the
+    # GCW channel is absent (e.g. T88RNW / YN75NMA on the SRF-free recompute path). Treat <= 0 as
+    # MISSING so the no-mass distribution-variant detection, the GVM scatter and Median GVM all
+    # correctly exclude it (otherwise a 0 counts as notna and the vehicle is mis-classified as mass-bearing).
+    tr_all.loc[tr_all["mass"] <= 0, "mass"] = np.nan
     # Operator is DATA-DRIVEN: read the report's per-leg `Operator` column (the generator derives it
     # from SRF leg.trip.trial.description / vehicle.organisation.name). This is the source of truth for
     # the page header and the per-operator split — NOT the manual plot_config company_assignment.
