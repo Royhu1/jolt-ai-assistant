@@ -45,7 +45,7 @@ Cross-directory changes (e.g. simulation parameters affecting the report generat
 first have the work order of the two agents coordinated in the main conversation before
 each acts; do not overstep and modify directories that are not yours.
 
-## Project core knowledge (v2.2.5 architecture)
+## Project core knowledge (v2.2.7 architecture)
 
 ### Entry points and top-level data flow
 - **Single-vehicle CLI**: `python .claude/skills/generate-excel-report/generate_report.py -veh REG -ds YYYY-MM-DD -de YYYY-MM-DD [--debug] [--fast]` (run from the repository root, requires `PYTHONPATH=src` or `pip install -e .`)
@@ -166,7 +166,7 @@ each acts; do not overstep and modify directories that are not yours.
 - Commit messages use Conventional Commits: `feat:` / `fix:` / `refactor:` / `docs:` /
   `chore:`; meaningless messages are forbidden.
 - `cache/` / `excel_report_database/` / `figures/` / `publication_workspace/` are not in git.
-- `excel_report_database/` and `figures/` are organised into version-number sub-directories (`excel_report_database/2.2.5/`, `figures/2.2.5/`).
+- `excel_report_database/` and `figures/` are organised into version-number sub-directories (`excel_report_database/2.2.7/`, `figures/2.2.7/`).
 - The version number is in the `version` field of `pyproject.toml`, SemVer.
 - Do not write code directly on the `main` branch; all new features/refactors go through `feat/<description>` / `fix/<description>` /
   `refactor/<description>` branches, merged back to main + tagged after tests pass.

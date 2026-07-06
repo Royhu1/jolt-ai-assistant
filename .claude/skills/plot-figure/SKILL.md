@@ -200,7 +200,7 @@ when the user wants the whole standard set regenerated as-is.
 
 ```bash
 cd <project_root>
-PYTHONPATH=src python data_analysis_workspace/shared/generate_figures.py --out-dir <your/output/dir> [--version 2.2.3] [--anon]
+PYTHONPATH=src python data_analysis_workspace/shared/generate_figures.py --out-dir <your/output/dir> [--version 2.2.7] [--anon]
 ```
 Outputs: `<out-dir>/named/` (real names) and `<out-dir>/anon/` (anonymised OEM labels).
 This script is also the **authoritative source of style + data-loading + fit logic** — any

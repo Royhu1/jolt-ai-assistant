@@ -50,13 +50,13 @@ For every watched vehicle:
    This step itself is the "ask SRF whether there is new data".
 3. Read the trip and charge event detail within the **lookback window** (corresponds to the
    cadence, default the past 7 days).
-4. Refresh the main dashboard (`excel_report_database/<version>/data_dashboard.html`).
+4. Refresh the main dashboard (`excel_report_database/<version>/dashboard/data_dashboard.html`).
 5. Emit `data_collection_reports/data_collection_digest_<start>_<end>.pdf` and update
    `data_collection_reports/MONITOR_STATUS.md`.
 
 The version number is **taken dynamically from the installed `jolt_toolkit.__version__`**
 (unless `--version` is given explicitly), so it always uses the current latest version
-(e.g. 2.2.4 / 2.2.5…). The watched-vehicle list is in `watched_vehicles.json` (default all 16).
+(e.g. 2.2.6 / 2.2.7…). The watched-vehicle list is in `watched_vehicles.json` (default all 17).
 
 ## 2. Trigger and `/loop` usage (incl. "ask cadence on first run" and "cadence display")
 

@@ -1411,7 +1411,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reg", default="YK73WFN")
     ap.add_argument("--period", default="20250301_20250601")
-    ap.add_argument("--version", default="2.2.3")
+    ap.add_argument("--version", default="2.2.7")
     ap.add_argument("--base", action="store_true", help="用非 finetuned 的 base xlsx")
     ap.add_argument("--anon", action="store_true",
                     help="匿名化展示版：隐去运营方与车牌、底图换无地名 CARTO，"

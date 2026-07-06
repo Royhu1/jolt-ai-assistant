@@ -4,11 +4,11 @@
 > database and builds a single self-contained, offline `data_dashboard.html`.
 
 **Invoke:** `/generate-data-dashboard <version>` · **In:** local files only (no network) ·
-**Out:** `excel_report_database/<version>/data_dashboard.html`
+**Out:** `excel_report_database/<version>/dashboard/data_dashboard.html`
 
 ## Flow
 
-1. **Confirm** — the version to scan (default `2.2.4`) and the output path (default in-place).
+1. **Confirm** — the version to scan (default `2.2.7`) and the output path (default in-place).
 2. **Read (local only)** — per vehicle: `jolt_report_*.xlsx` (skips `_finetuned`), the raw
    dirs (`raw_telematics/`, `raw_logger_v1/`, `raw_logger_v2/`,
    `raw_charger/charger_transactions.csv`), and configs (`vehicles.json` + `plot_config.json`

@@ -1,6 +1,6 @@
 # jolt_toolkit — package internal architecture documentation
 
-> Developer-facing internal architecture reference. The src-layout has been used since v2.0.0-dev. Current version **v2.2.5**.
+> Developer-facing internal architecture reference. The src-layout has been used since v2.0.0-dev. Current version **v2.2.7**.
 > Project overview & repo-wide usage → [root README.md](../../README.md) | Claude working conventions → [CLAUDE.md](../../CLAUDE.md)
 
 ## Installation and usage
@@ -86,7 +86,7 @@ identify_crr_cda("YN25RSY", "2025-08-26", "2026-01-15")
 
 For driving-cycle correction and other measured-data workflows that consume these reports, see [`data_analysis_workspace/README.md`](../../data_analysis_workspace/README.md).
 
-## Package structure (v2.2.5)
+## Package structure (v2.2.7)
 
 ```
 src/jolt_toolkit/

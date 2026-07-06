@@ -5,7 +5,7 @@ description: |
   self-contained offline data_dashboard.html for a report-database version,
   by running the jolt_toolkit dashboard CLI. Shows, per vehicle, which days
   have telematics / logger / charger data (Events vs Raw-data bases), plus
-  vehicle stats and operator info. Output: excel_report_database/X.Y.Z/data_dashboard.html.
+  vehicle stats and operator info. Output: excel_report_database/X.Y.Z/dashboard/data_dashboard.html.
   Triggers on:
   (1) "generate a data availability dashboard from the data of version X.Y.Z"
   (2) "generate / refresh the data availability dashboard (for version X.Y.Z)"
@@ -24,8 +24,8 @@ package (owned by the `jolt-toolkit-dev` agent — route any behaviour/layout ch
 ## Inputs to confirm with the user (ask only if ambiguous)
 
 - **Version** — the `excel_report_database/<version>/` sub-directory to scan
-  (e.g. `2.2.5`). **Default to `2.2.5`** (the current canonical/latest version) if not given.
-- **Output path** — defaults to `excel_report_database/<version>/data_dashboard.html`;
+  (e.g. `2.2.7`). **Default to `2.2.7`** (the current canonical/latest version) if not given.
+- **Output path** — defaults to `excel_report_database/<version>/dashboard/data_dashboard.html`;
   only override (`--out`) if the user asks.
 
 ## Preconditions
@@ -44,8 +44,8 @@ package (owned by the `jolt-toolkit-dev` agent — route any behaviour/layout ch
 ## How to run
 
 ```bash
-python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.5
-# → excel_report_database/2.2.5/data_dashboard.html (open offline by double-click)
+python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.7
+# → excel_report_database/2.2.7/dashboard/data_dashboard.html (open offline by double-click)
 # overrides: --db-root <reports root>   --out <html path>
 ```
 

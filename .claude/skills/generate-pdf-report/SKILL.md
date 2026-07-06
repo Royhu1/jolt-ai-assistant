@@ -31,7 +31,7 @@ produced; `pdf_report_workspace/` only holds the artefacts.
 ## 1. Inputs and data sources
 
 - Arguments: `<REG>` (registration) + `<period>` (`yyyymmdd_yyyymmdd`); optional `--version`
-  (default 2.2.3) and `--base` (use the non-finetuned base xlsx).
+  (default 2.2.7) and `--base` (use the non-finetuned base xlsx).
 - **`--all-data`**: read & concatenate **every** period report for the vehicle (all collected data,
   deduped by Start Time + Leg Type) instead of one period; the operating period and output naming
   then span the full data range, and `--period` is ignored for xlsx selection. Combine with `--anon`
@@ -142,7 +142,7 @@ produced; `pdf_report_workspace/` only holds the artefacts.
 ```bash
 # Run from the repo root (PYTHONUTF8=1 avoids the Windows cp1252 encoding crash)
 PYTHONUTF8=1 python .claude/skills/generate-pdf-report/generate_pdf_report.py \
-    --reg YK73WFN --period 20250301_20250601 [--version 2.2.3] [--base]
+    --reg YK73WFN --period 20250301_20250601 [--version 2.2.7] [--base]
 ```
 
 - Artefacts → `pdf_report_workspace/output/<REG>_<OPERATOR>_<op_period>/`: `report_*.html`,
