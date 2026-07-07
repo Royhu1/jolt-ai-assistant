@@ -73,6 +73,7 @@ from __future__ import annotations
 import argparse
 import glob
 import logging
+import os
 import re
 import shutil
 from pathlib import Path
@@ -464,6 +465,67 @@ def _recompute_report(reg, all_rows, cfg, qstart, qend, lookup, out_path):
 _AUX_COPY_DIRS_STATIC = ['raw_telematics', 'validation_figures', 'raw_charger']
 
 
+def _same_size(src: Path, dst: Path) -> bool:
+    """True iff ``dst`` exists and has the same byte size as ``src`` — the cheap
+    skip-if-identical test used to resume a partially-copied dir without OneDrive
+    churn. Any stat error is treated as 'not identical' (fall through to copy)."""
+    try:
+        return dst.exists() and dst.stat().st_size == src.stat().st_size
+    except OSError:
+        return False
+
+
+def _safe_copy_file(src: Path, dst: Path) -> None:
+    """Copy a file's CONTENT only (no metadata / mtime), tolerant of OneDrive.
+
+    ``shutil.copy2`` (and hence ``copytree``) runs ``copystat`` → ``os.utime`` and,
+    on Windows, a ``CopyFile2`` fast path — both raise ``OSError: [Errno 22]
+    Invalid argument`` on OneDrive-synced files the sync client is mid-operation on.
+    Artefact copies never need timestamps, so this copies bytes only: first the
+    plain ``shutil.copyfile`` (no ``copystat``), and if even that raises, a manual
+    streamed ``read → write`` (no fast path). Raises ``OSError`` only if BOTH
+    byte-copy paths fail — callers catch it per file and continue."""
+    try:
+        shutil.copyfile(src, dst)
+        return
+    except OSError:
+        pass
+    with open(src, 'rb') as fi, open(dst, 'wb') as fo:
+        shutil.copyfileobj(fi, fo)
+
+
+def _copy_dir_content(src_dir: Path, dst_dir: Path,
+                      overwrite: bool = False) -> tuple[int, int, int]:
+    """Recursively copy ``src_dir`` → ``dst_dir`` with content-only, per-file-
+    tolerant semantics (see :func:`_safe_copy_file`). Skips files that already
+    exist at the same size (unless ``overwrite``), so a re-run resumes a partially
+    copied dir cheaply. Returns ``(n_copied, n_skipped, n_failed)``; never raises
+    for a per-file error — it logs a warning and moves on."""
+    n_copied = n_skipped = n_failed = 0
+    for root, _dirs, files in os.walk(src_dir):
+        rel = Path(root).relative_to(src_dir)
+        target_root = dst_dir / rel
+        try:
+            target_root.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            n_failed += len(files)
+            logger.warning('copy-forward: cannot mkdir %s (%s)', target_root, exc)
+            continue
+        for fn in files:
+            s = Path(root) / fn
+            d = target_root / fn
+            if not overwrite and _same_size(s, d):
+                n_skipped += 1
+                continue
+            try:
+                _safe_copy_file(s, d)
+                n_copied += 1
+            except OSError as exc:
+                n_failed += 1
+                logger.warning('copy-forward: skip %s (%s)', s, exc)
+    return n_copied, n_skipped, n_failed
+
+
 def _copy_forward_artifacts(src_dir: Path, dst_dir: Path,
                             overwrite: bool = False) -> list[str]:
     """Copy the non-recomputable per-vehicle artefact dirs + inspect HTML forward
@@ -484,26 +546,42 @@ def _copy_forward_artifacts(src_dir: Path, dst_dir: Path,
     version's energy on ``soc_fallback``-rewritten legs (segmentation is unchanged,
     only the energy/EP of a few outlier legs moves); regenerating them requires an
     SRF debug run. This is the same accepted trade-off as the preserved weather
-    columns, and only affects debug-only artefacts. Returns the names copied.
+    columns, and only affects debug-only artefacts.
+
+    OneDrive tolerance: the repo lives under OneDrive, where ``shutil.copytree`` /
+    ``shutil.copy2`` raise ``OSError: [Errno 22] Invalid argument`` from the
+    ``copystat``/``utime`` / ``CopyFile2`` fast paths on files the sync client is
+    touching. We therefore copy **CONTENT only** (no metadata — artefact copies
+    never need mtimes), skip identical files, and **tolerate per-file failures**
+    (log a warning and continue) so a single un-copyable file can never abort a
+    whole-fleet run. Returns a list of per-artefact summary strings.
     """
     copied: list[str] = []
+    total_failed = 0
     dir_names = list(_AUX_COPY_DIRS_STATIC)
     dir_names += sorted(p.name for p in src_dir.glob('raw_logger*') if p.is_dir())
     for name in dir_names:
         s = src_dir / name
         if not s.is_dir():
             continue
-        d = dst_dir / name
-        if d.exists() and not overwrite:
-            continue
-        shutil.copytree(s, d, dirs_exist_ok=True)
-        copied.append(name + '/')
+        nc, ns, nf = _copy_dir_content(s, dst_dir / name, overwrite)
+        total_failed += nf
+        summary = f'{name}/ ({nc} copied, {ns} skipped'
+        summary += f', {nf} FAILED)' if nf else ')'
+        copied.append(summary)
     for html in sorted(src_dir.glob('inspect_*.html')):
         d = dst_dir / html.name
-        if d.exists() and not overwrite:
+        if not overwrite and _same_size(html, d):
             continue
-        shutil.copy2(html, d)
-        copied.append(html.name)
+        try:
+            _safe_copy_file(html, d)
+            copied.append(html.name)
+        except OSError as exc:
+            total_failed += 1
+            logger.warning('copy-forward: skip %s (%s)', html, exc)
+    if total_failed:
+        logger.warning('copy-forward [%s]: %d file(s) could not be copied '
+                       '(see warnings above)', dst_dir.name, total_failed)
     return copied
 
 
@@ -566,9 +644,10 @@ def copy_diesel(reg: str, db_root: Path, src_ver: str, dst_ver: str,
     copied = []
     for xlsx in sorted(src_dir.glob(f'jolt_report_{reg}_*.xlsx')):
         dst = dst_dir / xlsx.name
-        if dst.exists() and not overwrite:
+        if not overwrite and _same_size(xlsx, dst):
             continue
-        shutil.copy2(xlsx, dst)
+        # content-only copy — OneDrive rejects the copy2 metadata fast path (EINVAL)
+        _safe_copy_file(xlsx, dst)
         copied.append(xlsx.name)
     # carry forward artefact dirs + inspect HTML (raw_charger absent for diesel).
     aux = _copy_forward_artifacts(src_dir, dst_dir, overwrite)
@@ -598,16 +677,34 @@ def main(argv=None):
     db_root = Path(args.db_root)
     regs = args.veh or (EV_FLEET + DIESEL_FLEET)
     results = []
+    ok, failed = [], []
+    # Per-vehicle failure isolation (mirrors the data-collection-monitor convention):
+    # one vehicle's exception must NOT abort the fleet run — log an ERROR and carry
+    # on. Only a total wipe-out (every vehicle failed) is a non-zero exit.
     for reg in regs:
-        cfg = VEHICLE_CONFIG.get(reg, {})
-        if str(cfg.get('fuel_type', '')).upper() == 'DIESEL':
-            res = copy_diesel(reg, db_root, args.src_ver, args.dst_ver, args.overwrite)
-            logger.info('[%s] DIESEL copied %d reports', reg, len(res['copied']))
-        else:
-            res = recompute_vehicle(reg, db_root, args.src_ver, args.dst_ver, args.overwrite)
-            logger.info('[%s] EV done: %d reports, rolled-up eff_cap=%s kWh',
-                        reg, len(res['reports']), res.get('rolled_up_kwh'))
-        results.append(res)
+        try:
+            cfg = VEHICLE_CONFIG.get(reg, {})
+            if str(cfg.get('fuel_type', '')).upper() == 'DIESEL':
+                res = copy_diesel(reg, db_root, args.src_ver, args.dst_ver, args.overwrite)
+                logger.info('[%s] DIESEL copied %d reports', reg, len(res['copied']))
+            else:
+                res = recompute_vehicle(reg, db_root, args.src_ver, args.dst_ver, args.overwrite)
+                logger.info('[%s] EV done: %d reports, rolled-up eff_cap=%s kWh',
+                            reg, len(res['reports']), res.get('rolled_up_kwh'))
+            results.append(res)
+            ok.append(reg)
+        except Exception as exc:  # noqa: BLE001 — isolate one vehicle's failure
+            logger.error('[%s] FAILED: %s', reg, exc, exc_info=True)
+            failed.append(reg)
+    logger.info('=== recompute summary: %d OK, %d FAILED (of %d) ===',
+                len(ok), len(failed), len(regs))
+    if ok:
+        logger.info('  OK: %s', ', '.join(ok))
+    if failed:
+        logger.warning('  FAILED: %s', ', '.join(failed))
+    # Non-zero exit only if EVERY vehicle failed (a partial run is still useful).
+    if failed and not ok:
+        raise SystemExit(1)
     return results
 
 
