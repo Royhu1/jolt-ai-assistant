@@ -59,9 +59,15 @@ What is written vs carried forward (per vehicle)
   (``validation_figures`` / ``inspect_*.html`` reflect the src energy on the few
   ``soc_fallback``-rewritten legs; regenerating them needs an SRF debug run.)
 
-Diesel vehicles (WU70GLV / YT21EFD) have no SOC/counter energy, so neither the
-v2.2.7 nor the v2.2.8 change applies — their dst is an unchanged copy of src
-(xlsx + artefact dirs + inspect HTML).
+Verbatim-copy vehicles (NOT replayed — :func:`copy_verbatim`):
+* **Diesel** (WU70GLV / YT21EFD) — no SOC/counter energy, so neither the v2.2.7 nor
+  the v2.2.8 change applies; the report is unchanged across the release.
+* **``prefer_logger_speed``** vehicles (config-driven; YN25RSY today) — their
+  segmentation runs on **SRF-Logger speed**, which the replay does NOT reproduce (it
+  reads only ``raw_telematics``), so a replay diverges from the canonical
+  segmentation (YN25RSY: 37→33 trips, ~15 % start-time match) and the start-time
+  overlay then loses weather. These are copied verbatim from src instead.
+For both, dst is an unchanged copy of src (xlsx + artefact dirs + inspect HTML).
 
 This is a migration tool; it does **not** modify any core pipeline code and does
 **not** persist to ``vehicles.json`` (kept canonical — capacity persistence is
@@ -632,12 +638,22 @@ def recompute_vehicle(reg: str, db_root: Path, src_ver: str, dst_ver: str,
             'rolled_up_kwh': wavg, 'n_reliable_q': n_rel, 'aux_copied': aux}
 
 
-def copy_diesel(reg: str, db_root: Path, src_ver: str, dst_ver: str,
-                overwrite: bool = False) -> dict:
-    """Diesel: dst == unchanged copy of src (no SOC/counter energy, so the
-    SOC-fallback / capacity correction do not apply). Copies the xlsx reports plus
-    all non-recomputable artefact dirs (raw_logger*/raw_telematics/validation_figures)
-    and the inspect HTML forward."""
+def copy_verbatim(reg: str, db_root: Path, src_ver: str, dst_ver: str,
+                  overwrite: bool = False) -> dict:
+    """dst == unchanged copy of src: copy every ``jolt_report_*.xlsx`` plus all
+    non-recomputable artefact dirs (raw_*/validation_figures) and inspect HTML.
+
+    Used for vehicles the SRF-free recompute **cannot** or **must not** replay:
+
+    * **Diesel** (WU70GLV / YT21EFD) — no SOC/counter energy, so the SOC-fallback /
+      capacity correction do not apply; the report is unchanged across the release.
+    * **``prefer_logger_speed`` vehicles** (e.g. YN25RSY) — their segmentation runs
+      on **SRF-Logger speed**, which the replay does NOT reproduce (it reads only
+      ``raw_telematics``). Replaying from telematics speed diverges from the
+      canonical segmentation (YN25RSY: 37→33 trips, ~15 % start-time match) and the
+      start-time-keyed preserved-column overlay then loses weather etc. — so we copy
+      the canonical report verbatim instead of producing an invalid replay.
+    """
     src_dir = db_root / src_ver / reg
     dst_dir = db_root / dst_ver / reg
     dst_dir.mkdir(parents=True, exist_ok=True)
@@ -649,9 +665,13 @@ def copy_diesel(reg: str, db_root: Path, src_ver: str, dst_ver: str,
         # content-only copy — OneDrive rejects the copy2 metadata fast path (EINVAL)
         _safe_copy_file(xlsx, dst)
         copied.append(xlsx.name)
-    # carry forward artefact dirs + inspect HTML (raw_charger absent for diesel).
+    # carry forward artefact dirs + inspect HTML.
     aux = _copy_forward_artifacts(src_dir, dst_dir, overwrite)
     return {'reg': reg, 'copied': copied, 'aux_copied': aux}
+
+
+# Backwards-compatible alias (the verbatim-copy path was originally diesel-only).
+copy_diesel = copy_verbatim
 
 
 # All 15 EV present in the report DB (the 3 Knowles AV24LX* were full-regen'd for
@@ -684,9 +704,18 @@ def main(argv=None):
     for reg in regs:
         try:
             cfg = VEHICLE_CONFIG.get(reg, {})
-            if str(cfg.get('fuel_type', '')).upper() == 'DIESEL':
-                res = copy_diesel(reg, db_root, args.src_ver, args.dst_ver, args.overwrite)
-                logger.info('[%s] DIESEL copied %d reports', reg, len(res['copied']))
+            is_diesel = str(cfg.get('fuel_type', '')).upper() == 'DIESEL'
+            # Vehicles whose segmentation runs on SRF-Logger speed cannot be replayed
+            # from raw_telematics (logger speed is not cached), so their replay would
+            # diverge from canonical — copy the canonical report verbatim instead.
+            prefer_logger = bool(cfg.get('prefer_logger_speed'))
+            if is_diesel or prefer_logger:
+                res = copy_verbatim(reg, db_root, args.src_ver, args.dst_ver, args.overwrite)
+                reason = ('DIESEL' if is_diesel else
+                          'prefer_logger_speed (logger-speed segmentation cannot be '
+                          'replayed from raw telematics)')
+                logger.info('[%s] verbatim copy [%s]: %d reports', reg, reason,
+                            len(res['copied']))
             else:
                 res = recompute_vehicle(reg, db_root, args.src_ver, args.dst_ver, args.overwrite)
                 logger.info('[%s] EV done: %d reports, rolled-up eff_cap=%s kWh',
