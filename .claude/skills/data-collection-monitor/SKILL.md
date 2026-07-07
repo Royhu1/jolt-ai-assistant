@@ -102,7 +102,7 @@ PYTHONUTF8=1 python .claude/skills/data-collection-monitor/run_monitor.py --dry-
 Common switches: `--version X.Y.Z` (defaults to the installed version), `--end-date
 YYYY-MM-DD` (defaults to today UTC), `--no-raw` (skip raw CSV, faster but no raw stats),
 `--fast` (skip Logger/Charger fetching), `--force` (regenerate even if the period file already
-exists), `--no-dashboard` / `--no-pdf`.
+exists), `--no-dashboard` / `--no-pdf` / `--no-charger-sweep`.
 
 Preconditions: use the `jolt` conda env; `SRF_API_KEY` in `.env`; under OneDrive, first close
 any `.xlsx` open in Excel (a locked workbook is skipped on read with a warning).
@@ -123,6 +123,15 @@ any `.xlsx` open in Excel (a locked workbook is skipped on read with a warning).
   Link` columns, not dependent on raw files.
 - Failure isolation: a single vehicle's generation failure only records `ERROR` for that
   vehicle and does not interrupt the whole-fleet check.
+- **Charger backfill sweep (v2.2.8+)**: SRF charge-point transactions can be uploaded
+  days/weeks after the vehicle telematics, and report generation only fuses what exists at
+  generation time — so each run first sweeps ALL existing reports of the watched version with
+  `python -m jolt_toolkit.report_generator.charger_patcher <db_root> --persist-raw`
+  (idempotent: only empty `Charger Link` cells are filled; `raw_charger/
+  charger_transactions.csv` is merge-accumulated per vehicle — the very file the digest's
+  Charger columns and the dashboard raw base read). Disable with `--no-charger-sweep`. This
+  is the ONLY sanctioned in-place update to existing reports (it appends previously-missing
+  charger facts; it never alters energies or segmentation).
 
 ## 5. Artefacts (new folder)
 

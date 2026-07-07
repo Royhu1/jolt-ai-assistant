@@ -383,6 +383,31 @@ def _make_operator_resolver(repo_root: Path, end_date: date):
 
 
 # --------------------------------------------------------------------------- #
+# charger backfill sweep
+# --------------------------------------------------------------------------- #
+def _charger_backfill_sweep(repo_root: Path, version: str) -> str:
+    """Re-patch Charger Links across ALL existing reports of the watched version.
+
+    SRF charge-point transactions can arrive days/weeks after the vehicle
+    telematics (and are only fused at generation time), so each monitor run
+    sweeps the whole version dir with the charger_patcher CLI (v2.2.8+):
+    idempotent — only empty Charger Link cells are filled — and ``--persist-raw``
+    merge-accumulates ``raw_charger/charger_transactions.csv`` per vehicle,
+    which is exactly the file this monitor's digest and the dashboard read.
+    Runs BEFORE the per-vehicle processing so the digest counts the refreshed CSVs.
+    """
+    cmd = [sys.executable, "-m", "jolt_toolkit.report_generator.charger_patcher",
+           str(repo_root / "excel_report_database" / version), "--persist-raw"]
+    log.info("charger backfill sweep: %s", " ".join(cmd))
+    proc = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True)
+    if proc.returncode != 0:
+        log.warning("charger sweep exit=%s: %s", proc.returncode, (proc.stderr or "").strip()[-400:])
+        return f"charger sweep FAILED (exit {proc.returncode})"
+    combined = ((proc.stdout or "") + (proc.stderr or "")).strip().splitlines()
+    return "\n".join(line for line in combined[-3:])
+
+
+# --------------------------------------------------------------------------- #
 # dashboard + PDF + status
 # --------------------------------------------------------------------------- #
 def _refresh_dashboard(repo_root: Path, version: str) -> str:
@@ -516,6 +541,8 @@ def main() -> int:
                     help="No SRF generation, no dashboard — build the PDF/status from existing data only.")
     ap.add_argument("--no-dashboard", action="store_true", help="Skip the dashboard refresh.")
     ap.add_argument("--no-pdf", action="store_true", help="Skip building the PDF digest.")
+    ap.add_argument("--no-charger-sweep", action="store_true",
+                    help="Skip the fleet-wide Charger Link backfill sweep (v2.2.8+).")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
@@ -568,6 +595,14 @@ def main() -> int:
         log.error("report database not found: %s", db_root)
         return 2
 
+    # charger backfill sweep — BEFORE per-vehicle processing, so the digest's
+    # charger counts read the freshly merge-accumulated raw_charger CSVs.
+    # New reports created below still get generation-time fusion; transactions
+    # arriving later are caught by next run's sweep.
+    charger_sweep_summary = ""
+    if not args.dry_run and not args.no_charger_sweep:
+        charger_sweep_summary = _charger_backfill_sweep(repo_root, version)
+
     results: list[VehicleResult] = []
     for reg in vehicles:
         log.info("=== %s ===", reg)
@@ -610,6 +645,8 @@ def main() -> int:
               f"{r.n_trips:>5} {r.n_charges:>5} {r.active_days:>4} {r.distance_km:>8,.0f}  {r.status}")
     print("-" * 78)
     print(f"{n_new}/{len(results)} vehicles with new data | {n_err} error(s) | digest: {pdf_name}")
+    if charger_sweep_summary:
+        print("charger sweep:\n" + charger_sweep_summary)
     if dash_summary:
         print("dashboard:\n" + dash_summary)
     print("=" * 78)

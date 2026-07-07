@@ -23,6 +23,12 @@
    Logger/Charger (non-final only).
 6. **Weather (separate post-step)** — `weather_patch` backfills temperature columns
    cache-first from OpenWeather; elevation needs no API (read from the GPS-altitude channel).
+7. **Charger backfill (separate post-step, v2.2.8+)** — SRF charge-point transactions can
+   arrive weeks after the telematics, so after a regen (and weekly via the
+   data-collection-monitor sweep) run
+   `python -m jolt_toolkit.report_generator.charger_patcher <version-dir> --persist-raw`
+   — idempotent (fills only empty Charger Link cells) and merge-accumulates each vehicle's
+   `raw_charger/charger_transactions.csv`.
 
 **Owner:** algorithms live in `jolt_toolkit` (route code changes to `jolt-toolkit-dev`); this
 skill only drives the CLI. **Next:** `/param-tuner`, `/report-finetuner`, `/plot-figure`,

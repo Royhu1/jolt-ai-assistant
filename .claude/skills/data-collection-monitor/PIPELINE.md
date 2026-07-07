@@ -11,6 +11,10 @@ SRF telematics (live) + `excel_report_database/<version>/` · **Out:**
 
 1. **Cadence** — read `MONITOR_STATUS.md`; on the very first run (file absent) ask the user
    for the cadence (daily / weekly default / fortnightly / monthly), then reuse it silently.
+1b. **Charger backfill sweep (v2.2.8+)** — re-patch ALL existing reports of the watched
+   version via the `charger_patcher` CLI with `--persist-raw` (late-arriving SRF charge-point
+   transactions; idempotent, fills only empty Charger Link cells, merge-accumulates
+   `raw_charger/charger_transactions.csv`). `--no-charger-sweep` disables.
 2. **Extend (append-only)** — per watched vehicle (`watched_vehicles.json`, default 16): find
    `last_covered`, then run the latest `jolt_toolkit` to generate reports ONLY for the gap
    after it, SKIPPING any period whose `.xlsx` exists — this is the "ask SRF for new data"
