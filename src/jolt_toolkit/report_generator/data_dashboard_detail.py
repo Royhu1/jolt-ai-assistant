@@ -123,11 +123,16 @@ def _t_kg_to_t(s: pd.Series) -> pd.Series:
     return s / 1000.0
 
 
+def _t_m_to_km(s: pd.Series) -> pd.Series:
+    return s / 1000.0
+
+
 _TRANSFORMS = {
     "id": _t_id,
     "wh_to_kwh": _t_wh_to_kwh,
     "ms_to_kmh": _t_ms_to_kmh,
     "kg_to_t": _t_kg_to_t,
+    "m_to_km": _t_m_to_km,
 }
 
 
@@ -151,6 +156,24 @@ CONCEPT_REGISTRY: list[dict] = [
                          _cand(col="wheel_based_speed"), _cand(col="gnss_speed")],
             LOGGER: [_cand(col="CCVS wheel based vehicle speed"),
                      _cand(col="2 speed", transform="ms_to_kmh")],
+        },
+    },
+    {
+        "id": "distance", "name": "Total distance", "unit": "km",
+        "group": "Motion", "default": False,
+        # Cumulative odometer / total-vehicle-distance counter (→ km). Telematics
+        # reports ``odometer`` in km (the column the PDF-briefing raw-KPI path
+        # reads), with the J1939 high-resolution ``hr_total_vehicle_distance`` (m)
+        # as a finer fallback for feeds that omit the km odometer. The logger
+        # carries the diesel pipeline's VDHR ``hr total vehicle distance`` (already
+        # km — see diesel_pipeline.DEFAULT_DISTANCE_COL), so diesel vehicles get
+        # the channel too. A cumulative counter → y autoscales (see _Y_SPECS).
+        "sources": {
+            TELEMATICS: [_cand(cfg_key="odometer_col"),
+                         _cand(col="odometer"),
+                         _cand(col="hr_total_vehicle_distance",
+                               transform="m_to_km")],
+            LOGGER: [_cand(col="VDHR hr total vehicle distance")],
         },
     },
     # ── Battery ───────────────────────────────────────────────────────────────
@@ -295,6 +318,7 @@ GROUP_ORDER = ["Motion", "Battery", "Weight", "Energy", "Position", "Weather",
 # the fleet-wide axis limits in ``report_builder.CHART_SPECS_*`` for consistency.
 _Y_SPECS: dict[str, tuple[float, float] | None] = {
     "speed": (0, 90),            # km/h  — matches report EP-vs-Speed x-axis
+    "distance": None,            # km    — cumulative odometer counter → AUTO
     "soc": (0, 100),             # %
     "mass": (0, 45),             # t     — matches report 0–45000 kg x-axis
     "energy_total": None,        # kWh   — cumulative counter → AUTO
@@ -727,17 +751,20 @@ def _annotate_segment_mean_mass(
     - **Telematics mass** (preferred — the figure's primary path) is clustered
       once per day with :func:`cluster_mass_data` (cluster means from moving-speed
       readings, the tractor-only cluster dropped to ``NaN``); the per-event value
-      is then :func:`_agg_mass` (the report's ``mass_agg``) over the in-window
-      ``mass_cluster.notna()`` & ``> 0`` readings — the figure's exact selection.
-      Day-wide (rather than per-leg) clustering is used because the dashboard only
-      has the report's per-row segments, not the figure's FPS-leg grouping; a whole
-      day gives the stable read count a single short segment lacks. A per-event
-      **tractor guard** then drops any line whose robust mean is below
-      ``TRACTOR_ONLY_MAX_KG``: this reproduces the figure's per-leg exclusion for
-      the one case day-wide clustering misses — a stationary charge / empty-running
-      event whose ~tractor-weight readings were absorbed into a loaded cluster
-      because that day's other (loaded) trips raised the cluster floor above the
-      tractor threshold.
+      is :func:`_agg_mass` (the report's ``mass_agg``) over the in-window
+      ``mass_cluster.notna()`` & ``> 0`` LOADED readings — the figure's exact
+      selection. Day-wide (rather than per-leg) clustering is used because the
+      dashboard only has the report's per-row segments, not the figure's FPS-leg
+      grouping; a whole day gives the stable read count a single short segment
+      lacks. Unlike the Excel column, the dashboard **displays bare-tractor /
+      bobtail events too**, marked distinctly (user request "10 t 也要标出来而不是
+      忽略"): the readings ``cluster_mass_data`` drops as tractor-only are recovered
+      via its opt-in ``keep_tractor_only_label`` flag and aggregated separately, so
+      an event with no loaded reading in-window (e.g. a ~10–11 t empty run) still
+      gets a mean line — flagged ``seg['massTractorOnly'] = True`` for the muted
+      client-side style. The old per-event guard (a loaded-window robust mean below
+      ``TRACTOR_ONLY_MAX_KG``, from empty-running reads absorbed into a loaded
+      cluster) is likewise no longer dropped but shown and flagged tractor-only.
     - **Logger mass** is the fallback (the inspect.html "Seg. Mean Mass (Logger)"
       dotted line): :func:`_agg_mass` (the report's ``mass_agg``) over the in-window
       ``> 0`` logger readings (the figure's logger path has no clustering / tractor
@@ -748,7 +775,8 @@ def _annotate_segment_mean_mass(
     samples yields ``NaN`` (no dashed line for that event).
 
     Values are stored in the mass chart's display units (tonnes) as
-    ``seg['massMeanT']`` with ``seg['massMeanSrc']`` (``"telematics"``/``"logger"``).
+    ``seg['massMeanT']`` with ``seg['massMeanSrc']`` (``"telematics"``/``"logger"``)
+    and, for report-excluded bare-tractor events, ``seg['massTractorOnly'] = True``.
     Segments with no usable reading are left untouched (no dashed line client-side).
     """
     if not segments or mass_concept is None:
@@ -756,7 +784,12 @@ def _annotate_segment_mean_mass(
     res = mass_concept.get("sources_resolved", {})
 
     # ── Telematics source (preferred): cluster the day once, then select per event.
+    #   ``tele_*`` = LOADED readings (mass_cluster.notna()) → the normal dashed line
+    #   matching the Excel column / figure. ``tract_*`` = the tractor-only readings
+    #   the report drops (recovered via keep_tractor_only_label) → still DISPLAYED,
+    #   marked, for bare-tractor / bobtail events.
     tele_sec = tele_kg = None
+    tract_sec = tract_kg = None
     tele = res.get(TELEMATICS)
     if tele is not None and tdf is not None and tele["col"] in tdf.columns:
         mass_col = tele["col"]
@@ -774,15 +807,21 @@ def _annotate_segment_mean_mass(
                     cfg.get("min_cluster_gap_kg", MIN_CLUSTER_GAP_KG)),
                 speed_col=cfg.get("speed_col", "wheel_based_speed"),
                 speed_threshold_kmh=MOVING_SPEED_THRESHOLD_KMH,
+                keep_tractor_only_label=True,   # recover the dropped tractor reads
             )
         finally:
             seg_logger.setLevel(prev_level)
         mass_kg = pd.to_numeric(clustered[mass_col], errors="coerce")
-        keep = (mass_kg.notna() & (mass_kg > 0)
-                & clustered["mass_cluster"].notna()).to_numpy()
-        if keep.any():
-            tele_sec = _sec_from_midnight(clustered.index[keep], day)
-            tele_kg = mass_kg.to_numpy(dtype=float)[keep]
+        valid = mass_kg.notna() & (mass_kg > 0)
+        loaded = (valid & clustered["mass_cluster"].notna()).to_numpy()
+        if loaded.any():
+            tele_sec = _sec_from_midnight(clustered.index[loaded], day)
+            tele_kg = mass_kg.to_numpy(dtype=float)[loaded]
+        if "mass_tractor_only" in clustered.columns:
+            tract = (valid & clustered["mass_tractor_only"].astype(bool)).to_numpy()
+            if tract.any():
+                tract_sec = _sec_from_midnight(clustered.index[tract], day)
+                tract_kg = mass_kg.to_numpy(dtype=float)[tract]
 
     # ── Logger source (fallback): in-window > 0 robust mean (no tractor exclusion).
     log_sec = log_kg = None
@@ -794,32 +833,47 @@ def _annotate_segment_mean_mass(
             log_sec = _sec_from_midnight(ldf.index[keep], day)
             log_kg = lm.to_numpy(dtype=float)[keep]
 
+    def _win_agg(sec_arr, kg_arr, lo, hi):
+        """Report-``mass_agg`` robust mean (kg) of in-[lo,hi] samples; NaN if none.
+
+        ``sec_arr`` is the position-aligned seconds axis (used only by the
+        ``mad_tw_mean`` time-weighted method) — mirrors the Excel column / figure.
+        """
+        w = (sec_arr >= lo) & (sec_arr <= hi)
+        if not w.any():
+            return float("nan")
+        return _agg_mass(pd.Series(kg_arr[w]), mass_agg,
+                         timestamps=pd.Series(sec_arr[w]))[0]
+
     for sg in segments:
         s, e = sg["s"], sg["e"]
         mean_kg = None
         src = None
+        tractor_only = False
+        # 1) Loaded telematics reading in-window. >= threshold → normal line; below
+        #    it (the old "guard" case — empty-running reads absorbed into a loaded
+        #    cluster) → keep the value but MARK it tractor-only instead of dropping.
         if tele_sec is not None:
-            w = (tele_sec >= s) & (tele_sec <= e)
-            if w.any():
-                # Same robust aggregation as the Excel column / figure annotation
-                # (the report's resolved ``mass_agg`` method), so the dashed line
-                # matches the report's mass values for this event. ``tele_sec`` is
-                # the position-aligned seconds axis (used only by ``mad_tw_mean``).
-                val = _agg_mass(pd.Series(tele_kg[w]), mass_agg,
-                                timestamps=pd.Series(tele_sec[w]))[0]
-                # Tractor guard: drop stationary / empty events (figure exclusion).
-                if np.isfinite(val) and val >= TRACTOR_ONLY_MAX_KG:
-                    mean_kg, src = val, TELEMATICS
+            val = _win_agg(tele_sec, tele_kg, s, e)
+            if np.isfinite(val):
+                mean_kg, src = val, TELEMATICS
+                tractor_only = val < TRACTOR_ONLY_MAX_KG
+        # 2) No loaded reading in-window → recover the tractor-only cluster so a
+        #    bare-tractor / bobtail event still shows its ~10–11 t line, marked.
+        if mean_kg is None and tract_sec is not None:
+            val = _win_agg(tract_sec, tract_kg, s, e)
+            if np.isfinite(val):
+                mean_kg, src, tractor_only = val, TELEMATICS, True
+        # 3) Logger fallback (no clustering / tractor split — mirror the figure).
         if mean_kg is None and log_sec is not None:
-            w = (log_sec >= s) & (log_sec <= e)
-            if w.any():
-                val = _agg_mass(pd.Series(log_kg[w]), mass_agg,
-                                timestamps=pd.Series(log_sec[w]))[0]
-                if np.isfinite(val):
-                    mean_kg, src = val, LOGGER
+            val = _win_agg(log_sec, log_kg, s, e)
+            if np.isfinite(val):
+                mean_kg, src = val, LOGGER
         if mean_kg is not None:
             sg["massMeanT"] = round(float(mean_kg) / 1000.0, 3)  # kg → tonnes
             sg["massMeanSrc"] = src
+            if tractor_only:
+                sg["massTractorOnly"] = True
 
 
 def build_vehicle_payload(
@@ -1622,7 +1676,10 @@ function segmentOverlayPlugin(getSegments, concept) {
   // [s, e]. Mirrors the inspect.html / validation Panel-4 dashed line, coloured
   // by event type (trip red / charge amber) with a centred "NN.N t" label.
   // Gated by SHOW_EVENTS, so the "Event markers" toggle drives it like the
-  // triangles it replaces on this chart.
+  // triangles it replaces on this chart. Bare-tractor / bobtail events
+  // (seg.massTractorOnly — the ~10-11 t reads the Excel column excludes) are drawn
+  // in a muted grey with a finer dash + a "(tractor)" label suffix so they read
+  // distinctly from the loaded (report-tracked) mean-mass lines.
   function drawMassMeans(u) {
     if (!isMass || !SHOW_EVENTS) return;
     const segs = getSegments();
@@ -1630,7 +1687,6 @@ function segmentOverlayPlugin(getSegments, concept) {
     const ctx = u.ctx;
     const dpr = u.pxRatio || window.devicePixelRatio || 1;
     ctx.save();
-    ctx.lineWidth = Math.max(1.5, 2 * dpr);
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
     ctx.font = (10 * dpr) + "px -apple-system, 'Segoe UI', Roboto, sans-serif";
@@ -1639,16 +1695,19 @@ function segmentOverlayPlugin(getSegments, concept) {
       const yp = u.valToPos(sg.massMeanT, "y", true);
       const x0 = u.valToPos(sg.s, "x", true);
       const x1 = u.valToPos(sg.e, "x", true);
-      const col = BAND[sg.type] || "#888";
+      const tractor = !!sg.massTractorOnly;
+      const col = tractor ? "#6b7280" : (BAND[sg.type] || "#888");  // grey = tractor
+      ctx.lineWidth = tractor ? Math.max(1, 1.4 * dpr) : Math.max(1.5, 2 * dpr);
       ctx.strokeStyle = col;
-      ctx.globalAlpha = 0.95;
-      ctx.setLineDash([7, 4]);
+      ctx.globalAlpha = tractor ? 0.8 : 0.95;
+      ctx.setLineDash(tractor ? [3, 3] : [7, 4]);
       ctx.beginPath();
       ctx.moveTo(x0, yp); ctx.lineTo(x1, yp);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = col;
-      ctx.fillText(sg.massMeanT.toFixed(1) + " t", (x0 + x1) / 2, yp - 2 * dpr);
+      const label = sg.massMeanT.toFixed(1) + " t" + (tractor ? " (tractor)" : "");
+      ctx.fillText(label, (x0 + x1) / 2, yp - 2 * dpr);
     });
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -1982,11 +2041,15 @@ function buildBandLegend() {
   // + dashed mean-mass line (mass chart, in place of the triangles).
   h += '<span class="bl-item"><span class="bl-tri"></span>Event start / end markers (on each line)</span>';
   h += '<span class="bl-item"><span class="bl-line" style="border-top-style:dashed;'
-    + 'border-top-color:#6b7280"></span>Mean mass per event (mass chart)</span>';
+    + 'border-top-color:#d97706"></span>Mean mass per event (mass chart)</span>';
+  h += '<span class="bl-item"><span class="bl-line" style="border-top-style:dashed;'
+    + 'border-top-color:#6b7280"></span>Bare-tractor / bobtail (report-excluded)</span>';
   h += '<span class="bl-note">Event bands shade report events; triangles sit on each '
     + 'line at the real sample nearest each event’s start/end (per source), with '
     + 'metrics on the SoC chart (hover to read). The mass chart instead draws a '
-    + 'dashed line at each event’s mean mass (matches the validation figure). '
+    + 'dashed line at each event’s mean mass (matches the validation figure); '
+    + 'bare-tractor / bobtail events the report excludes are shown as a muted grey '
+    + 'dashed line labelled “(tractor)”. '
     + 'Drag to zoom · double-click to reset to 00:00–24:00.</span>';
   el.innerHTML = h;
   el.classList.toggle("off", !SHOW_SEG && !SHOW_EVENTS);

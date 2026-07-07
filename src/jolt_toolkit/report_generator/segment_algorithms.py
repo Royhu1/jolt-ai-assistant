@@ -1754,6 +1754,7 @@ def cluster_mass_data(
     min_cluster_gap_kg: float = MIN_CLUSTER_GAP_KG,
     speed_col: str | None = None,
     speed_threshold_kmh: float = MOVING_SPEED_THRESHOLD_KMH,
+    keep_tractor_only_label: bool = False,
 ) -> pd.DataFrame:
     """
     对遥测数据中的质量列进行 1D 聚类，为 df_raw 新增 ``mass_cluster`` 列。
@@ -1779,13 +1780,30 @@ def cluster_mass_data(
 
     NaN / 无效质量值的行不参与聚类，``mass_cluster`` 保持 NaN，``mass_moving`` 为 False。
 
+    ``keep_tractor_only_label`` (opt-in; default ``False``)
+    -------------------------------------------------------
+    When ``True`` the returned copy carries an extra boolean column
+    ``mass_tractor_only`` marking exactly the readings that step 4 判定为
+    tractor-only (cluster 0 均值 < ``TRACTOR_ONLY_MAX_KG``) and therefore blanked
+    from ``mass_cluster``. This lets a caller RECOVER those report-excluded
+    ~tractor-weight readings (e.g. the dashboard drill-down, which still wants to
+    DISPLAY bare-tractor / bobtail events, just marked distinctly) without any
+    effect on the shared segmentation contract. The default (``False``) adds no
+    column and leaves the output byte-identical to every existing caller.
+
     返回
     ----
-    带有 ``mass_cluster``（int 或 NaN）与 ``mass_moving``（bool）两列的 df_raw **副本**。
+    带有 ``mass_cluster``（int 或 NaN）与 ``mass_moving``（bool）两列的 df_raw
+    **副本**（``keep_tractor_only_label=True`` 时额外带 ``mass_tractor_only`` 布尔列）。
     """
     df = df_raw.copy()
     df['mass_cluster'] = np.nan
     df['mass_moving'] = False
+    if keep_tractor_only_label:
+        # Opt-in marker column: default False everywhere; set True only on the
+        # rows step 4 drops as tractor-only. Initialised here so every early-return
+        # path (missing / all-invalid mass) still exposes the column.
+        df['mass_tractor_only'] = False
 
     if mass_col not in df.columns:
         return df
@@ -1857,6 +1875,10 @@ def cluster_mass_data(
     #    这些行的 mass_cluster 置 NaN，使后续合并/拆分算法忽略它们
     if merged_means[0] < TRACTOR_ONLY_MAX_KG:
         tractor_mask = valid_mask & (df['mass_cluster'] == 0)
+        if keep_tractor_only_label:
+            # Record which readings we are about to blank, so an opted-in caller
+            # can recover them (the dashboard displays them, marked tractor-only).
+            df.loc[tractor_mask, 'mass_tractor_only'] = True
         df.loc[tractor_mask, 'mass_cluster'] = np.nan
         logger.info('  质量聚类: cluster 0 均值 %.0f kg < %.0f kg，'
                      '判定为 tractor-only，%d 条读数已忽略',
