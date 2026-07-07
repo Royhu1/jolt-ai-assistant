@@ -826,38 +826,16 @@ class JOLTReportGenerator:
 
     @staticmethod
     def _save_charger_data(charger_objects, out_dir):
-        """保存充电桩事务汇总数据到 CSV。"""
-        if not charger_objects:
-            return
-        charger_dir = out_dir / 'raw_charger'
-        charger_dir.mkdir(exist_ok=True)
-        rows = []
-        for ct in charger_objects:
-            try:
-                energy_kwh = None
-                if ct.start_meter is not None and ct.end_meter is not None:
-                    energy_kwh = round(ct.end_meter - ct.start_meter, 3)
-                charger = ct.charger
-                rows.append({
-                    'start_time': str(ct.start_time),
-                    'end_time': str(ct.end_time),
-                    'uri': ct.uri,
-                    'start_meter_kwh': ct.start_meter,
-                    'end_meter_kwh': ct.end_meter,
-                    'energy_delivered_kwh': energy_kwh,
-                    'charger_label': getattr(charger, 'label', None),
-                    'charger_make': getattr(charger, 'make', None),
-                    'charger_model': getattr(charger, 'model', None),
-                    'charger_max_power_kw': getattr(charger, 'max_power', None),
-                    'charger_dc': getattr(charger, 'dc', None),
-                })
-            except Exception as exc:
-                logging.warning("充电桩事务解析失败: %s", exc)
-        if rows:
-            df = pd.DataFrame(rows)
-            csv_path = charger_dir / 'charger_transactions.csv'
-            df.to_csv(csv_path, index=False)
-            logging.info("保存充电桩事务: %d 条 -> %s", len(rows), csv_path.name)
+        """保存充电桩事务汇总数据到 CSV（合并已有数据，按 uri 去重）。
+
+        委托给 charger_patcher.merge_save_charger_transactions —— 每次运行只拉取本
+        周期的事务，若直接覆盖会让 raw_charger CSV 忘掉窗口外的历史，故改为「与现有
+        CSV 合并、按 uri 去重（保留最新）、按 start_time 排序」。schema 与旧版一致。
+        """
+        from jolt_toolkit.report_generator.charger_patcher import (
+            merge_save_charger_transactions,
+        )
+        merge_save_charger_transactions(charger_objects, out_dir)
 
     @staticmethod
     def _save_logger_data(logger_legs, out_dir, source: str = "SRFLOGGER"):

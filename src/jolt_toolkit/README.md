@@ -1325,12 +1325,60 @@ In normal mode the generator automatically calls the ChargerPatcher and LoggerPa
 
 ### ChargerPatcher — charger links
 
-Fetches charger events from the SRF API and patches the Charger Link column by time-window matching.
+Fetches charger transactions from the SRF API and patches the Charger Link column by
+time-window matching (leg vs transaction, ±4 min tolerance).
 
 ```python
 from jolt_toolkit.report_generator.charger_patcher import ChargerPatcher
 ChargerPatcher().patch_file("excel_report_database/2.2.2/KY24LHT/jolt_report_KY24LHT_20250101_20250131.xlsx")
 ```
+
+**Charging-leg matching (all charge types).** A row is treated as a charging leg when
+its Leg Type contains any of `AC` / `DC` / **`Charge`**. The `Charge` case is essential:
+the report builder emits the generic types `Charge Home` / `Charge Away` for every
+charging leg of a vehicle whose AC/DC counters cannot be attributed (EX74JXW / EX74JXY /
+LN25NKE / YN25RSY / YN75NMA) plus scattered legs on every other EV. Before this was
+added, such legs never received a Charger Link even when SRF held the transactions.
+
+**Multi-transaction legs.** A single charging leg can span several charger transactions —
+dual-gun chargers (e.g. a Nidec `DC-360-360`) record two interleaved meter series, and a
+long stop can hold several sequential sessions. `_find_charger_matches` collects **all**
+windows overlapping the leg; the `Energy Output from Charger (kWh)` cell is written as the
+**sum** of the non-None energies of every overlapping window (None if all are None), and
+the hyperlink points at the earliest-starting window's charger URI.
+
+**Merged `raw_charger/charger_transactions.csv` persistence.** In `--debug` runs the
+generator saves the period's charger transactions via the shared helper
+`charger_patcher.merge_save_charger_transactions()`, which **merges** with any existing
+CSV (concat → de-duplicate by `uri`, keeping the newest → sort by `start_time`) instead of
+overwriting. This keeps the per-vehicle CSV accumulating forward in time (each generation
+run only sees its own period's transactions), so the dashboard raw-data base and the
+data-collection monitor keep seeing the full charger history. `_generator._save_charger_data`
+and the backfill CLI below both call this one helper, so they persist identically.
+
+**Backfill CLI.** Charger transactions that arrive in SRF after a report was generated
+(or reports rebuilt by `recompute_v227`, which preserves links verbatim) can be patched
+in retroactively:
+
+```bash
+# a single report, a vehicle directory, or a whole version directory
+python -m jolt_toolkit.report_generator.charger_patcher \
+    excel_report_database/2.2.7/EX74JXY
+python -m jolt_toolkit.report_generator.charger_patcher \
+    excel_report_database/2.2.7 --persist-raw
+```
+
+- Accepts a single `jolt_report_*.xlsx`, a vehicle directory (patches every
+  `jolt_report_*.xlsx` inside, skipping `*_finetuned*`), or a version directory (iterates
+  the vehicle sub-directories, skipping `dashboard/`).
+- For each report it fetches the SRF charger transactions for that report's own period
+  (keyed by `vehicle.registration`) and fills **only empty** Charger Link cells — it is
+  idempotent, never touching an already-linked cell, so re-running patches nothing new.
+- Diesel vehicles (`fuel_type == DIESEL`: WU70GLV, YT21EFD) are skipped.
+- `--persist-raw` also merge-saves each vehicle's fetched transactions into its
+  `raw_charger/charger_transactions.csv` (same merge helper as above).
+- `SRF_API_KEY` is read from the environment; if it is absent the CLI loads it from the
+  repo-root `.env` (dependency-free manual parse).
 
 ### LoggerPatcher — Logger links + weather
 
