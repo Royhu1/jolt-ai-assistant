@@ -1,48 +1,72 @@
 """
 recompute_v227
 ==============
-Fast, SRF-free regeneration of the fleet at **v2.2.7** from the cached **v2.2.6**
-artefacts (``excel_report_database/2.2.6/<REG>/``).
+Fast, SRF-free regeneration of the fleet at a **post-segmentation release** from
+the cached artefacts of the previous version (``excel_report_database/<src>/<REG>/``).
+
+Despite the historical name, this is the **general** cached-recompute tool for any
+release whose changes are all post-segmentation; it is ``--src-ver`` / ``--dst-ver``
+parameterised. It was first used for **2.2.6 → 2.2.7** and is now the migration
+path for **2.2.7 → 2.2.8**.
 
 Why this exists
 ---------------
-The v2.2.7 changes (``fix/capacity-correction-counter-energy``) are **both
-post-segmentation**:
+The v2.2.7 change (``fix/capacity-correction-counter-energy``) and the v2.2.8
+change (this branch) are **both post-segmentation**:
 
-1. **MODE A step-2 gate** — an outlier IMPLIED capacity only rewrites the
-   *capacity* column; counter-sourced legs keep their counter energy instead of
-   being overwritten by ``SOC × capacity``.
-2. **ΔSOC-weighted donor capacity** (:func:`_soc_weighted_cap`).
+* v2.2.7 — **MODE A step-2 gate** (an outlier IMPLIED capacity only rewrites the
+  *capacity* column; counter-sourced legs keep their counter energy) +
+  **ΔSOC-weighted donor capacity** (:func:`_soc_weighted_cap`).
+* v2.2.8 — **per-vehicle SOC-energy fallback** inside ``_correct_effective_capacity``
+  (opt-in ``soc_energy_fallback`` in vehicles.json; an outlier counter-sourced leg
+  with a large, reliable ΔSOC and a far-off implied capacity is re-derived from
+  ``SOC × effective capacity`` and marked ``'soc_fallback'``). The v2.2.8 charger
+  fusion fix is applied **separately** via the ``charger_patcher`` backfill CLI, not
+  here — this tool only carries the ``raw_charger/`` dir forward (see below).
 
 The **segmentation is unchanged**, so a full regen (SRF re-pull + logger channel
 loads at 1 Hz — slow and memory-heavy) is wasteful. This module instead re-runs
 the **real** ``run_segment_detection`` on the locally-cached per-FPS-leg raw
 telematics CSVs (``raw_telematics/raw_*.csv``), feeds the segments through the
-**real** ``_seg_to_row`` and the **real** ``_correct_effective_capacity`` (v2.2.7),
-then writes the report with the real ``_write_excel_report`` (charts included).
-Because it re-uses the actual pipeline functions on the identical raw, the result
-is provably identical to a full regen (verified byte-exact on the 3 Knowles
-AV24LXJ/K/L for 8 of 9 quarters; the most-recent quarter differs only because the
-cache holds slightly fewer donor legs than a fresh SRF pull — a data-vintage
-effect, not a logic difference).
+**real** ``_seg_to_row`` and the **real** ``_correct_effective_capacity`` (with the
+per-vehicle ``soc_fallback`` resolved from the config), then writes the report with
+the real ``_write_excel_report`` (charts included). Because it re-uses the actual
+pipeline functions on the identical raw, the result is provably identical to a full
+regen (verified byte-exact on the 3 Knowles AV24LXJ/K/L for 8 of 9 quarters; the
+most-recent quarter differs only because the cache holds slightly fewer donor legs
+than a fresh SRF pull — a data-vintage effect, not a logic difference).
 
 Everything the recompute cannot re-derive without SRF / logger / weather patchers
 (weather columns, operator, charger/logger links, place names, logger-filled mass,
-pedal histograms) is **preserved verbatim** from the 2.2.6 xlsx via a per-vehicle
+pedal histograms) is **preserved verbatim** from the src xlsx via a per-vehicle
 ``start_time`` lookup — so NO weather re-patch is needed. Kinetics-corrected EP is
 reconstructed exactly from the energy-independent ``ke_per_d`` term carried in the
-2.2.6 ``(EP_corrected − EP_kinetics)`` difference.
+src ``(EP_corrected − EP_kinetics)`` difference.
 
-Output layout mirrors the full-regen v2.2.7 convention: **one report per
-meteorological quarter** (DJF/MAM/JJA/SON, inclusive end, no overlap — which also
-dedups the boundary-day double-dumps present in the 2.2.6 cache).
+What is written vs carried forward (per vehicle)
+------------------------------------------------
+* **Recomputed & written**: the ``.xlsx`` reports (energy / EP / capacity / SOC /
+  distance / elevation / the embedded Graphs charts), one per **meteorological
+  quarter** (DJF/MAM/JJA/SON, inclusive end, no overlap — which also dedups the
+  boundary-day double-dumps in the cache).
+* **Overlaid in-cell (verbatim from src)**: weather (6 cols), operator, place
+  names, charger/logger link targets, pedal histograms, Vehicle Mass + CV.
+* **Copied forward verbatim (dirs + files)** by :func:`_copy_forward_artifacts`:
+  ``raw_telematics/``, ``validation_figures/``, ``raw_charger/`` and
+  ``raw_logger*/``, plus the ``inspect_*.html`` viewers. **The first 2.2.7 run
+  did NOT copy ``raw_charger/`` / ``raw_logger*/`` forward, which broke charger /
+  logger visibility in the dashboard & data-collection-monitor — now fixed.**
+  (``validation_figures`` / ``inspect_*.html`` reflect the src energy on the few
+  ``soc_fallback``-rewritten legs; regenerating them needs an SRF debug run.)
 
-Diesel vehicles (WU70GLV / YT21EFD) have no SOC/counter energy, so the v2.2.7
-change does not apply — their 2.2.7 is an unchanged copy of 2.2.6.
+Diesel vehicles (WU70GLV / YT21EFD) have no SOC/counter energy, so neither the
+v2.2.7 nor the v2.2.8 change applies — their dst is an unchanged copy of src
+(xlsx + artefact dirs + inspect HTML).
 
-This is a one-off migration tool; it does **not** modify any core pipeline code
-and does **not** persist to ``vehicles.json`` (kept canonical). The rolled-up +
-quarterly ΔSOC-weighted effective capacity is computed and logged for reference.
+This is a migration tool; it does **not** modify any core pipeline code and does
+**not** persist to ``vehicles.json`` (kept canonical — capacity persistence is
+LOG-ONLY here). The rolled-up + quarterly ΔSOC-weighted effective capacity is
+computed and logged for reference.
 """
 from __future__ import annotations
 
@@ -77,6 +101,7 @@ from jolt_toolkit.report_generator._generator import (
     JOLTReportGenerator,
     _period_capacity_from_rows,
     _recompute_weighted_capacity,
+    _resolve_soc_fallback,
     _IDX_CAP, _IDX_ENERGY, _IDX_SOC_CHANGE, _IDX_EPERF, _IDX_DISTANCE,
     _IDX_ESOURCE, _IDX_BPOWER, _IDX_DURATION, _IDX_EPERF_CORR, _IDX_ELEV,
     _IDX_MASS, _IDX_EPERF_KIN, _IDX_START, _IDX_LEG_TYPE, _IDX_EP_EXCL_AUX,
@@ -328,13 +353,16 @@ def _recompute_report(reg, all_rows, cfg, qstart, qend, lookup, out_path):
             cvv = _num(rec['Vehicle Mass CV (reliability)'])
             row[_IDX_MASS_CV] = cvv if cvv is not None else float('nan')
 
-    # v2.2.7 effective-capacity correction (MODE A gate + ΔSOC-weighted donors)
+    # effective-capacity correction (MODE A gate + ΔSOC-weighted donors); v2.2.8
+    # additionally applies the per-vehicle SOC-energy fallback resolved from cfg
+    # (opt-in via vehicles.json 'soc_energy_fallback'; None → unchanged MODE A).
     soc_est_cap = (cfg.get('effective_capacity_kwh') or cfg.get('srf_capacity_kwh')
                    or cfg.get('nominal_kwh'))
     rows2, _eff, _src = JOLTReportGenerator._correct_effective_capacity(
         rows, _IDX_CAP, _IDX_ENERGY, _IDX_SOC_CHANGE, _IDX_EPERF, _IDX_DISTANCE,
         _IDX_ESOURCE, _IDX_BPOWER, _IDX_DURATION, _IDX_EPERF_CORR, _IDX_ELEV,
-        _IDX_MASS, soc_est_cap, _IDX_EPERF_KIN, idx_start=_IDX_START)
+        _IDX_MASS, soc_est_cap, _IDX_EPERF_KIN, idx_start=_IDX_START,
+        soc_fallback=_resolve_soc_fallback(cfg))
 
     # EP fallback pass (mirror _generate_report): non-discharge rows → NaN EP cols
     for row in rows2:
@@ -430,9 +458,59 @@ def _recompute_report(reg, all_rows, cfg, qstart, qend, lookup, out_path):
     return len(rows3), pcap, pn, psrc
 
 
+# Non-recomputable per-vehicle artefact directories carried forward verbatim from
+# the src version dir (the SRF-free recompute writes only the .xlsx). raw_logger*
+# variants are discovered dynamically. See :func:`_copy_forward_artifacts`.
+_AUX_COPY_DIRS_STATIC = ['raw_telematics', 'validation_figures', 'raw_charger']
+
+
+def _copy_forward_artifacts(src_dir: Path, dst_dir: Path,
+                            overwrite: bool = False) -> list[str]:
+    """Copy the non-recomputable per-vehicle artefact dirs + inspect HTML forward
+    from the src version dir to the dst version dir.
+
+    The recompute writes only the .xlsx (with embedded Graphs charts). Everything
+    else the downstream tooling expects under a version dir is copied verbatim:
+
+    * ``raw_telematics/`` — dashboard telematics-day detection + future replays;
+    * ``validation_figures/`` — per-day validation PNGs;
+    * ``raw_charger/`` and ``raw_logger*/`` — dashboard / data-collection-monitor
+      charger + logger visibility. **The first 2.2.7 recompute run OMITTED these,
+      which broke charger visibility in the dashboard/monitor — the reason this
+      helper exists.**
+    * ``inspect_*.html`` — the per-report HTML viewers.
+
+    Staleness caveat: ``validation_figures`` / ``inspect_*.html`` embed the src
+    version's energy on ``soc_fallback``-rewritten legs (segmentation is unchanged,
+    only the energy/EP of a few outlier legs moves); regenerating them requires an
+    SRF debug run. This is the same accepted trade-off as the preserved weather
+    columns, and only affects debug-only artefacts. Returns the names copied.
+    """
+    copied: list[str] = []
+    dir_names = list(_AUX_COPY_DIRS_STATIC)
+    dir_names += sorted(p.name for p in src_dir.glob('raw_logger*') if p.is_dir())
+    for name in dir_names:
+        s = src_dir / name
+        if not s.is_dir():
+            continue
+        d = dst_dir / name
+        if d.exists() and not overwrite:
+            continue
+        shutil.copytree(s, d, dirs_exist_ok=True)
+        copied.append(name + '/')
+    for html in sorted(src_dir.glob('inspect_*.html')):
+        d = dst_dir / html.name
+        if d.exists() and not overwrite:
+            continue
+        shutil.copy2(html, d)
+        copied.append(html.name)
+    return copied
+
+
 def recompute_vehicle(reg: str, db_root: Path, src_ver: str, dst_ver: str,
                       overwrite: bool = False) -> dict:
-    """Recompute all meteorological-quarter v2.2.7 reports for one EV."""
+    """Recompute all meteorological-quarter reports for one EV, then carry the
+    non-recomputable artefact dirs (raw_*/validation_figures/inspect HTML) forward."""
     src_dir = db_root / src_ver / reg
     dst_dir = db_root / dst_ver / reg
     dst_dir.mkdir(parents=True, exist_ok=True)
@@ -467,14 +545,21 @@ def recompute_vehicle(reg: str, db_root: Path, src_ver: str, dst_ver: str,
         logger.info('  [%s] %s : %d rows, periodcap=%s n=%s src=%s',
                     reg, out_path.name, n,
                     None if pcap is None else round(pcap, 2), pn, psrc)
+    aux = _copy_forward_artifacts(src_dir, dst_dir, overwrite)
+    if aux:
+        logger.info('  [%s] carried forward %d artefact(s): %s',
+                    reg, len(aux), ', '.join(aux))
     wavg, n_rel, n_sparse = _recompute_weighted_capacity(dict(quarterly))
     return {'reg': reg, 'reports': made, 'quarterly': quarterly,
-            'rolled_up_kwh': wavg, 'n_reliable_q': n_rel}
+            'rolled_up_kwh': wavg, 'n_reliable_q': n_rel, 'aux_copied': aux}
 
 
 def copy_diesel(reg: str, db_root: Path, src_ver: str, dst_ver: str,
                 overwrite: bool = False) -> dict:
-    """Diesel: v2.2.7 == unchanged copy of v2.2.6 (no SOC/counter energy)."""
+    """Diesel: dst == unchanged copy of src (no SOC/counter energy, so the
+    SOC-fallback / capacity correction do not apply). Copies the xlsx reports plus
+    all non-recomputable artefact dirs (raw_logger*/raw_telematics/validation_figures)
+    and the inspect HTML forward."""
     src_dir = db_root / src_ver / reg
     dst_dir = db_root / dst_ver / reg
     dst_dir.mkdir(parents=True, exist_ok=True)
@@ -485,25 +570,28 @@ def copy_diesel(reg: str, db_root: Path, src_ver: str, dst_ver: str,
             continue
         shutil.copy2(xlsx, dst)
         copied.append(xlsx.name)
-    # also copy inspect HTML for parity (optional, cheap)
-    for html in sorted(src_dir.glob(f'inspect_jolt_report_{reg}_*.html')):
-        dst = dst_dir / html.name
-        if not dst.exists() or overwrite:
-            shutil.copy2(html, dst)
-    return {'reg': reg, 'copied': copied}
+    # carry forward artefact dirs + inspect HTML (raw_charger absent for diesel).
+    aux = _copy_forward_artifacts(src_dir, dst_dir, overwrite)
+    return {'reg': reg, 'copied': copied, 'aux_copied': aux}
 
 
-EV_FLEET = ['CMZ6260', 'EV73SAL', 'EX74JXW', 'EX74JXY', 'KY24LHT', 'LN25NKE',
-            'N88GNW', 'T88RNW', 'TA70WTL', 'YK73WFN', 'YN25RSY', 'YN75NMA']
+# All 15 EV present in the report DB (the 3 Knowles AV24LX* were full-regen'd for
+# 2.2.7 rather than recompute'd, so the original list omitted them; for the
+# 2.2.7→2.2.8 recompute they must be covered too). + 2 diesel = 17 vehicles.
+EV_FLEET = ['AV24LXJ', 'AV24LXK', 'AV24LXL', 'CMZ6260', 'EV73SAL', 'EX74JXW',
+            'EX74JXY', 'KY24LHT', 'LN25NKE', 'N88GNW', 'T88RNW', 'TA70WTL',
+            'YK73WFN', 'YN25RSY', 'YN75NMA']
 DIESEL_FLEET = ['WU70GLV', 'YT21EFD']
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description='Fast SRF-free v2.2.7 recompute from 2.2.6 cache.')
+    ap = argparse.ArgumentParser(
+        description='Fast SRF-free cached recompute for a post-segmentation release '
+                    '(e.g. 2.2.7 -> 2.2.8). Reads src version dir, writes dst.')
     ap.add_argument('--db-root', default='./excel_report_database')
-    ap.add_argument('--src-ver', default='2.2.6')
-    ap.add_argument('--dst-ver', default='2.2.7')
-    ap.add_argument('--veh', nargs='*', help='vehicles (default: 12 EV + 2 diesel)')
+    ap.add_argument('--src-ver', default='2.2.7')
+    ap.add_argument('--dst-ver', default='2.2.8')
+    ap.add_argument('--veh', nargs='*', help='vehicles (default: 15 EV + 2 diesel)')
     ap.add_argument('--overwrite', action='store_true')
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format='%(message)s')

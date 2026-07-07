@@ -2007,7 +2007,10 @@ def _write_excel_report(
             'Energy Source: "ac_dc" = charging energy from AC+DC telematics counters; '
             + '"total_energy" = discharge energy from total_electric_energy_used_plugged_in_included; '
             + '"moving_energy" = discharge energy from electric_energy_wheelbased_speed_over_zero; '
-            + '"soc_estimate" = energy estimated from SOC change × nominal capacity.',
+            + '"soc_estimate" = energy estimated from SOC change × nominal capacity; '
+            + '"soc_fallback" = discharge energy re-derived from SOC change × effective '
+            + 'capacity where the energy counter anchor was stale (outlier implied '
+            + 'capacity with a large, reliable SOC change).',
             "Energy Performance Kinetics Corrected (kWh/km): Elevation + per-second kinetic energy "
             + "corrected energy performance. Uses Logger 1Hz speed data to compute ΔKE per second, "
             + "with 90% regenerative braking efficiency (η_regen = 0.90). "
