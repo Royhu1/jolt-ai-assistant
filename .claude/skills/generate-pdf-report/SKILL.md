@@ -92,6 +92,13 @@ produced; `pdf_report_workspace/` only holds the artefacts.
     else the xlsx **event** charge-leg AC+DC sum. The event sum only counts SEGMENTED charge sessions
     and **under-captures by 5–36%** (partial / un-segmented / gap-period charging); the raw counter
     captures all of it. SoC stats (median start / mean end) always stay event-based (no raw equivalent).
+  - **Charge legs = Home AND Away** (`CHARGE` covers all six leg types `AC/DC/Charge × Home/Away`,
+    since 2026-07-08): Away legs are real charging sessions (public/en-route chargers). The old
+    Home-only set under-counted sessions fleet-wide (EV73SAL ~83, LN25NKE ~58 Away legs excluded)
+    and broke down when the 2.2.8 recompute reclassified CMZ6260's depot charges to Away (Home
+    68→8: the briefing showed 0 sessions / "—" SoC against a 10.6 MWh charged total on the same
+    page). Session count, SoC stats, the SoC histogram and the event AC/DC fallback sums all
+    include Away legs.
 
   So e.g. **Scania (EX74JXW/JXY), DAF (LN25NKE), Mercedes (YN25RSY/YN75NMA) populate the odometer
   but NOT the energy/recup/charge counters** → they get a **raw (complete) Total Distance** yet keep

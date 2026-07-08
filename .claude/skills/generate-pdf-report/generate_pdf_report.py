@@ -44,7 +44,11 @@ WORKSPACE = PROJECT / "pdf_report_workspace"  # artefact store: output/ + HERE-t
 TEMPLATE = ROOT / "templates" / "report_template.html.j2"
 
 DRIVE = {"Outbound", "Return", "In Transit", "Round Trip", "In House"}
-CHARGE = {"DC Home", "AC Home", "Charge Home"}
+# Away legs are real charging sessions (public/en-route chargers) and must count: Home-only
+# under-counted fleet-wide (EV73SAL ~83, LN25NKE ~58 Away legs) and broke down entirely once the
+# 2.2.8 recompute reclassified CMZ6260's depot charges to Away (Home 68->8: sessions showed 0
+# against a 10.6 MWh charged total on the same page).
+CHARGE = {"DC Home", "AC Home", "Charge Home", "DC Away", "AC Away", "Charge Away"}
 
 # JOLT 配置（plot_config.json 子集 + vehicles.json 取电池容量）
 PLOT_CFG = json.loads((PROJECT / "src/jolt_toolkit/configs/plot_config.json").read_text(encoding="utf-8"))
