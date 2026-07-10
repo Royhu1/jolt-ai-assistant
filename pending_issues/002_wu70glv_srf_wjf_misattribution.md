@@ -30,10 +30,13 @@ generator's data-driven operator derivation faithfully copies it.
 
 ## Suggested fix
 
-Ask SRF to correct the trial record; if not feasible, add a pipeline-side operator
+**Action (user, 2026-07-10): report this to the SRF platform team for correction** — the
+trial record for WU70GLV's 2025-09-01 → 2025-11-06 legs should be reassigned from the WJF
+round-robin trial to DP World. If the platform cannot fix it, add a pipeline-side operator
 override (e.g. a per-vehicle date-ranged correction map consulted by the operator
 derivation in `jolt_toolkit`) — route to jolt-toolkit-dev. Re-check after the next SRF
-sync whether the token is fixed before building overrides.
+sync whether the token is fixed before building overrides. (The status spreadsheet no
+longer carries an inline note about this — this issue file is the record.)
 
 ## References
 

@@ -149,17 +149,23 @@ for op, rows in GROUPS:
     for veh, _vs, reg, ttype, comp, period, ok in rows:
         light = 0.80 if (r % 2 == 0) else 0.90
         # round 1 filled from the current batch; PDF sent left for manual upkeep; round 2 blank.
-        # planned rows (ok=None): grey text, "—" in PDF generated, reg often TBD.
-        tick = "—" if ok is None else ("✓" if ok else "✗")
-        sent = "✓" if (op, reg) in SENT_R1 else ""
-        vals = [op, veh, reg, ttype, comp, period, tick, sent] + [""] * ROUND_COLS
+        # PDF-generated states are WORDS (no symbols, user 2026-07-10): Done / Not needed
+        # (diesel comparators - no partner PDF planned) / No data yet (planned rows) /
+        # "To be done" (pass a string in GROUPS when data exists but the PDF is pending).
+        gen = {True: "Done", False: "Not needed", None: "No data yet"}.get(ok, str(ok))
+        sent = "Sent" if (op, reg) in SENT_R1 else ""
+        vals = [op, veh, reg, ttype, comp, period, gen, sent] + [""] * ROUND_COLS
         for j, v in enumerate(vals, start=1):
             c = ws.cell(row=r, column=j, value=v if v != "" else None)
-            bold = (j == 3 and v != "TBD") or (j == 5 and v not in (NEEDED, REQUESTED, "—", "Not needed") and "planned" not in v) or (j == 8 and v == "✓")
+            bold = (j == 3 and v != "TBD") or (j == 5 and v not in (NEEDED, REQUESTED, "—", "Not needed") and "planned" not in v)
             if ok is None:
                 colour = "7F7F7F"
             else:
-                colour = ("4F6228" if ok else "943734") if j == 7 else ("4F6228" if j == 8 and v == "✓" else "262626")
+                colour = "262626"
+            if j == 7:
+                colour = "4F6228" if v == "Done" else "595959"
+            if j == 8 and v == "Sent":
+                colour = "4F6228"
             c.font = Font(name="Arial", size=14, bold=bold, color=colour)
             c.fill = PatternFill("solid", fgColor=hexs(tint(col_accent[j - 1], light)))
             c.alignment = Alignment(horizontal="left" if j in (1, 2, 6, 9) else "center",
@@ -170,19 +176,12 @@ for op, rows in GROUPS:
         ws.merge_cells(start_row=g0, start_column=1, end_row=r - 1, end_column=1)
         ws.cell(row=g0, column=1).alignment = Alignment(horizontal="left", vertical="center")
 NOTES = [
-    "One row per trial (vehicle-operator stint); trial periods = briefing operating period "
-    "(diesel comparators: observed data span).",
-    "Diesel comparator: reg = comparator data exists; 'Needed (no data yet)' = planned, not "
-    "collected; 'Requested (no data yet)' = operating data requested from the operator; "
-    "'—' = the row IS a comparator.",
-    "Each ROUND group (Trial period / PDF generated / PDF sent) records one reporting cycle — "
-    "fill 'PDF sent' when a round's PDFs go out, then record the next cycle under the next round "
-    "(add further round columns as needed).",
-    "Reg TBD / grey rows = PLANNED trials (data collection upcoming; Co-Op Scania BEV pending a "
-    "telematics health check).",
-    "WU70GLV shown as one continuous DP World trial — its SRF 'WJF' attribution (2025-09→11) "
-    "is a platform data error (vehicle never lent to WJF).",
-    "Canonical flat table: pdf_report_status.md.",
+    "PDF generated / PDF sent — Done: report generated; Sent: report delivered; To be done: "
+    "data available, report pending; No data yet: data collection not started; Not needed: no "
+    "partner PDF planned (diesel comparator vehicles).",
+    "Diesel comparator — a reg (e.g. YT21EFD): comparator data exists; Requested (no data yet): "
+    "operating data requested from the operator; Needed (no data yet): planned, not yet requested; "
+    "—: the row is itself a comparator.",
 ]
 for k, note in enumerate(NOTES):
     c = ws.cell(row=r + 1 + k, column=1, value=note)
