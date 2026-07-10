@@ -56,7 +56,7 @@ GROUPS = [
     ("John Lewis Partnership", [
         ("Volvo FM Electric", "Volvo FM", "KY24LHT", "BYO", NEEDED, "2024-06-21 – 2025-03-20", True),
         ("Scania P-series BEV", "Scania BEV", "EX74JXY", "BYO", NEEDED, "2025-04-11 – 2026-05-03", True),
-        ("DAF XD Electric", "DAF XD", "LN25NKE", "Round-robin", NEEDED, "2025-09-01 – 2025-12-29", "To be done"),
+        ("DAF XD Electric", "DAF XD", "LN25NKE", "Round-robin", NEEDED, "2025-09-01 – 2025-12-29", True),
         ("Volvo FH Electric", "Volvo FH", "CMZ6260", "Round-robin", NEEDED, "2025-10-30 – 2025-12-23", True),
     ]),
     ("Knowles", [
@@ -73,7 +73,7 @@ GROUPS = [
         ("Renault E-Tech D Wide", "Renault D Wide", "T88RNW", "BYO", NEEDED, "2024-06-11 – 2026-07-03", True),
         ("Renault Trucks D Wide Z.E.", "Renault D Wide ZE", "N88GNW", "BYO", NEEDED, "2024-10-11 – 2026-07-03", True),
         ("Renault E-Tech T", "Renault E-Tech T", "TA70WTL", "BYO", NEEDED, "2025-05-03 – 2026-07-03", True),
-        ("DAF XD Electric", "DAF XD", "LN25NKE", "Round-robin", NEEDED, "2026-01-14 – 2026-04-07", "To be done"),
+        ("DAF XD Electric", "DAF XD", "LN25NKE", "Round-robin", NEEDED, "2026-01-14 – 2026-04-07", True),
         ("Scania P-series BEV", "Scania BEV", "EX74JXW", "Round-robin", NEEDED, "2026-02-26 – 2026-04-29", True),
     ]),
     ("William Jackson Food", [
@@ -82,7 +82,7 @@ GROUPS = [
         ("Scania P410 (diesel)", "Scania P410", "YT21EFD", "BYO", "—", "2025-08-30 – 2026-07-04", False),
     ]),
     ("WS", [
-        ("DAF XD Electric", "DAF XD", "LN25NKE", "Round-robin", NEEDED, "2026-04-16 – 2026-07-03", "To be done"),
+        ("DAF XD Electric", "DAF XD", "LN25NKE", "Round-robin", NEEDED, "2026-04-16 – 2026-07-03", True),
     ]),
 ]
 # xlsx: 5 fixed columns + REPEATABLE per-round groups (Trial period / PDF generated /
