@@ -3,7 +3,19 @@
 One row per **trial** (a vehicle's stint with one operator). BYO = the operator's own
 dedicated vehicle; Round-robin = a shared JOLT vehicle rotating between operators (the
 operator token comes from the SRF "JOLT Round Robin: `<OP>-<OEM>`" trial description,
-dedicated vehicles from the SRF `organisation.name`). Generated PDFs live in
+dedicated vehicles from the SRF `organisation.name`).
+
+**Diesel comparator** = a conventional diesel truck enrolled in JOLT **not as a trial
+vehicle but as the fuel-consumption baseline** for the same operator's duty cycles (the
+EV-vs-diesel comparison every trial ultimately needs). Designation logic: a vehicle is a
+comparator iff it is a diesel in the fleet config (`vehicles.json` `fuel_type: DIESEL`) —
+currently **YT21EFD** (Scania P410, onboarded 2026-06-19 as William Jackson Food's
+baseline) and **WU70GLV** (DAF XF 450, DP World's). Comparators get Excel reports (fuel
+energy) but **no partner PDF briefing** (the briefing generator is EV-only → "Not needed"
+in the spreadsheet). On EV trial rows, the spreadsheet's Diesel-comparator column records
+whether that operator has such a baseline: a reg = comparator data exists; Requested /
+Needed (no data yet) = pending; the planned comparators (Co-Op ×2, DP World ×7, HTL,
+Knowles) follow the operator plans recorded 2026-07-10. Generated PDFs live in
 `output_by_20260710/<REG>_<OPERATOR>_<period>/` (Round-1 set, finalised 2026-07-10; future rounds are built in `output_by_TBD/`), produced by the `generate-pdf-report` skill from
 report database **2.2.8** (batch of 2026-07-08). Periods are the briefing **operating
 period** (first → last valid trip); for the diesel vehicles (no partner briefing yet)
@@ -50,9 +62,9 @@ the observed data span is given instead.
 ## Notes
 
 - **22 EV trials have a generated briefing** (all "Yes" rows; each briefing dir also
-  carries the `_xlsxkpi` page-1 variant and a verification workbook). The 4 diesel
-  trial rows (YT21EFD, WU70GLV) have no partner briefing yet — the briefing generator
-  currently targets EVs only.
+  carries the `_xlsxkpi` page-1 variant and a verification workbook). The 2 diesel
+  rows (YT21EFD, WU70GLV) are comparators — no partner briefing by design (the
+  briefing generator targets EVs only; see the definition above).
 - **EX74JXW / Welch Transport** is a sparse stint (11 valid trips); its briefing was
   generated with `--min-operator-trips 10` and its load-point / temperature analysis
   is flagged unreliable in the skill notes.

@@ -32,7 +32,9 @@ Distance but keeps the segment energy/charged. Full detail: the skill's `SKILL.m
 pdf_report_workspace/
 ├── pdf_report_status.md              # per-trial briefing coverage table (operator, vehicle,
 │                                     # reg, BYO/round-robin, period, PDF generated?) —
-│                                     # committed; update after each briefing batch
+│                                     # committed; update after each briefing batch. Also
+│                                     # defines "diesel comparator" (= fuel_type DIESEL
+│                                     # baseline truck, no partner PDF by design)
 ├── pdf_report_status.xlsx            # operator-grouped spreadsheet version (+ Diesel
 │                                     # comparator column, merged cells) — gitignored;
 ├── build_pdf_report_status.py        # rebuilds the xlsx AND the 0715 deck's two table
