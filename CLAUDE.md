@@ -18,6 +18,10 @@ Data processing and analysis for the "Joint Operators Logistics Trial" (JOLT) pr
 
 @./.claude/rules/naming.md
 
+## Presentation Convention
+
+@./.claude/rules/presentation-style.md
+
 ## Language Convention
 
 - **Default language: British English.**
