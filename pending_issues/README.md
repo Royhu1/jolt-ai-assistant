@@ -18,3 +18,4 @@ one Markdown file per issue, with this README as the index. The point is to make
 | # | Issue | Status | Owner |
 |---|-------|--------|-------|
 | 001 | [Excel report / dashboard regen energy under-counted to ~5% (should be ~19%)](001_xlsx_regen_propulsion_undercounted.md) | OPEN | jolt-toolkit-dev |
+| 002 | [WU70GLV legs mis-attributed to WJF in SRF (2025-09 to 2025-11)](002_wu70glv_srf_wjf_misattribution.md) | OPEN | jolt-toolkit-dev / SRF |

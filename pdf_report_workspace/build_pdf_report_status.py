@@ -1,5 +1,7 @@
 # Build the operator-grouped PDF-report status spreadsheet AND rebuild the two deck
-# table slides in the same structure (7 columns incl. Trial type + Diesel comparator).
+# table slides (0715 Data Subcommittee Report). Single data source: GROUPS below.
+# xlsx keeps full names + separate Vehicle/Reg columns; the deck merges Vehicle+Reg into
+# one column and uses compact display names so every cell stays single-line at 18 pt.
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -9,66 +11,86 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Inches, Pt
 
-ROOT = Path(r"D:\OneDrive - University of Cambridge\Research\JOLT_Report")
+ROOT = Path(__file__).resolve().parents[1]
 XLSX = ROOT / "pdf_report_workspace" / "pdf_report_status.xlsx"
 PPTX = ROOT / "monthly_presentation" / "20260715" / "20260715Data Subcommittee Report v1.0.pptx"
 
-# ── data: one row per trial, grouped by operator (alphabetical); within a group EVs
-#    first then diesel comparators; same-vehicle stints kept adjacent for merging ──
-# (operator, vehicle, reg, trial_type, diesel, period, pdf_ok)
+NEEDED = "Needed (no data yet)"
+# WU70GLV's 2025-09→11 legs carry a WJF round-robin token in SRF, but the vehicle is DP
+# World's and was never lent to WJF (user-confirmed SRF data error, 2026-07-10) — it is
+# therefore ONE continuous DP World trial here, and only YT21EFD is WJF's comparator.
+# (operator display name, [(vehicle_full, vehicle_short, reg, trial_type, diesel_comparator, period, pdf_ok)])
+# pdf_ok: True = PDF generated, False = not generated, None = PLANNED trial (data collection
+# upcoming, reg often TBD) — planned rows appear in the xlsx only, never on the deck slides.
+# DP World family first (I = direct 2025 trials; II = the 2026 round via its subsidiaries
+# SJG / Port Express), then alphabetical.
 GROUPS = [
-    ("DP World", [
-        ("Scania P-series BEV", "EX74JXW", "Round-robin", "No", "2025-07-07 – 2025-08-22", True),
-        ("DAF XF 450", "WU70GLV", "Round-robin", "Yes", "2025-06-26 – 2025-08-08", False),
-        ("DAF XF 450", "WU70GLV", "Round-robin", "Yes", "2025-11-07 – 2025-12-11", False),
+    ("DP World I", [
+        ("Scania P-series BEV", "Scania BEV", "EX74JXW", "Round-robin", "WU70GLV", "2025-07-07 – 2025-08-22", True),
+        ("DAF XF 450 (diesel)", "DAF XF 450", "WU70GLV", "Round-robin", "—", "2025-06-26 – 2025-12-11", False),
+        ("MAN BEV (new model)", "MAN BEV", "TBD", "TBD", "WU70GLV", "Not started", None),
+        ("Volvo BEV (telematics fault — phone/box fix)", "Volvo BEV", "TBD", "BYO", "WU70GLV", "Not started", None),
+        ("Diesel comparators ×7 (progressive 2+2+3)", "Diesel ×7", "TBD", "BYO", "—", "Not started", None),
     ]),
-    ("HTL", [
-        ("Volvo FH Electric", "CMZ6260", "Round-robin", "No", "2026-04-27 – 2026-07-01", True),
-        ("Mercedes-Benz eActros 600", "YN75NMA", "Round-robin", "No", "2026-04-17 – 2026-06-26", True),
+    ("Port Express (DP World II)", [
+        ("Mercedes-Benz eActros 600", "eActros 600", "YN75NMA", "Round-robin", NEEDED, "2026-01-29 – 2026-04-08", True),
     ]),
-    ("JLP", [
-        ("Volvo FM Electric", "KY24LHT", "BYO", "No", "2024-06-21 – 2025-03-20", True),
-        ("Scania P-series BEV", "EX74JXY", "BYO", "No", "2025-04-11 – 2026-05-03", True),
-        ("DAF XD Electric", "LN25NKE", "Round-robin", "No", "2025-09-01 – 2025-12-29", True),
-        ("Volvo FH Electric", "CMZ6260", "Round-robin", "No", "2025-10-30 – 2025-12-23", True),
+    ("SJG (DP World II)", [
+        ("Volvo FH Electric", "Volvo FH", "CMZ6260", "Round-robin", NEEDED, "2026-02-06 – 2026-04-07", True),
+    ]),
+    ("Co-Op", [
+        ("Scania BEV (health check pending)", "Scania BEV", "MK15BEV", "BYO", "2 planned (TBD)", "Not started", None),
+        ("Diesel comparator (first of two)", "Diesel", "TBD", "BYO", "—", "Not started", None),
+        ("Diesel comparator (second, later with DP World's)", "Diesel", "TBD", "BYO", "—", "Not started", None),
+    ]),
+    ("HTL (Howard Tenens)", [
+        ("Volvo FH Electric", "Volvo FH", "CMZ6260", "Round-robin", NEEDED, "2026-04-27 – 2026-07-01", True),
+        ("Mercedes-Benz eActros 600", "eActros 600", "YN75NMA", "Round-robin", NEEDED, "2026-04-17 – 2026-06-26", True),
+        ("Diesel comparator", "Diesel", "TBD", "BYO", "—", "Not started", None),
+    ]),
+    ("John Lewis Partnership", [
+        ("Volvo FM Electric", "Volvo FM", "KY24LHT", "BYO", NEEDED, "2024-06-21 – 2025-03-20", True),
+        ("Scania P-series BEV", "Scania BEV", "EX74JXY", "BYO", NEEDED, "2025-04-11 – 2026-05-03", True),
+        ("DAF XD Electric", "DAF XD", "LN25NKE", "Round-robin", NEEDED, "2025-09-01 – 2025-12-29", True),
+        ("Volvo FH Electric", "Volvo FH", "CMZ6260", "Round-robin", NEEDED, "2025-10-30 – 2025-12-23", True),
     ]),
     ("Knowles", [
-        ("Volvo FM Electric", "AV24LXJ", "BYO", "No", "2024-06-11 – 2026-07-03", True),
-        ("Volvo FM Electric", "AV24LXK", "BYO", "No", "2024-06-11 – 2026-07-03", True),
-        ("Volvo FM Electric", "AV24LXL", "BYO", "No", "2024-06-11 – 2026-07-03", True),
+        ("Volvo FM Electric", "Volvo FM", "AV24LXJ", "BYO", NEEDED, "2024-06-11 – 2026-07-03", True),
+        ("Volvo FM Electric", "Volvo FM", "AV24LXK", "BYO", NEEDED, "2024-06-11 – 2026-07-03", True),
+        ("Volvo FM Electric", "Volvo FM", "AV24LXL", "BYO", NEEDED, "2024-06-11 – 2026-07-03", True),
+        ("Diesel comparator", "Diesel", "TBD", "BYO", "—", "Not started", None),
     ]),
     ("Nestlé", [
-        ("Volvo FM Electric", "EV73SAL", "BYO", "No", "2024-06-12 – 2026-07-05", True),
-        ("Volvo FM Electric", "YK73WFN", "BYO", "No", "2024-06-12 – 2026-07-03", True),
+        ("Volvo FM Electric", "Volvo FM", "EV73SAL", "BYO", NEEDED, "2024-06-12 – 2026-07-05", True),
+        ("Volvo FM Electric", "Volvo FM", "YK73WFN", "BYO", NEEDED, "2024-06-12 – 2026-07-03", True),
     ]),
-    ("Port Express (Daimler)", [
-        ("Mercedes-Benz eActros 600", "YN75NMA", "Round-robin", "No", "2026-01-29 – 2026-04-08", True),
+    ("Welch's", [
+        ("Renault E-Tech D Wide", "Renault D Wide", "T88RNW", "BYO", NEEDED, "2024-06-11 – 2026-07-03", True),
+        ("Renault Trucks D Wide Z.E.", "Renault D Wide ZE", "N88GNW", "BYO", NEEDED, "2024-10-11 – 2026-07-03", True),
+        ("Renault E-Tech T", "Renault E-Tech T", "TA70WTL", "BYO", NEEDED, "2025-05-03 – 2026-07-03", True),
+        ("DAF XD Electric", "DAF XD", "LN25NKE", "Round-robin", NEEDED, "2026-01-14 – 2026-04-07", True),
+        ("Scania P-series BEV", "Scania BEV", "EX74JXW", "Round-robin", NEEDED, "2026-02-26 – 2026-04-29", True),
     ]),
-    ("SJG", [
-        ("Volvo FH Electric", "CMZ6260", "Round-robin", "No", "2026-02-06 – 2026-04-07", True),
-    ]),
-    ("Welch Transport", [
-        ("Renault E-Tech D Wide", "T88RNW", "BYO", "No", "2024-06-11 – 2026-07-03", True),
-        ("Renault Trucks D Wide Z.E.", "N88GNW", "BYO", "No", "2024-10-11 – 2026-07-03", True),
-        ("Renault E-Tech T", "TA70WTL", "BYO", "No", "2025-05-03 – 2026-07-03", True),
-        ("DAF XD Electric", "LN25NKE", "Round-robin", "No", "2026-01-14 – 2026-04-07", True),
-        ("Scania P-series BEV", "EX74JXW", "Round-robin", "No", "2026-02-26 – 2026-04-29", True),
-    ]),
-    ("WJF", [
-        ("Scania P-series BEV", "EX74JXW", "Round-robin", "No", "2025-10-11 – 2025-11-18", True),
-        ("Mercedes-Benz eActros 600", "YN25RSY", "Round-robin", "No", "2025-10-21 – 2025-11-18", True),
-        ("Scania P410", "YT21EFD", "BYO", "Yes", "2025-08-30 – 2026-07-04", False),
-        ("DAF XF 450", "WU70GLV", "Round-robin", "Yes", "2025-09-01 – 2025-11-06", False),
+    ("William Jackson Food", [
+        ("Scania P-series BEV", "Scania BEV", "EX74JXW", "Round-robin", "YT21EFD", "2025-10-11 – 2025-11-18", True),
+        ("Mercedes-Benz eActros 600", "eActros 600", "YN25RSY", "Round-robin", "YT21EFD", "2025-10-21 – 2025-11-18", True),
+        ("Scania P410 (diesel)", "Scania P410", "YT21EFD", "BYO", "—", "2025-08-30 – 2026-07-04", False),
     ]),
     ("WS", [
-        ("DAF XD Electric", "LN25NKE", "Round-robin", "No", "2026-04-16 – 2026-07-03", True),
+        ("DAF XD Electric", "DAF XD", "LN25NKE", "Round-robin", NEEDED, "2026-04-16 – 2026-07-03", True),
     ]),
 ]
-HEADERS = ["Operator", "Vehicle", "Reg", "Trial type", "Diesel comparator", "Period", "PDF report"]
+# xlsx: 5 fixed columns + REPEATABLE per-round groups (Trial period / PDF generated /
+# PDF sent) so each reporting round is recorded separately; Round 2 is pre-created blank.
+XL_FIXED = ["Operator", "Vehicle", "Reg", "Trial type", "Diesel comparator"]
+XL_ROUND_SUB = ["Trial period", "PDF generated", "PDF sent"]
+XL_ROUNDS = ["Round 1 — 2.2.8 batch (2026-07-10)", "Round 2"]
+PPT_HEADERS = ["Operator", "Vehicle", "Trial type", "Diesel comparator", "Trial period", "PDF report"]
 
 NAVY = RGBColor(0x1F, 0x49, 0x7D)
-ACCENTS7 = [RGBColor(0x4F, 0x81, 0xBD), RGBColor(0xC0, 0x50, 0x4D), RGBColor(0x9B, 0xBB, 0x59),
-            RGBColor(0x80, 0x64, 0xA2), RGBColor(0x4B, 0xAC, 0xC6), RGBColor(0xF7, 0x96, 0x46), NAVY]
+ACCENTS = [RGBColor(0x4F, 0x81, 0xBD), RGBColor(0xC0, 0x50, 0x4D), RGBColor(0x9B, 0xBB, 0x59),
+           RGBColor(0x80, 0x64, 0xA2), RGBColor(0x4B, 0xAC, 0xC6), RGBColor(0xF7, 0x96, 0x46), NAVY]
+PPT_ACCENTS = [ACCENTS[0], ACCENTS[1], ACCENTS[3], ACCENTS[4], ACCENTS[5], ACCENTS[6]]
 GREEN_TXT = RGBColor(0x4F, 0x62, 0x28)
 RED_TXT = RGBColor(0x94, 0x37, 0x34)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
@@ -83,90 +105,110 @@ def hexs(c):
     return f"{c[0]:02X}{c[1]:02X}{c[2]:02X}"
 
 
-def vehicle_blocks(rows):
-    """[(start, end)] of consecutive same-reg rows (0-based, inclusive)."""
-    blocks, s = [], 0
-    for i in range(1, len(rows) + 1):
-        if i == len(rows) or rows[i][1] != rows[s][1]:
-            blocks.append((s, i - 1))
-            s = i
-    return blocks
-
-
-# ───────────────────────── xlsx ─────────────────────────
+# ── xlsx: 5 fixed columns + repeatable round groups (two-level header) ──
 wb = Workbook()
 ws = wb.active
 ws.title = "PDF report status"
-widths = [24, 27, 10, 13, 17, 24, 11]
+ROUND_COLS = len(XL_ROUND_SUB)
+widths = [26, 27, 10, 13, 21] + [24, 14, 14] * len(XL_ROUNDS)
 for j, w in enumerate(widths, start=1):
-    ws.column_dimensions[chr(64 + j)].width = w
+    ws.column_dimensions[ws.cell(row=1, column=j).column_letter].width = w
 thin = Side(style="thin", color="BFBFBF")
 border = Border(left=thin, right=thin, top=thin, bottom=thin)
-for j, h in enumerate(HEADERS, start=1):
-    c = ws.cell(row=1, column=j, value=h)
-    c.font = Font(name="Arial", bold=True, color="FFFFFF", size=11)
-    c.fill = PatternFill("solid", fgColor=hexs(ACCENTS7[j - 1]))
-    c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    c.border = border
-ws.freeze_panes = "A2"
-r = 2
-for gi, (op, rows) in enumerate(GROUPS):
+# per-column accents: fixed 5, then per-round (period orange, generated navy, sent green)
+ROUND_ACCENTS = [ACCENTS[5], ACCENTS[6], ACCENTS[2]]
+col_accent = ACCENTS[:5] + ROUND_ACCENTS * len(XL_ROUNDS)
+
+
+def _hdr(cell, text, fill):
+    cell.value = text
+    cell.font = Font(name="Arial", bold=True, color="FFFFFF", size=11)
+    cell.fill = PatternFill("solid", fgColor=hexs(fill))
+    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell.border = border
+
+
+for j, h in enumerate(XL_FIXED, start=1):
+    _hdr(ws.cell(row=1, column=j), h, ACCENTS[j - 1])
+    ws.merge_cells(start_row=1, start_column=j, end_row=2, end_column=j)
+for ri, rname in enumerate(XL_ROUNDS):
+    c0 = len(XL_FIXED) + 1 + ri * ROUND_COLS
+    _hdr(ws.cell(row=1, column=c0), rname, NAVY if ri == 0 else tint(NAVY, 0.35))
+    ws.merge_cells(start_row=1, start_column=c0, end_row=1, end_column=c0 + ROUND_COLS - 1)
+    for k, sub in enumerate(XL_ROUND_SUB):
+        _hdr(ws.cell(row=2, column=c0 + k), sub, ROUND_ACCENTS[k])
+ws.freeze_panes = "A3"
+r = 3
+for op, rows in GROUPS:
     g0 = r
-    for i, (veh, reg, ttype, diesel, period, ok) in enumerate(rows):
+    for veh, _vs, reg, ttype, comp, period, ok in rows:
         light = 0.80 if (r % 2 == 0) else 0.90
-        vals = [op, veh, reg, ttype, diesel, period, "✓" if ok else "✗"]
+        # round 1 filled from the current batch; PDF sent left for manual upkeep; round 2 blank.
+        # planned rows (ok=None): grey text, "—" in PDF generated, reg often TBD.
+        tick = "—" if ok is None else ("✓" if ok else "✗")
+        vals = [op, veh, reg, ttype, comp, period, tick, ""] + [""] * ROUND_COLS
         for j, v in enumerate(vals, start=1):
-            c = ws.cell(row=r, column=j, value=v)
-            c.font = Font(name="Arial", size=11, bold=(j == 3),
-                          color=("4F6228" if ok else "943734") if j == 7 else "262626")
-            c.fill = PatternFill("solid", fgColor=hexs(tint(ACCENTS7[j - 1], light)))
-            c.alignment = Alignment(horizontal="center" if j in (3, 4, 5, 7) else "left",
+            c = ws.cell(row=r, column=j, value=v if v != "" else None)
+            bold = (j == 3 and v != "TBD") or (j == 5 and v not in (NEEDED, "—", "Not needed") and "planned" not in v)
+            if ok is None:
+                colour = "7F7F7F"
+            else:
+                colour = ("4F6228" if ok else "943734") if j == 7 else "262626"
+            c.font = Font(name="Arial", size=11, bold=bold, color=colour)
+            c.fill = PatternFill("solid", fgColor=hexs(tint(col_accent[j - 1], light)))
+            c.alignment = Alignment(horizontal="left" if j in (1, 2, 6, 9) else "center",
                                     vertical="center")
             c.border = border
         r += 1
     if len(rows) > 1:
         ws.merge_cells(start_row=g0, start_column=1, end_row=r - 1, end_column=1)
         ws.cell(row=g0, column=1).alignment = Alignment(horizontal="left", vertical="center")
-    for s, e in vehicle_blocks(rows):
-        if e > s:
-            for col in (2, 3, 4, 5, 7):
-                ws.merge_cells(start_row=g0 + s, start_column=col, end_row=g0 + e, end_column=col)
-ws.cell(row=r + 1, column=1, value="Generated from excel_report_database 2.2.8 "
-        "(briefing batch of 2026-07-10). One row per trial (vehicle-operator stint); "
-        "periods = briefing operating period (diesel comparators: observed data span). "
-        "Canonical flat table: pdf_report_status.md.").font = Font(name="Arial", size=9, italic=True)
+ws.cell(row=r + 1, column=1, value="Generated from excel_report_database 2.2.8 (briefing batch of "
+        "2026-07-10). One row per trial (vehicle-operator stint); trial periods = briefing operating "
+        "period (diesel comparators: observed data span). Diesel comparator: reg = comparator data "
+        "exists; 'Needed (no data yet)' = planned, not collected; '—' = the row IS a comparator. "
+        "Each ROUND group (Trial period / PDF generated / PDF sent) records one reporting cycle — "
+        "fill 'PDF sent' when a round's PDFs go out, then record the next cycle under the next round "
+        "(add further round columns as needed). WU70GLV shown as one continuous DP World trial — its "
+        "SRF 'WJF' attribution (2025-09→11) is a platform data error (vehicle never lent to WJF). "
+        "Reg TBD / grey rows = PLANNED trials (data collection upcoming; Co-Op Scania BEV pending a telematics health check). Canonical flat table: pdf_report_status.md."
+        ).font = Font(name="Arial", size=9, italic=True)
 wb.save(XLSX)
 print("xlsx saved:", XLSX)
 
-# ───────────────────────── pptx ─────────────────────────
-SLIDE_GROUPS = [GROUPS[:5], GROUPS[5:]]
+# ───────────────────────── pptx (6 columns, Vehicle·Reg merged) ─────────────────────────
+SLIDE_GROUPS = [GROUPS[:6], GROUPS[6:]]  # 13 + 11 data rows
 TITLES = ["Partner PDF Reports — Coverage by Operator (1/2)",
           "Partner PDF Reports — Coverage by Operator (2/2)"]
-COL_W = [1.55, 2.70, 1.40, 1.60, 1.55, 2.80, 1.10]  # sums to 12.70
+COL_W = [1.75, 3.75, 1.60, 1.70, 2.80, 1.10]  # sums to 12.70
 FONT, SZ = "Arial", 18
 
 prs = Presentation(PPTX)
 
 
-def set_cell(cell, text, bold, colour, fill, center=False, wrap=False):
+def set_cell(cell, runs, colour, fill, center=False, wrap=False):
+    """runs: [(text, bold), ...] rendered in one paragraph."""
     cell.fill.solid()
     cell.fill.fore_color.rgb = fill
-    cell.margin_left, cell.margin_right = Inches(0.06), Inches(0.04)
+    cell.margin_left, cell.margin_right = Inches(0.05), Inches(0.04)
     cell.margin_top = cell.margin_bottom = Inches(0.01)
     cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-    tf = cell.text_frame
-    tf.word_wrap = wrap
-    p = tf.paragraphs[0]
-    run = p.add_run()
-    run.text = text
-    f = run.font
-    f.name, f.size, f.bold = FONT, Pt(SZ), bold
-    f.color.rgb = colour
+    cell.text_frame.word_wrap = wrap
+    p = cell.text_frame.paragraphs[0]
+    for text, bold in runs:
+        run = p.add_run()
+        run.text = text
+        f = run.font
+        f.name, f.size, f.bold = FONT, Pt(SZ), bold
+        f.color.rgb = colour
     if center:
         p.alignment = PP_ALIGN.CENTER
 
 
-for si, (slide, groups, title) in enumerate(zip([prs.slides[1], prs.slides[2]], SLIDE_GROUPS, TITLES)):
+for slide, groups, title in zip([prs.slides[1], prs.slides[2]], SLIDE_GROUPS, TITLES):
+    # deck shows ACTIVE trials only — drop planned rows (ok=None) and then-empty groups
+    groups = [(op, [row for row in oprows if row[6] is not None]) for op, oprows in groups]
+    groups = [(op, oprows) for op, oprows in groups if oprows]
     for sh in list(slide.shapes):
         if sh.has_table:
             sh._element.getparent().remove(sh._element)
@@ -178,61 +220,49 @@ for si, (slide, groups, title) in enumerate(zip([prs.slides[1], prs.slides[2]], 
     rows = [(op, row) for op, oprows in groups for row in oprows]
     n_rows = len(rows) + 1
     left = Inches((13.333 - sum(COL_W)) / 2)
-    need_tall = {i for i, (op, _) in enumerate(rows, start=1) if len(op) > 16}
-    height = 0.62 + 0.34 * len(rows) + 0.28 * len(need_tall)
-    tbl = slide.shapes.add_table(n_rows, 7, left, Inches(1.10), Inches(sum(COL_W)), Inches(height)).table
+    # single-row groups with a long operator name wrap to 2 lines -> taller row
+    tall = set()
+    r0 = 1
+    for op, oprows in groups:
+        if len(oprows) == 1 and len(op) > 14:
+            tall.add(r0)
+        r0 += len(oprows)
+    height = 0.62 + 0.34 * len(rows) + 0.28 * len(tall)
+    tbl = slide.shapes.add_table(n_rows, 6, left, Inches(1.10), Inches(sum(COL_W)), Inches(height)).table
     tbl.first_row = False
     tbl.horz_banding = False
     for j, w in enumerate(COL_W):
         tbl.columns[j].width = Inches(w)
     tbl.rows[0].height = Inches(0.62)
     for i in range(1, n_rows):
-        tbl.rows[i].height = Inches(0.62 if i in need_tall else 0.34)
-    for j, h in enumerate(HEADERS):
-        set_cell(tbl.cell(0, j), h, True, WHITE, ACCENTS7[j], center=True, wrap=True)
+        tbl.rows[i].height = Inches(0.62 if i in tall else 0.34)
+    for j, h in enumerate(PPT_HEADERS):
+        set_cell(tbl.cell(0, j), [(h, True)], WHITE, PPT_ACCENTS[j], center=True, wrap=True)
 
-    # group/vehicle merge maps
-    op_spans, veh_spans, r0 = [], [], 1
+    op_spans, r0 = [], 1
     for op, oprows in groups:
         if len(oprows) > 1:
             op_spans.append((r0, r0 + len(oprows) - 1))
-        for s, e in vehicle_blocks(oprows):
-            if e > s:
-                veh_spans.append((r0 + s, r0 + e))
         r0 += len(oprows)
-    merged = set()
-    for lo, hi in op_spans:
-        merged |= {(i, 0) for i in range(lo + 1, hi + 1)}
-    for lo, hi in veh_spans:
-        for col in (1, 2, 3, 4, 6):
-            merged |= {(i, col) for i in range(lo + 1, hi + 1)}
-    span_fill = {}
-    for lo, hi in op_spans:
-        for i in range(lo, hi + 1):
-            span_fill[(i, 0)] = tint(ACCENTS7[0], 0.85)
-    for lo, hi in veh_spans:
-        for col in (1, 2, 3, 4, 6):
-            for i in range(lo, hi + 1):
-                span_fill[(i, col)] = tint(ACCENTS7[col], 0.85)
+    op_merged = {(i, 0) for lo, hi in op_spans for i in range(lo + 1, hi + 1)}
+    op_fill = {i: tint(PPT_ACCENTS[0], 0.85) for lo, hi in op_spans for i in range(lo, hi + 1)}
 
-    for i, (op, (veh, reg, ttype, diesel, period, ok)) in enumerate(rows, start=1):
+    for i, (op, (_vf, veh_s, reg, ttype, comp, period, ok)) in enumerate(rows, start=1):
         light = 0.80 if i % 2 == 0 else 0.90
-        # slide-only compaction so every cell stays single-line at 18 pt
-        veh_s = veh.replace("Mercedes-Benz", "Mercedes").replace("Renault Trucks", "Renault")
-        period_s = period.replace(" – ", "–")
-        vals = [op, veh_s, reg, ttype, diesel, period_s, "✓" if ok else "✗"]
-        for j, val in enumerate(vals):
-            fill = span_fill.get((i, j), tint(ACCENTS7[j], light))
-            colour, bold = BLACK, j == 2
-            if j == 6:
-                colour, bold = (GREEN_TXT if ok else RED_TXT), True
-            set_cell(tbl.cell(i, j), "" if (i, j) in merged else val, bold, colour, fill,
-                     center=(j in (2, 3, 4, 6)), wrap=(j == 0))
+        cells = [
+            ([(op if (i, 0) not in op_merged else "", False)],
+             BLACK, op_fill.get(i, tint(PPT_ACCENTS[0], light)), False, True),
+            ([(veh_s + " · ", False), (reg, True)], BLACK, tint(PPT_ACCENTS[1], light), False, False),
+            ([(ttype, False)], BLACK, tint(PPT_ACCENTS[2], light), True, False),
+            ([("Awaiting data" if comp == NEEDED else comp, comp not in (NEEDED, "—"))],
+             BLACK, tint(PPT_ACCENTS[3], light), True, False),
+            ([(period.replace(" – ", "–"), False)], BLACK, tint(PPT_ACCENTS[4], light), False, False),
+            ([("✓" if ok else "✗", True)], GREEN_TXT if ok else RED_TXT, tint(PPT_ACCENTS[5], light), True, False),
+        ]
+        for j, (runs, colour, fill, center, wrap) in enumerate(cells):
+            set_cell(tbl.cell(i, j), runs, colour, fill, center=center, wrap=wrap)
     for lo, hi in op_spans:
         tbl.cell(lo, 0).merge(tbl.cell(hi, 0))
-    for lo, hi in veh_spans:
-        for col in (1, 2, 3, 4, 6):
-            tbl.cell(lo, col).merge(tbl.cell(hi, col))
 
 prs.save(PPTX)
 print("pptx saved:", PPTX)

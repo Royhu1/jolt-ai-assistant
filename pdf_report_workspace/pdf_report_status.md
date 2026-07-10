@@ -34,15 +34,18 @@ the observed data span is given instead.
 | WJF | Mercedes-Benz eActros 600 | YN25RSY | Round-robin | 2025-10-21 → 2025-11-18 | Yes |
 | Port Express (Daimler) | Mercedes-Benz eActros 600 | YN75NMA | Round-robin | 2026-01-29 → 2026-04-08 | Yes |
 | HTL | Mercedes-Benz eActros 600 | YN75NMA | Round-robin | 2026-04-17 → 2026-06-26 | Yes |
-| DP World | DAF XF 450 (diesel) | WU70GLV | Round-robin | 2025-06-26 → 2025-08-08 | No (diesel) |
-| WJF | DAF XF 450 (diesel) | WU70GLV | Round-robin | 2025-09-01 → 2025-11-06 | No (diesel) |
-| DP World | DAF XF 450 (diesel) | WU70GLV | Round-robin | 2025-11-07 → 2025-12-11 | No (diesel) |
+| DP World | DAF XF 450 (diesel) | WU70GLV | Round-robin | 2025-06-26 → 2025-12-11 | No (diesel) |
 
 > **Spreadsheet / deck versions**: `pdf_report_status.xlsx` (gitignored, like all xlsx) presents
-> the same trials **grouped by operator** with an extra **Diesel comparator (Yes/No)** column and
-> merged operator/vehicle cells; the 0715 deck carries the same operator-grouped table across two
-> slides. Both are rebuilt by `python pdf_report_workspace/build_pdf_report_status.py` (edit its
-> `GROUPS` data first — this md stays the canonical flat record).
+> the trials **grouped by operator** (display names: DP World I / SJG & Port Express as
+> "(DP World II)" subsidiaries / John Lewis Partnership / William Jackson Food / Welch's /
+> HTL (Howard Tenens)), with a **Diesel comparator** column (comparator reg / "Needed (no data
+> yet)" / "—" for comparator rows), **repeatable round groups** (Trial period + PDF generated +
+> PDF sent per reporting round; Round 2 pre-created blank) and grey **planned rows** (Co-Op incl.
+> MK15BEV, DP World MAN/Volvo BEV + 7 diesels, HTL & Knowles diesels; reg TBD). The 0715 deck
+> carries the same operator-grouped table (active trials only) across two slides. Both are
+> rebuilt by `python pdf_report_workspace/build_pdf_report_status.py` (edit its `GROUPS` data
+> first — this md stays the canonical flat record of generated briefings).
 
 ## Notes
 
@@ -53,7 +56,11 @@ the observed data span is given instead.
 - **EX74JXW / Welch Transport** is a sparse stint (11 valid trips); its briefing was
   generated with `--min-operator-trips 10` and its load-point / temperature analysis
   is flagged unreliable in the skill notes.
-- **WU70GLV returned to DP World** after its WJF stint, hence two DP World rows.
+- **WU70GLV is one continuous DP World trial** (2025-06-26 → 2025-12-11). Its legs between
+  2025-09-01 and 2025-11-06 carry a "WJF" round-robin token in SRF, but the vehicle was never
+  lent to WJF — a platform data error (user-confirmed 2026-07-10; the reports database's
+  `Operator` column inherits it — see `pending_issues/002`). Only YT21EFD is WJF's diesel
+  comparator.
 - **KY24LHT** (JLP Volvo) stopped reporting on 2025-03-20; its trial is closed.
 - Update this table after each briefing batch (see the `generate-pdf-report` skill);
   the previous batch (2.2.7, 2026-07-03) is archived at
