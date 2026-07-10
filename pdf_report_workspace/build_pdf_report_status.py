@@ -89,7 +89,7 @@ GROUPS = [
 # PDF sent) so each reporting round is recorded separately; Round 2 is pre-created blank.
 XL_FIXED = ["Operator", "Vehicle", "Reg", "Trial type", "Diesel comparator"]
 XL_ROUND_SUB = ["Trial period", "PDF generated", "PDF sent"]
-XL_ROUNDS = ["Round 1 (2026-07-10)", "Round 2"]
+XL_ROUNDS = ["Round 1 (Up to 2026-07-10)", "Round 2"]
 PPT_HEADERS = ["Operator", "Vehicle", "Trial type", "Diesel comparator", "Trial period", "PDF report"]
 
 NAVY = RGBColor(0x1F, 0x49, 0x7D)
@@ -175,17 +175,25 @@ for op, rows in GROUPS:
     if len(rows) > 1:
         ws.merge_cells(start_row=g0, start_column=1, end_row=r - 1, end_column=1)
         ws.cell(row=g0, column=1).alignment = Alignment(horizontal="left", vertical="center")
+# footer: "Notes" title + one status per line, grouped by column (readability, user 2026-07-10)
 NOTES = [
-    "PDF generated / PDF sent — Done: report generated; Sent: report delivered; To be done: "
-    "data available, report pending; No data yet: data collection not started; Not needed: no "
-    "partner PDF planned (diesel comparator vehicles).",
-    "Diesel comparator — a reg (e.g. YT21EFD): comparator data exists; Requested (no data yet): "
-    "operating data requested from the operator; Needed (no data yet): planned, not yet requested; "
-    "—: the row is itself a comparator.",
+    ("Notes", "title"),
+    ("PDF generated / PDF sent:", "section"),
+    ("    Done — report generated", "item"),
+    ("    Sent — report delivered to the operator", "item"),
+    ("    To be done — data available, report pending", "item"),
+    ("    No data yet — data collection not started", "item"),
+    ("    Not needed — no partner PDF planned (diesel comparator vehicles)", "item"),
+    ("Diesel comparator:", "section"),
+    ("    Vehicle reg — that comparator's data exists", "item"),
+    ("    Requested (no data yet) — operating data requested from the operator", "item"),
+    ("    Needed (no data yet) — planned, not yet requested", "item"),
+    ("    '—' — the row is itself a comparator", "item"),
 ]
-for k, note in enumerate(NOTES):
+for k, (note, kind) in enumerate(NOTES):
     c = ws.cell(row=r + 1 + k, column=1, value=note)
-    c.font = Font(name="Arial", size=14, italic=True)
+    c.font = Font(name="Arial", size=14, bold=(kind in ("title", "section")),
+                  italic=(kind == "item"))
 wb.save(XLSX)
 print("xlsx saved:", XLSX)
 
