@@ -1490,7 +1490,18 @@ def _emit_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mass, op_f
     fig_rel = "figures_anon" if args.anon else "figures"  # 匿名版独立图目录，与命名版产物共存
     fig_dir = outdir / fig_rel
     cb = int(time.time())  # run token：图片文件名缓存破坏
-    cap_kwh = VEHICLES.get(args.reg, {}).get("effective_capacity_kwh")
+    _veh_cfg = VEHICLES.get(args.reg, {})
+    cap_kwh = _veh_cfg.get("effective_capacity_kwh")
+    # Rated-capacity fallback: some vehicles have no telematics-derived effective capacity
+    # (LN25NKE: every leg's energy is soc_estimate = ΔSOC × the SRF rated capacity, so no
+    # independent estimate exists). Fall back to the rated capacity so the Range figure and
+    # bullets still exist — for soc_estimate legs the capacity cancels in range = cap/EP
+    # (≡ km-per-%SOC × 100), so no new assumption enters; the wording must then say
+    # "rated", never "effective".
+    cap_is_rated = False
+    if not cap_kwh:
+        cap_kwh = _veh_cfg.get("srf_capacity_kwh") or _veh_cfg.get("nominal_kwh")
+        cap_is_rated = bool(cap_kwh)
     # No usable mass channel (e.g. YN75NMA, T88RNW) → distribution variant instead of the GVM scatters.
     # Use the vehicle-level flag (computed before any operator filter) so per-operator splits are consistent.
     no_mass = veh_no_mass
@@ -1713,7 +1724,7 @@ def _emit_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mass, op_f
             rng_q1 = float(rngv.quantile(0.25)); rng_q3 = float(rngv.quantile(0.75))
             conclusion_points.append(
                 f"Projected full-charge range averaged {_prn(rng_mean)} km, "
-                f"effective capacity {cap_kwh:.0f} kWh ÷ per-trip EP.")
+                f"{'rated' if cap_is_rated else 'effective'} capacity {cap_kwh:.0f} kWh ÷ per-trip EP.")
         if pd.notna(t_per10):
             conclusion_points.append(
                 f"Temperature (all trips, {tr['temp'].min():.0f}–{tr['temp'].max():.0f} °C): energy "

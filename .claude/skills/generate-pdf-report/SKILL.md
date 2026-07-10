@@ -224,8 +224,14 @@ was conditional on **anonymisation**. Add `--anon`:
   4. Charging Start State of Charge
 - **No-mass distribution variant** (auto, see §1): the page-2 grid becomes (1) **Energy Performance
   Distribution** (histogram + KDE overlay + mean/median lines, EP axis 0–3), (2) **Projected Range
-  Distribution** (per-trip capacity ÷ EP; skipped if no capacity), (3) **Energy Performance vs
-  Ambient Temperature** fitted over **all trips** (no laden cluster), (4) Charging Start SoC. The GVM
+  Distribution** (per-trip capacity ÷ EP), (3) **Energy Performance vs
+  Ambient Temperature** fitted over **all trips** (no laden cluster), (4) Charging Start SoC.
+  Capacity for (2): `effective_capacity_kwh`, falling back to the **rated** capacity
+  (`srf_capacity_kwh` / `nominal_kwh`, since 2026-07-10) when no effective value exists —
+  e.g. LN25NKE, whose energies are all `soc_estimate` = ΔSOC × the SRF rated 462 kWh, so no
+  independent effective estimate is possible; the capacity then cancels in range = cap/EP
+  (≡ km-per-%SOC × 100) and the conclusions bullet says **"rated capacity"**, never
+  "effective". Only with no capacity at all is the chart skipped (3-chart page). The GVM
   scatters, load markers and the 42 t projection are omitted.
 - **Chart titles are HTML** (`.chart-cell__title`), **spelled out (no GVM/SoC abbreviations)**
   and **larger than the matplotlib axis labels**; a 2-line title height is reserved so every
