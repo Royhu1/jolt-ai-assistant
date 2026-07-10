@@ -4,7 +4,7 @@ description: |
   Generate the industrial-partner one-page PDF/HTML briefing for a vehicle + period
   from the JOLT xlsx pipeline artefacts (excel_report_database/<ver>/<REG>/), by running
   generate_pdf_report.py (KPIs + matplotlib figures + HERE route map + Jinja2 template
-  + headless-Chrome PDF). Output goes to pdf_report_workspace/output/<REG>_<OPERATOR>_<period>/.
+  + headless-Chrome PDF). Output goes to pdf_report_workspace/output_by_TBD/<REG>_<OPERATOR>_<period>/ (the working set; finalised sets are frozen as output_by_<YYYYMMDD>/).
   This skill OWNS the briefing's layout and commentary style guide — also use it for
   chart/layout changes, commentary rewording, and applying partner review comments,
   so the subjective conclusions stay stylistically consistent across reports.
@@ -42,7 +42,7 @@ produced; `pdf_report_workspace/` only holds the artefacts.
   `--all-data`, if the data shows **>1 distinct operator** (each with **≥20 valid trips**) the generator
   emits **one briefing per operator** — trips filtered by `Operator == op`, charges by that operator's
   trip date span, labelled with that operator — instead of one merged briefing. Output is
-  `output/<REG>_<OPERATOR>_<op_period>/` (e.g. `CMZ6260_JLP_…` / `CMZ6260_SJG_…` / `CMZ6260_HTL_…`).
+  `output_by_TBD/<REG>_<OPERATOR>_<op_period>/` (e.g. `CMZ6260_JLP_…` / `CMZ6260_SJG_…` / `CMZ6260_HTL_…`).
   A single distinct operator → one briefing; non-`--all-data` runs → one briefing. An operator with
   **< 20 valid trips** is **skipped** (too sparse, logged) — the threshold is `--min-operator-trips N`
   (default 20); lower it to FORCE a briefing for a sparse operator (e.g. `--min-operator-trips 10` for
@@ -152,7 +152,9 @@ PYTHONUTF8=1 python .claude/skills/generate-pdf-report/generate_pdf_report.py \
     --reg YK73WFN --period 20250301_20250601 [--version 2.2.7] [--base]
 ```
 
-- Artefacts → `pdf_report_workspace/output/<REG>_<OPERATOR>_<op_period>/`: `report_*.html`,
+- Artefacts → `pdf_report_workspace/output_by_TBD/<REG>_<OPERATOR>_<op_period>/` (the working
+  set — on finalisation the whole dir is renamed to `output_by_<YYYYMMDD>/` as a frozen snapshot
+  and an empty `output_by_TBD/` is recreated; scheme of 2026-07-10): `report_*.html`,
   `report_*.pdf`, `figures/*_<token>.png` (figure names carry a run token to bust the Chrome
   cache), `verification_*.xlsx` (the manual-verification workbook, see §7). All gitignored.
   - **Naming ALWAYS carries the operator**: the dir + every filename is

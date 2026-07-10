@@ -7,7 +7,7 @@
     python .claude/skills/generate-pdf-report/generate_pdf_report.py --reg YK73WFN --period 20250301_20250601
     python .claude/skills/generate-pdf-report/generate_pdf_report.py --reg YK73WFN --period 20250301_20250601 --base  # 用非 finetuned
 
-产物写到 pdf_report_workspace/output/<REG>_<period>/（gitignored）。
+产物写到 pdf_report_workspace/output_by_TBD/<REG>_<period>/（工作区；定稿后整体改名为 output_by_<YYYYMMDD> 快照，gitignored）。
 
 图表风格刻意对齐 analysis/ 下的图：白底 + 浅网格 + 散点 + 线性拟合 + ±1σ 阴影带 + 图例。
 """
@@ -40,7 +40,7 @@ sys.path.insert(0, str(ROOT))
 from build_pdf import html_to_pdf  # noqa: E402
 
 PROJECT = Path(__file__).resolve().parents[3]  # repo root (script lives at .claude/skills/generate-pdf-report/)
-WORKSPACE = PROJECT / "pdf_report_workspace"  # artefact store: output/ + HERE-tile cache/
+WORKSPACE = PROJECT / "pdf_report_workspace"  # artefact store: output_by_*/ + HERE-tile cache/
 TEMPLATE = ROOT / "templates" / "report_template.html.j2"
 
 DRIVE = {"Outbound", "Return", "In Transit", "Round Trip", "In House"}
@@ -1489,7 +1489,10 @@ def _emit_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mass, op_f
     # the single-operator case — so every briefing's dir/filename carries its operator consistently.
     tag = f"{_op_tag}_{op_period}"
 
-    outdir = WORKSPACE / "output" / f"{args.reg}_{tag}"
+    # Working set = output_by_TBD; on finalisation the whole dir is renamed to
+    # output_by_<YYYYMMDD> (frozen snapshot) and a fresh output_by_TBD is created
+    # (naming scheme of 2026-07-10; see pdf_report_workspace/README.md).
+    outdir = WORKSPACE / "output_by_TBD" / f"{args.reg}_{tag}"
     fig_rel = "figures_anon" if args.anon else "figures"  # 匿名版独立图目录，与命名版产物共存
     fig_dir = outdir / fig_rel
     cb = int(time.time())  # run token：图片文件名缓存破坏

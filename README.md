@@ -19,7 +19,7 @@ Only the top level is shown. Any folder that has its own `README.md` documents i
 ├── src/jolt_toolkit         # core toolkit package (src-layout; the only installable, versioned unit)
 ├── excel_report_database    # directory holding the generated Excel reports
 ├── publication_workspace    # workspace for technical reports or academic papers
-├── pdf_report_workspace     # generated partner-briefing artefacts (output/ + HERE-tile cache/); produced by the generate-pdf-report skill
+├── pdf_report_workspace     # generated partner-briefing artefacts (output_by_*/ + HERE-tile cache/); produced by the generate-pdf-report skill
 ├── monthly_presentation     # workspace for preparing the monthly JOLT meeting slides
 ├── data_analysis_workspace  # relatively standalone data-analysis workspace, mainly for quick idea validation
 ├── research_projects        # systematic academic research projects
@@ -164,7 +164,7 @@ links, valid statuses, minimum files per skill).
 | Skill | Status | What it does |
 |-------|--------|--------------|
 | [`/generate-excel-report <REG> <period>`](.claude/skills/generate-excel-report/PIPELINE.md) | Stable | Generate a formatted Excel report for a vehicle + date range (drives the report CLI → `excel_report_database/`). |
-| [`/generate-pdf-report <REG> <period>`](.claude/skills/generate-pdf-report/PIPELINE.md) | Stable | Generate the industrial-partner one-page PDF/HTML briefing from xlsx pipeline artefacts (→ `pdf_report_workspace/output/`). **Self-contained owner of all PDF-briefing development** — its own generator code (`generate_pdf_report.py` / `build_pdf.py` / `templates/`), layout, chart specs, commentary style guide and KPI computation all live in the skill; reads `excel_report_database/*.xlsx` (and may read-only call `jolt_toolkit.analysis`), routing to `jolt-toolkit-dev` *only* for new xlsx fields. |
+| [`/generate-pdf-report <REG> <period>`](.claude/skills/generate-pdf-report/PIPELINE.md) | Stable | Generate the industrial-partner one-page PDF/HTML briefing from xlsx pipeline artefacts (→ `pdf_report_workspace/output_by_TBD/`, frozen as `output_by_<YYYYMMDD>/` on finalisation). **Self-contained owner of all PDF-briefing development** — its own generator code (`generate_pdf_report.py` / `build_pdf.py` / `templates/`), layout, chart specs, commentary style guide and KPI computation all live in the skill; reads `excel_report_database/*.xlsx` (and may read-only call `jolt_toolkit.analysis`), routing to `jolt-toolkit-dev` *only* for new xlsx fields. |
 | [`/generate-data-dashboard <version>`](.claude/skills/generate-data-dashboard/PIPELINE.md) | Stable | Generate/refresh the offline data-availability dashboard (`data_dashboard.html`) for a report-database version (drives the `jolt_toolkit` dashboard CLI). |
 | [`/data-collection-monitor [--cadence weekly]`](.claude/skills/data-collection-monitor/PIPELINE.md) | Beta | Periodic (designed for `/loop`, default weekly) fleet data-intake check: append-only extends `excel_report_database/<version>/` with newly-collected SRF data (never overwrites), refreshes the dashboard, and emits a fixed-template PDF "data collection digest" (+ `MONITOR_STATUS.md`) → `data_collection_reports/`. |
 | [`/plot-figure`](.claude/skills/plot-figure/PIPELINE.md) | Stable | Generate energy-performance figures (EP-vs-mass scatter+fit, range, per-OEM…) from xlsx reports into a `--out-dir` you specify. |
@@ -186,7 +186,7 @@ links, valid statuses, minimum files per skill).
 | [`academic-writer`](.claude/agents/academic-writer.md) | Stable | Writes and maintains the academic paper workspace `publication_workspace/`. |
 | [`literature-reviewer`](.claude/agents/literature-reviewer.md) | Stable | Searches / reads / curates the literature (now under the statistics paper's `reference/` + `draft/`). |
 | [`project-health-steward`](.claude/agents/project-health-steward.md) | Beta | Periodic project health checks: tidy/archive temp + stale files, version-consistency, doc & skill/agent hygiene, and local-storage (`D:\JOLT_local`) management; accumulates experience in `.claude/health_checks/`. |
-| [`pdf-report-auditor`](.claude/agents/pdf-report-auditor.md) | Beta | Independent data audit of every partner-facing PDF briefing in `pdf_report_workspace/output/` — re-derives page-1/page-2 numbers straight from raw telematics + xlsx (a path independent of `generate_pdf_report.py`), checks physical plausibility and energy reconciliation; read-only, accumulates experience in `.claude/audits/pdf_reports/`. |
+| [`pdf-report-auditor`](.claude/agents/pdf-report-auditor.md) | Beta | Independent data audit of every partner-facing PDF briefing in `pdf_report_workspace/output_by_*/` — re-derives page-1/page-2 numbers straight from raw telematics + xlsx (a path independent of `generate_pdf_report.py`), checks physical plausibility and energy reconciliation; read-only, accumulates experience in `.claude/audits/pdf_reports/`. |
 
 ## Project maintenance notes (for human developers)
 

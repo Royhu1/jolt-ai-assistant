@@ -5,7 +5,7 @@
 
 **Invoke:** `/generate-pdf-report <REG> <period>` · **In:**
 `excel_report_database/<ver>/<REG>/` (xlsx + `raw_telematics/`) · **Out:**
-`pdf_report_workspace/output/<REG>_<op_period>/` (HTML + PDF + figures + verification xlsx)
+`pdf_report_workspace/output_by_TBD/<REG>_<op_period>/` (working set; frozen as `output_by_<YYYYMMDD>/` on finalisation) (HTML + PDF + figures + verification xlsx)
 
 ## Flow
 

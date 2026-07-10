@@ -157,7 +157,7 @@ publication_workspace/
 unarchived/
 
 # --- generate-pdf-report briefing outputs (skill code is shared, outputs not) -
-pdf_report_workspace/output/
+pdf_report_workspace/output*/
 pdf_report_workspace/cache/
 
 # --- Localised README copies (Chinese, local reading only; English is canonical)

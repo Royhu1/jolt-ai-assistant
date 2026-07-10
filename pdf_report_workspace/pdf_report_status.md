@@ -4,7 +4,7 @@ One row per **trial** (a vehicle's stint with one operator). BYO = the operator'
 dedicated vehicle; Round-robin = a shared JOLT vehicle rotating between operators (the
 operator token comes from the SRF "JOLT Round Robin: `<OP>-<OEM>`" trial description,
 dedicated vehicles from the SRF `organisation.name`). Generated PDFs live in
-`output/<REG>_<OPERATOR>_<period>/`, produced by the `generate-pdf-report` skill from
+`output_by_20260710/<REG>_<OPERATOR>_<period>/` (Round-1 set, finalised 2026-07-10; future rounds are built in `output_by_TBD/`), produced by the `generate-pdf-report` skill from
 report database **2.2.8** (batch of 2026-07-08). Periods are the briefing **operating
 period** (first → last valid trip); for the diesel vehicles (no partner briefing yet)
 the observed data span is given instead.

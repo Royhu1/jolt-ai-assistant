@@ -37,7 +37,14 @@ pdf_report_workspace/
 │                                     # comparator column, merged cells) — gitignored;
 ├── build_pdf_report_status.py        # rebuilds the xlsx AND the 0715 deck's two table
 │                                     # slides from its GROUPS data (committed)
-├── output/<REG>_<period>/            # one folder per briefing
+├── output_by_<YYYYMMDD>/             # FROZEN SNAPSHOT: the briefing set finalised on that
+│                                     # date (e.g. output_by_20260710 = the 2.2.8 Round-1 set,
+│                                     # frozen 2026-07-10) — do not regenerate into it
+├── output_by_TBD/<REG>_<period>/     # WORKING SET for the next reporting round — the
+│                                     # generator writes here; to finalise a round, rename
+│                                     # the whole dir to output_by_<YYYYMMDD> and recreate
+│                                     # an empty output_by_TBD (scheme since 2026-07-10).
+│                                     # Per-briefing contents (either dir kind):
 │   ├── report_<REG>_<period>.html/pdf         # RAW page-1 version (browser-viewable + PDF)
 │   ├── report_<REG>_<period>_xlsxkpi.html/pdf # SEGMENT page-1 version (xlsx-report basis)
 │   ├── report_anon_<period>.html/pdf # anonymised version (--anon: no operator/reg/source,
