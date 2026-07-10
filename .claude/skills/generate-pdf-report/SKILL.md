@@ -171,6 +171,10 @@ PYTHONUTF8=1 python .claude/skills/generate-pdf-report/generate_pdf_report.py \
   timestamped copies (pdf/xlsx with a `_<unix-timestamp>` suffix, written as a fallback when
   the canonical name was locked) — only one latest named version and one latest anonymised
   version of the PDF are ever kept; any other file the user named manually is left untouched.
+  A timestamped copy **newer than its canonical** is a locked-canonical fallback from a
+  previous run (the canonical is the stale one): since 2026-07-10 it is **promoted over the
+  canonical** (os.replace) rather than deleted — deleting it once left T88RNW's raw PDF two
+  days stale after a viewer lock + the follow-up `_xlsxkpi` run's cleanup.
 
 ### Anonymised presentation version (`--anon`)
 

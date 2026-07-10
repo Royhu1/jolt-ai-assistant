@@ -790,6 +790,7 @@ def build_charts(tr, ch, outdir, reg, cb, here_key=None, cap_kwh=None, anon=Fals
             ax.axvline(float(np.median(epv)), color="#27ae60", lw=1.4, ls=":")
         ax.set_xlabel("EP (kWh/km)"); ax.set_ylabel("Trips")
         ax.set_xlim(EP_MIN, EP_MAX); ax.set_xticks([0, 1, 2, 3]); ax.set_ylim(bottom=0)
+        _finish_scatter(ax)  # digit-adaptive y ticks — 4-digit counts (T88RNW ~1000) push the ylabel off-canvas otherwise
         _save(fig, outdir / name("ep_dist"), box=SCATTER_AXBOX)
         charts["ep_dist"] = f"{rel}/{name('ep_dist')}"
         if cap_kwh and len(epv):
@@ -808,6 +809,7 @@ def build_charts(tr, ch, outdir, reg, cb, here_key=None, cap_kwh=None, anon=Fals
             ax.axvline(float(np.median(rngv)), color="#27ae60", lw=1.4, ls=":")
             ax.set_xlabel("Projected Range (km)"); ax.set_ylabel("Trips")
             ax.set_xlim(0, rmax); ax.set_ylim(bottom=0)
+            _finish_scatter(ax)
             _save(fig, outdir / name("range_dist"), box=SCATTER_AXBOX)
             charts["range_dist"] = f"{rel}/{name('range_dist')}"
 
@@ -837,6 +839,7 @@ def build_charts(tr, ch, outdir, reg, cb, here_key=None, cap_kwh=None, anon=Fals
     ax.hist(ssoc, bins=range(0, 101, 10), color=OEM_BLUE, alpha=0.85, edgecolor="white")
     ax.set_xlabel("Charging Start SoC (%)"); ax.set_ylabel("Sessions")
     ax.set_xlim(0, 100); ax.set_ylim(bottom=0); ax.set_xticks(range(0, 101, 20))
+    _finish_scatter(ax)
     _save(fig, outdir / name("soc_hist"), box=SCATTER_AXBOX); charts["soc"] = f"{rel}/{name('soc_hist')}"
 
     # 路线图：命名版用 HERE 真实底图（lite.day，带地名）；匿名版用 CARTO light_nolabels
@@ -1932,6 +1935,18 @@ def _emit_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mass, op_f
     stale = re.compile(r"_(?:\d{10})\.(?:pdf|xlsx)$")
     for p in list(outdir.glob("report*.pdf")) + list(outdir.glob("verification_*.xlsx")):
         if p.name not in keep and stale.search(p.name):
+            # A timestamped copy NEWER than its canonical is a locked-canonical fallback from a
+            # previous run (e.g. the PDF was open in a viewer) — the canonical is the STALE one.
+            # Promote the fallback instead of deleting fresh output (deleting it left T88RNW's
+            # canonical two days stale on 2026-07-10).
+            canon = p.with_name(re.sub(r"_\d{10}(?=\.(?:pdf|xlsx)$)", "", p.name))
+            if canon.exists() and canon.name not in keep and p.stat().st_mtime > canon.stat().st_mtime:
+                try:
+                    os.replace(p, canon)
+                    print(f"  [clean] 规范名已过期，用较新的时间戳副本顶替: {canon.name}")
+                except OSError:
+                    print(f"  [clean] 规范名仍被占用，保留较新副本: {p.name}")
+                continue
             try:
                 p.unlink()
                 print(f"  [clean] 删除旧时间戳副本: {p.name}")
