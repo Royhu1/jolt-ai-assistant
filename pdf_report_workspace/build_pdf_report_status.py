@@ -16,6 +16,11 @@ XLSX = ROOT / "pdf_report_workspace" / "pdf_report_status.xlsx"
 PPTX = ROOT / "monthly_presentation" / "20260715" / "20260715Data Subcommittee Report v1.0.pptx"
 
 NEEDED = "Needed (no data yet)"
+REQUESTED = "Requested (no data yet)"  # operating data asked of the operator (with the sent PDF)
+# Round-1 "PDF sent" markers (user-reported 2026-07-10): report delivered to the operator.
+SENT_R1 = {("SJG (DP World II)", "CMZ6260"), ("Port Express (DP World II)", "YN75NMA"),
+           ("Nestlé", "EV73SAL"), ("Nestlé", "YK73WFN"),
+           ("William Jackson Food", "EX74JXW"), ("William Jackson Food", "YN25RSY")}
 # WU70GLV's 2025-09→11 legs carry a WJF round-robin token in SRF, but the vehicle is DP
 # World's and was never lent to WJF (user-confirmed SRF data error, 2026-07-10) — it is
 # therefore ONE continuous DP World trial here, and only YT21EFD is WJF's comparator.
@@ -33,10 +38,10 @@ GROUPS = [
         ("Diesel comparators ×7 (2+2+3)", "Diesel ×7", "TBD", "BYO", "—", "Not started", None),
     ]),
     ("Port Express (DP World II)", [
-        ("Mercedes-Benz eActros 600", "eActros 600", "YN75NMA", "Round-robin", NEEDED, "2026-01-29 – 2026-04-08", True),
+        ("Mercedes-Benz eActros 600", "eActros 600", "YN75NMA", "Round-robin", REQUESTED, "2026-01-29 – 2026-04-08", True),
     ]),
     ("SJG (DP World II)", [
-        ("Volvo FH Electric", "Volvo FH", "CMZ6260", "Round-robin", NEEDED, "2026-02-06 – 2026-04-07", True),
+        ("Volvo FH Electric", "Volvo FH", "CMZ6260", "Round-robin", REQUESTED, "2026-02-06 – 2026-04-07", True),
     ]),
     ("Co-Op", [
         ("Scania BEV (health check TBD)", "Scania BEV", "MK15BEV", "BYO", "2 planned (TBD)", "Not started", None),
@@ -61,8 +66,8 @@ GROUPS = [
         ("Diesel comparator", "Diesel", "TBD", "BYO", "—", "Not started", None),
     ]),
     ("Nestlé", [
-        ("Volvo FM Electric", "Volvo FM", "EV73SAL", "BYO", NEEDED, "2024-06-12 – 2026-07-05", True),
-        ("Volvo FM Electric", "Volvo FM", "YK73WFN", "BYO", NEEDED, "2024-06-12 – 2026-07-03", True),
+        ("Volvo FM Electric", "Volvo FM", "EV73SAL", "BYO", REQUESTED, "2024-06-12 – 2026-07-05", True),
+        ("Volvo FM Electric", "Volvo FM", "YK73WFN", "BYO", REQUESTED, "2024-06-12 – 2026-07-03", True),
     ]),
     ("Welch's", [
         ("Renault E-Tech D Wide", "Renault D Wide", "T88RNW", "BYO", NEEDED, "2024-06-11 – 2026-07-03", True),
@@ -146,14 +151,15 @@ for op, rows in GROUPS:
         # round 1 filled from the current batch; PDF sent left for manual upkeep; round 2 blank.
         # planned rows (ok=None): grey text, "—" in PDF generated, reg often TBD.
         tick = "—" if ok is None else ("✓" if ok else "✗")
-        vals = [op, veh, reg, ttype, comp, period, tick, ""] + [""] * ROUND_COLS
+        sent = "✓" if (op, reg) in SENT_R1 else ""
+        vals = [op, veh, reg, ttype, comp, period, tick, sent] + [""] * ROUND_COLS
         for j, v in enumerate(vals, start=1):
             c = ws.cell(row=r, column=j, value=v if v != "" else None)
-            bold = (j == 3 and v != "TBD") or (j == 5 and v not in (NEEDED, "—", "Not needed") and "planned" not in v)
+            bold = (j == 3 and v != "TBD") or (j == 5 and v not in (NEEDED, REQUESTED, "—", "Not needed") and "planned" not in v) or (j == 8 and v == "✓")
             if ok is None:
                 colour = "7F7F7F"
             else:
-                colour = ("4F6228" if ok else "943734") if j == 7 else "262626"
+                colour = ("4F6228" if ok else "943734") if j == 7 else ("4F6228" if j == 8 and v == "✓" else "262626")
             c.font = Font(name="Arial", size=14, bold=bold, color=colour)
             c.fill = PatternFill("solid", fgColor=hexs(tint(col_accent[j - 1], light)))
             c.alignment = Alignment(horizontal="left" if j in (1, 2, 6, 9) else "center",
@@ -167,7 +173,8 @@ NOTES = [
     "One row per trial (vehicle-operator stint); trial periods = briefing operating period "
     "(diesel comparators: observed data span).",
     "Diesel comparator: reg = comparator data exists; 'Needed (no data yet)' = planned, not "
-    "collected; '—' = the row IS a comparator.",
+    "collected; 'Requested (no data yet)' = operating data requested from the operator; "
+    "'—' = the row IS a comparator.",
     "Each ROUND group (Trial period / PDF generated / PDF sent) records one reporting cycle — "
     "fill 'PDF sent' when a round's PDFs go out, then record the next cycle under the next round "
     "(add further round columns as needed).",
@@ -261,7 +268,7 @@ for slide, groups, title in zip([prs.slides[1], prs.slides[2]], SLIDE_GROUPS, TI
              BLACK, op_fill.get(i, tint(PPT_ACCENTS[0], light)), False, True),
             ([(veh_s + " · ", False), (reg, True)], BLACK, tint(PPT_ACCENTS[1], light), False, False),
             ([(ttype, False)], BLACK, tint(PPT_ACCENTS[2], light), True, False),
-            ([("Awaiting data" if comp == NEEDED else comp, comp not in (NEEDED, "—"))],
+            ([({NEEDED: "Awaiting data", REQUESTED: "Requested"}.get(comp, comp), comp not in (NEEDED, REQUESTED, "—"))],
              BLACK, tint(PPT_ACCENTS[3], light), True, False),
             ([(period.replace(" – ", "–"), False)], BLACK, tint(PPT_ACCENTS[4], light), False, False),
             ([("✓" if ok else "✗", True)], GREEN_TXT if ok else RED_TXT, tint(PPT_ACCENTS[5], light), True, False),
