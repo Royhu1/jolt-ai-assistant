@@ -26,10 +26,13 @@ alongside the raw version for comparison. The raw basis is decided **per field**
 that reports an odometer but no energy/charge counter (Scania/DAF/Mercedes) gets a raw Total
 Distance but keeps the segment energy/charged. Full detail: the skill's `SKILL.md` §1.
 
-## Contents (all gitignored)
+## Contents (artefacts gitignored; the status table is committed)
 
 ```
 pdf_report_workspace/
+├── pdf_report_status.md              # per-trial briefing coverage table (operator, vehicle,
+│                                     # reg, BYO/round-robin, period, PDF generated?) —
+│                                     # committed; update after each briefing batch
 ├── output/<REG>_<period>/            # one folder per briefing
 │   ├── report_<REG>_<period>.html/pdf         # RAW page-1 version (browser-viewable + PDF)
 │   ├── report_<REG>_<period>_xlsxkpi.html/pdf # SEGMENT page-1 version (xlsx-report basis)
