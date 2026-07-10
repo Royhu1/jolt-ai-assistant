@@ -33,6 +33,10 @@ pdf_report_workspace/
 ├── pdf_report_status.md              # per-trial briefing coverage table (operator, vehicle,
 │                                     # reg, BYO/round-robin, period, PDF generated?) —
 │                                     # committed; update after each briefing batch
+├── pdf_report_status.xlsx            # operator-grouped spreadsheet version (+ Diesel
+│                                     # comparator column, merged cells) — gitignored;
+├── build_pdf_report_status.py        # rebuilds the xlsx AND the 0715 deck's two table
+│                                     # slides from its GROUPS data (committed)
 ├── output/<REG>_<period>/            # one folder per briefing
 │   ├── report_<REG>_<period>.html/pdf         # RAW page-1 version (browser-viewable + PDF)
 │   ├── report_<REG>_<period>_xlsxkpi.html/pdf # SEGMENT page-1 version (xlsx-report basis)

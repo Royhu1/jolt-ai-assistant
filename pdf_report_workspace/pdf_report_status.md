@@ -38,6 +38,12 @@ the observed data span is given instead.
 | WJF | DAF XF 450 (diesel) | WU70GLV | Round-robin | 2025-09-01 → 2025-11-06 | No (diesel) |
 | DP World | DAF XF 450 (diesel) | WU70GLV | Round-robin | 2025-11-07 → 2025-12-11 | No (diesel) |
 
+> **Spreadsheet / deck versions**: `pdf_report_status.xlsx` (gitignored, like all xlsx) presents
+> the same trials **grouped by operator** with an extra **Diesel comparator (Yes/No)** column and
+> merged operator/vehicle cells; the 0715 deck carries the same operator-grouped table across two
+> slides. Both are rebuilt by `python pdf_report_workspace/build_pdf_report_status.py` (edit its
+> `GROUPS` data first — this md stays the canonical flat record).
+
 ## Notes
 
 - **22 EV trials have a generated briefing** (all "Yes" rows; each briefing dir also
