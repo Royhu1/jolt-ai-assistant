@@ -29,8 +29,8 @@ GROUPS = [
         ("Scania P-series BEV", "Scania BEV", "EX74JXW", "Round-robin", "WU70GLV", "2025-07-07 – 2025-08-22", True),
         ("DAF XF 450 (diesel)", "DAF XF 450", "WU70GLV", "Round-robin", "—", "2025-06-26 – 2025-12-11", False),
         ("MAN BEV (new model)", "MAN BEV", "TBD", "TBD", "WU70GLV", "Not started", None),
-        ("Volvo BEV (telematics fault — phone/box fix)", "Volvo BEV", "TBD", "BYO", "WU70GLV", "Not started", None),
-        ("Diesel comparators ×7 (progressive 2+2+3)", "Diesel ×7", "TBD", "BYO", "—", "Not started", None),
+        ("Volvo BEV (telematics fault)", "Volvo BEV", "TBD", "BYO", "WU70GLV", "Not started", None),
+        ("Diesel comparators ×7 (2+2+3)", "Diesel ×7", "TBD", "BYO", "—", "Not started", None),
     ]),
     ("Port Express (DP World II)", [
         ("Mercedes-Benz eActros 600", "eActros 600", "YN75NMA", "Round-robin", NEEDED, "2026-01-29 – 2026-04-08", True),
@@ -39,9 +39,9 @@ GROUPS = [
         ("Volvo FH Electric", "Volvo FH", "CMZ6260", "Round-robin", NEEDED, "2026-02-06 – 2026-04-07", True),
     ]),
     ("Co-Op", [
-        ("Scania BEV (health check pending)", "Scania BEV", "MK15BEV", "BYO", "2 planned (TBD)", "Not started", None),
-        ("Diesel comparator (first of two)", "Diesel", "TBD", "BYO", "—", "Not started", None),
-        ("Diesel comparator (second, later with DP World's)", "Diesel", "TBD", "BYO", "—", "Not started", None),
+        ("Scania BEV (health check TBD)", "Scania BEV", "MK15BEV", "BYO", "2 planned (TBD)", "Not started", None),
+        ("Diesel comparator (first)", "Diesel", "TBD", "BYO", "—", "Not started", None),
+        ("Diesel comparator (second)", "Diesel", "TBD", "BYO", "—", "Not started", None),
     ]),
     ("HTL (Howard Tenens)", [
         ("Volvo FH Electric", "Volvo FH", "CMZ6260", "Round-robin", NEEDED, "2026-04-27 – 2026-07-01", True),
@@ -84,7 +84,7 @@ GROUPS = [
 # PDF sent) so each reporting round is recorded separately; Round 2 is pre-created blank.
 XL_FIXED = ["Operator", "Vehicle", "Reg", "Trial type", "Diesel comparator"]
 XL_ROUND_SUB = ["Trial period", "PDF generated", "PDF sent"]
-XL_ROUNDS = ["Round 1 — 2.2.8 batch (2026-07-10)", "Round 2"]
+XL_ROUNDS = ["Round 1 (2026-07-10)", "Round 2"]
 PPT_HEADERS = ["Operator", "Vehicle", "Trial type", "Diesel comparator", "Trial period", "PDF report"]
 
 NAVY = RGBColor(0x1F, 0x49, 0x7D)
@@ -110,7 +110,7 @@ wb = Workbook()
 ws = wb.active
 ws.title = "PDF report status"
 ROUND_COLS = len(XL_ROUND_SUB)
-widths = [26, 27, 10, 13, 21] + [24, 14, 14] * len(XL_ROUNDS)
+widths = [33, 36, 13, 17, 27] + [30, 18, 18] * len(XL_ROUNDS)
 for j, w in enumerate(widths, start=1):
     ws.column_dimensions[ws.cell(row=1, column=j).column_letter].width = w
 thin = Side(style="thin", color="BFBFBF")
@@ -122,7 +122,7 @@ col_accent = ACCENTS[:5] + ROUND_ACCENTS * len(XL_ROUNDS)
 
 def _hdr(cell, text, fill):
     cell.value = text
-    cell.font = Font(name="Arial", bold=True, color="FFFFFF", size=11)
+    cell.font = Font(name="Arial", bold=True, color="FFFFFF", size=14)
     cell.fill = PatternFill("solid", fgColor=hexs(fill))
     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     cell.border = border
@@ -154,7 +154,7 @@ for op, rows in GROUPS:
                 colour = "7F7F7F"
             else:
                 colour = ("4F6228" if ok else "943734") if j == 7 else "262626"
-            c.font = Font(name="Arial", size=11, bold=bold, color=colour)
+            c.font = Font(name="Arial", size=14, bold=bold, color=colour)
             c.fill = PatternFill("solid", fgColor=hexs(tint(col_accent[j - 1], light)))
             c.alignment = Alignment(horizontal="left" if j in (1, 2, 6, 9) else "center",
                                     vertical="center")
@@ -163,16 +163,23 @@ for op, rows in GROUPS:
     if len(rows) > 1:
         ws.merge_cells(start_row=g0, start_column=1, end_row=r - 1, end_column=1)
         ws.cell(row=g0, column=1).alignment = Alignment(horizontal="left", vertical="center")
-ws.cell(row=r + 1, column=1, value="Generated from excel_report_database 2.2.8 (briefing batch of "
-        "2026-07-10). One row per trial (vehicle-operator stint); trial periods = briefing operating "
-        "period (diesel comparators: observed data span). Diesel comparator: reg = comparator data "
-        "exists; 'Needed (no data yet)' = planned, not collected; '—' = the row IS a comparator. "
-        "Each ROUND group (Trial period / PDF generated / PDF sent) records one reporting cycle — "
-        "fill 'PDF sent' when a round's PDFs go out, then record the next cycle under the next round "
-        "(add further round columns as needed). WU70GLV shown as one continuous DP World trial — its "
-        "SRF 'WJF' attribution (2025-09→11) is a platform data error (vehicle never lent to WJF). "
-        "Reg TBD / grey rows = PLANNED trials (data collection upcoming; Co-Op Scania BEV pending a telematics health check). Canonical flat table: pdf_report_status.md."
-        ).font = Font(name="Arial", size=9, italic=True)
+NOTES = [
+    "One row per trial (vehicle-operator stint); trial periods = briefing operating period "
+    "(diesel comparators: observed data span).",
+    "Diesel comparator: reg = comparator data exists; 'Needed (no data yet)' = planned, not "
+    "collected; '—' = the row IS a comparator.",
+    "Each ROUND group (Trial period / PDF generated / PDF sent) records one reporting cycle — "
+    "fill 'PDF sent' when a round's PDFs go out, then record the next cycle under the next round "
+    "(add further round columns as needed).",
+    "Reg TBD / grey rows = PLANNED trials (data collection upcoming; Co-Op Scania BEV pending a "
+    "telematics health check).",
+    "WU70GLV shown as one continuous DP World trial — its SRF 'WJF' attribution (2025-09→11) "
+    "is a platform data error (vehicle never lent to WJF).",
+    "Canonical flat table: pdf_report_status.md.",
+]
+for k, note in enumerate(NOTES):
+    c = ws.cell(row=r + 1 + k, column=1, value=note)
+    c.font = Font(name="Arial", size=14, italic=True)
 wb.save(XLSX)
 print("xlsx saved:", XLSX)
 
