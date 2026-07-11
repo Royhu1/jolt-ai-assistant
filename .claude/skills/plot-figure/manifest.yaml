@@ -1,0 +1,54 @@
+name: plot-figure
+description: >
+  Declarative manifest for the static/dynamic split (pattern adapted from
+  nature-skills/nature-figure). SKILL.md uses this to decide which fragments
+  to load for a given figure request. The main axis is the generation mode
+  (standard-set batch vs bespoke persisted script); the deep catalogue, data
+  and fit material stays in on-demand references. The rendered output is
+  contract-fixed: figures must be visually identical to the exemplars in
+  templates/ (style constants in static/core/style-contract.md).
+
+always_load:
+  # Skill-local core: the two contracts that apply to every figure job.
+  - static/core/style-contract.md
+  - static/core/persistence-contract.md
+
+axes:
+  mode:
+    detect: |
+      Default to `bespoke`. Choose `standard-set` ONLY when the user asks for
+      the whole standard figure set regenerated as-is (per-operation /
+      all-operations / per-OEM, named + anon) with no customisation.
+      Anything else — one figure type, a custom grouping or exclusion, a
+      paper- or analysis-specific panel, a figure that will be tuned later —
+      is `bespoke`.
+    values:
+      standard-set: static/fragments/mode/standard-set.md
+      bespoke: static/fragments/mode/bespoke.md
+    multi: false
+
+gates:
+  output_destination: |
+    BLOCKING. Every run needs an explicit output destination: `--out-dir` for
+    standard-set, the target workspace's figures dir for bespoke. The old
+    top-level `figures/<version>/` is deprecated (moved to `archive/figures/`)
+    — never write there. If the destination workspace is ambiguous in bespoke
+    mode, ask the user; default to the workspace that owns the destination
+    `figures/` directory.
+
+references:
+  on_demand:
+    - condition: which figure family / filename / sub-variant to produce (per_operation, all_operations, per_oem; plain / errorbar / shaded)
+      path: references/figure-catalogue.md
+    - condition: loading xlsx report data, plot_config.json fields, derived columns (Max Range, Payload+Trailer), data-quality filters
+      path: references/data-contract.md
+    - condition: implementing or verifying fit lines (linear / reciprocal), binned error bars, shaded bands
+      path: references/fit-models.md
+    - condition: user asks for a non-PNG output (SVG / PDF / vector) or about embedding figures in LaTeX / PowerPoint
+      path: references/output-formats.md
+
+assets:
+  templates: |
+    templates/ holds representative finished figures — the authoritative
+    visual reference. Every new plot must match them (see the gallery list in
+    static/core/style-contract.md).
