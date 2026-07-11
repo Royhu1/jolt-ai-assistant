@@ -58,6 +58,18 @@ What is written vs carried forward (per vehicle)
   logger visibility in the dashboard & data-collection-monitor — now fixed.**
   (``validation_figures`` / ``inspect_*.html`` reflect the src energy on the few
   ``soc_fallback``-rewritten legs; regenerating them needs an SRF debug run.)
+* **Verified after every copy** by :func:`_verify_copy_forward`: for each carried
+  artefact dir (``_AUX_COPY_DIRS_STATIC`` + every ``raw_logger*`` found in src) and
+  for the ``inspect_*.html`` set, the recursive file count in dst must be **>=** the
+  count in src. dst holding *more* files than src is fine and expected — the
+  data-collection-monitor appends new days into the current version. A shortfall
+  (dst < src), or any per-file copy failure (``n_failed > 0`` — a failed copy can
+  leave a truncated dst file the count check would miss), is logged as an error,
+  recorded in the per-vehicle result dict, aggregated across the fleet by
+  :func:`main`, and forces a **non-zero exit**. *Why:* the copy itself is now fixed,
+  but the first 2.2.7 run's omission went unnoticed and the 2.2.7→2.2.8 run silently
+  inherited the damage — a migration must never be able to finish green while
+  artefacts were lost, so completeness is now asserted, not assumed.
 
 Verbatim-copy vehicles (NOT replayed — :func:`copy_verbatim`):
 * **Diesel** (WU70GLV / YT21EFD) — no SOC/counter energy, so neither the v2.2.7 nor
@@ -533,7 +545,7 @@ def _copy_dir_content(src_dir: Path, dst_dir: Path,
 
 
 def _copy_forward_artifacts(src_dir: Path, dst_dir: Path,
-                            overwrite: bool = False) -> list[str]:
+                            overwrite: bool = False) -> tuple[list[str], int]:
     """Copy the non-recomputable per-vehicle artefact dirs + inspect HTML forward
     from the src version dir to the dst version dir.
 
@@ -560,7 +572,9 @@ def _copy_forward_artifacts(src_dir: Path, dst_dir: Path,
     touching. We therefore copy **CONTENT only** (no metadata — artefact copies
     never need mtimes), skip identical files, and **tolerate per-file failures**
     (log a warning and continue) so a single un-copyable file can never abort a
-    whole-fleet run. Returns a list of per-artefact summary strings.
+    whole-fleet run. Returns ``(summaries, total_failed)`` where ``summaries`` is a
+    list of per-artefact summary strings and ``total_failed`` is the number of files
+    that could not be copied (0 == every file copied or skipped-as-identical).
     """
     copied: list[str] = []
     total_failed = 0
@@ -588,7 +602,62 @@ def _copy_forward_artifacts(src_dir: Path, dst_dir: Path,
     if total_failed:
         logger.warning('copy-forward [%s]: %d file(s) could not be copied '
                        '(see warnings above)', dst_dir.name, total_failed)
-    return copied
+    return copied, total_failed
+
+
+def _count_files(d: Path) -> int:
+    """Recursive count of regular files under ``d`` (0 if ``d`` does not exist)."""
+    if not d.is_dir():
+        return 0
+    return sum(len(files) for _root, _dirs, files in os.walk(d))
+
+
+def _verify_copy_forward(reg: str, src_dir: Path, dst_dir: Path,
+                         n_failed: int) -> list[str]:
+    """Assert the dst version dir ended up at least as complete as src for every
+    carried-forward artefact, and surface any per-file copy failure.
+
+    Completeness rule: for each artefact dir (``_AUX_COPY_DIRS_STATIC`` + every
+    ``raw_logger*`` found in src) and for the ``inspect_*.html`` set, the recursive
+    file count in dst must be **>=** that in src. dst holding *more* files than src
+    is fine and expected — the data-collection-monitor appends new days into the
+    current version. A shortfall (dst < src) means artefacts were lost in the
+    migration, exactly the silent-loss failure this guard exists to catch.
+
+    ``n_failed`` is the per-file copy-failure count from
+    :func:`_copy_forward_artifacts`; > 0 is reported as its own problem because a
+    failed copy can leave a truncated dst file that the count check would miss (the
+    file exists) yet the artefact is still corrupt.
+
+    Emits a ``logger.error`` per problem and returns the list of problem strings
+    (empty == verified clean). The caller records these in the per-vehicle result
+    dict so :func:`main` can aggregate them and force a non-zero exit.
+    """
+    problems: list[str] = []
+    dir_names = list(_AUX_COPY_DIRS_STATIC)
+    dir_names += sorted(p.name for p in src_dir.glob('raw_logger*') if p.is_dir())
+    for name in dir_names:
+        s = src_dir / name
+        if not s.is_dir():
+            continue
+        n_src = _count_files(s)
+        n_dst = _count_files(dst_dir / name)
+        if n_dst < n_src:
+            msg = f'{name}/ INCOMPLETE: dst {n_dst} file(s) < src {n_src}'
+            problems.append(msg)
+            logger.error('copy-verify [%s]: %s (%s -> %s)', reg, msg, s,
+                         dst_dir / name)
+    n_src_html = len(list(src_dir.glob('inspect_*.html')))
+    n_dst_html = len(list(dst_dir.glob('inspect_*.html')))
+    if n_dst_html < n_src_html:
+        msg = f'inspect_*.html INCOMPLETE: dst {n_dst_html} < src {n_src_html}'
+        problems.append(msg)
+        logger.error('copy-verify [%s]: %s', reg, msg)
+    if n_failed:
+        msg = f'{n_failed} file(s) FAILED to copy (possible truncated dst files)'
+        problems.append(msg)
+        logger.error('copy-verify [%s]: %s', reg, msg)
+    return problems
 
 
 def recompute_vehicle(reg: str, db_root: Path, src_ver: str, dst_ver: str,
@@ -629,13 +698,15 @@ def recompute_vehicle(reg: str, db_root: Path, src_ver: str, dst_ver: str,
         logger.info('  [%s] %s : %d rows, periodcap=%s n=%s src=%s',
                     reg, out_path.name, n,
                     None if pcap is None else round(pcap, 2), pn, psrc)
-    aux = _copy_forward_artifacts(src_dir, dst_dir, overwrite)
+    aux, n_failed = _copy_forward_artifacts(src_dir, dst_dir, overwrite)
     if aux:
         logger.info('  [%s] carried forward %d artefact(s): %s',
                     reg, len(aux), ', '.join(aux))
+    problems = _verify_copy_forward(reg, src_dir, dst_dir, n_failed)
     wavg, n_rel, n_sparse = _recompute_weighted_capacity(dict(quarterly))
     return {'reg': reg, 'reports': made, 'quarterly': quarterly,
-            'rolled_up_kwh': wavg, 'n_reliable_q': n_rel, 'aux_copied': aux}
+            'rolled_up_kwh': wavg, 'n_reliable_q': n_rel, 'aux_copied': aux,
+            'copy_problems': problems}
 
 
 def copy_verbatim(reg: str, db_root: Path, src_ver: str, dst_ver: str,
@@ -666,8 +737,10 @@ def copy_verbatim(reg: str, db_root: Path, src_ver: str, dst_ver: str,
         _safe_copy_file(xlsx, dst)
         copied.append(xlsx.name)
     # carry forward artefact dirs + inspect HTML.
-    aux = _copy_forward_artifacts(src_dir, dst_dir, overwrite)
-    return {'reg': reg, 'copied': copied, 'aux_copied': aux}
+    aux, n_failed = _copy_forward_artifacts(src_dir, dst_dir, overwrite)
+    problems = _verify_copy_forward(reg, src_dir, dst_dir, n_failed)
+    return {'reg': reg, 'copied': copied, 'aux_copied': aux,
+            'copy_problems': problems}
 
 
 # Backwards-compatible alias (the verbatim-copy path was originally diesel-only).
@@ -731,9 +804,28 @@ def main(argv=None):
         logger.info('  OK: %s', ', '.join(ok))
     if failed:
         logger.warning('  FAILED: %s', ', '.join(failed))
-    # Non-zero exit only if EVERY vehicle failed (a partial run is still useful).
+
+    # Aggregate the per-vehicle copy-forward verification problems. A migration
+    # that dropped artefacts (or failed a per-file copy) MUST NOT end green — this
+    # is the guard against the silent 2.2.7 raw_charger/raw_logger loss recurring.
+    copy_problems = [(res['reg'], p) for res in results
+                     for p in res.get('copy_problems', [])]
+    if copy_problems:
+        n_veh = len({r for r, _ in copy_problems})
+        logger.error('=== ARTEFACT COPY-FORWARD VERIFICATION FAILED: %d problem(s) '
+                     'across %d vehicle(s) ===', len(copy_problems), n_veh)
+        for reg, p in copy_problems:
+            logger.error('  [%s] %s', reg, p)
+        logger.error('The dst version dir is LESS complete than src — artefacts '
+                     'were lost. Fix the copy and re-run before treating this '
+                     'migration as done.')
+
+    # Non-zero exit if EVERY vehicle failed (a partial run is still useful), or if
+    # any artefact was lost / failed to copy (completeness is not optional).
     if failed and not ok:
         raise SystemExit(1)
+    if copy_problems:
+        raise SystemExit(2)
     return results
 
 
