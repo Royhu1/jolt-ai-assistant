@@ -44,7 +44,7 @@ Flow of one loop iteration:
    version via the `charger_patcher` CLI with `--persist-raw` (late-arriving SRF charge-point
    transactions; idempotent, fills only empty Charger Link cells, merge-accumulates
    `raw_charger/charger_transactions.csv`). `--no-charger-sweep` disables.
-2. **Extend (append-only)** — per watched vehicle (`watched_vehicles.json`, default 16): find
+2. **Extend (append-only)** — per watched vehicle (`watched_vehicles.json`, default all 17): find
    `last_covered`, then run the latest `jolt_toolkit` to generate reports ONLY for the gap
    after it, SKIPPING any period whose `.xlsx` exists — this is the "ask SRF for new data"
    step, and it never overwrites existing reports or raw data.
@@ -66,7 +66,7 @@ data-collection ledger, not an energy-performance briefing.
 Run from the **repo root** (needs `SRF_API_KEY` in the root `.env`, and `excel_report_database/`):
 
 ```bash
-# Standard single check (all 16 vehicles, weekly / 7-day lookback, latest version)
+# Standard single check (all 17 vehicles, weekly / 7-day lookback, latest version)
 PYTHONUTF8=1 python .claude/skills/data-collection-monitor/run_monitor.py --cadence weekly
 
 # A subset / custom lookback window

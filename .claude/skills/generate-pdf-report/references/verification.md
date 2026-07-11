@@ -16,8 +16,9 @@
 automatically ships a `verification_<REG>_<period>.xlsx` verification workbook —
 
 - The leg sheets copied from the canonical xlsx are the self-contained data basis, split to match
-  the two-page filtering: **`Trips`** = the cleaned page-2 analysis legs (≥ 3 km, EP-cleaned +
-  SOC-guarded) — page-2 EP/GVM formulas run over it; **`AllTrips`** + the all-legs **`Daily`** =
+  the two-page filtering: **`Trips`** = the cleaned page-2 analysis legs (≥ 3 km, EP-cleaned; the
+  old SOC-quantisation guard was removed 2026-07-02, see the Cleaning section in
+  `references/commentary-style.md`) — page-2 EP/GVM formulas run over it; **`AllTrips`** + the all-legs **`Daily`** =
   every driving leg — the UNFILTERED page-1 counts/totals recompute over it. `Charges` = charge legs;
 - The `Audit` sheet lists **every number that appears in the briefing**, one per row (~46
   items), and recomputes each from the raw legs on the fly using **native Excel formulas**

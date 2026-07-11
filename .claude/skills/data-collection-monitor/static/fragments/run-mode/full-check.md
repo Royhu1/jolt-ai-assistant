@@ -28,7 +28,7 @@ The version number is **taken dynamically from the installed `jolt_toolkit.__ver
 Run from the **repo root** (needs `SRF_API_KEY` in the root `.env`, and `excel_report_database/`):
 
 ```bash
-# Standard single check (all 16 vehicles, weekly / 7-day lookback, latest version)
+# Standard single check (all 17 vehicles, weekly / 7-day lookback, latest version)
 PYTHONUTF8=1 python .claude/skills/data-collection-monitor/run_monitor.py --cadence weekly
 
 # A subset / custom lookback window

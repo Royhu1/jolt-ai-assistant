@@ -1060,7 +1060,8 @@ def build_verification_workbook(path, tr_all, tr, ch, v):
     outcome in the Verified by / Date / Notes columns.
 
     Two leg sheets, matching the two-page split: `Trips` = the CLEANED page-2 analysis
-    set (distance ≥ MIN_TRIP_KM, EP cleaned + SOC-guarded) — page-2 EP/GVM formulas run
+    set (distance ≥ MIN_TRIP_KM, EP cleaned; the SOC-quantisation guard was removed
+    2026-07-02) — page-2 EP/GVM formulas run
     over it; `AllTrips` (+ the all-legs `Daily`) = EVERY driving leg — the UNFILTERED
     page-1 operational counts/totals (Active Days, Driving Legs, Median GVM, timeline,
     segment totals) recompute over it.
@@ -1163,7 +1164,7 @@ def build_verification_workbook(path, tr_all, tr, ch, v):
         ("Page 1 · Summary", "Driving legs", v["n_tr"],
          f"=COUNTA({at_a})", 0.5,
          "ALL driving legs (page-1 unfiltered — every leg the vehicle drove, incl. < "
-         f"{MIN_TRIP_KM:.0f} km / SOC-quantised)", "Leg Type ∈ DRIVE"),
+         f"{MIN_TRIP_KM:.0f} km legs)", "Leg Type ∈ DRIVE"),
         ("Page 1 · Summary", "Charging sessions", v["n_ch"],
          f"=ROWS(Charges!$A$2:$A${cn})", 0.5, "Count of charging legs (Leg Type ∈ CHARGE)", "Leg Type"),
         ("Page 1 · Summary", "Median GVM (t)", v["gvw_med"],
@@ -1518,7 +1519,7 @@ def _emit_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mass, op_f
 
     # ---- 真实 KPI ----
     # PAGE 1 is UNFILTERED: every operational count / total below is computed over tr_all (all driving
-    # legs, incl. < MIN_TRIP_KM and SOC-quantised legs). Only PAGE 2 (charts / fits / conclusions) uses
+    # legs, incl. < MIN_TRIP_KM legs). Only PAGE 2 (charts / fits / conclusions) uses
     # the cleaned `tr`. Active Days, Driving Legs, timeline and Median GVM therefore reflect every trip.
     daily_km = tr_all.dropna(subset=["date"]).groupby("date")["d"].sum()
     tot_km = tr_all["d"].sum(); ndays = tr_all["date"].nunique()

@@ -101,7 +101,7 @@ distribution-stats audit).
 
 > `compute()` returns **two** trip sets. `tr_all` = **every** driving leg → the **PAGE-1** operations
 > dashboard is UNFILTERED (Active Days, Driving Legs, Median GVM, timeline and the distance/energy
-> totals count every leg the vehicle drove, incl. < 3 km / SOC-quantised legs; no EP nulling). `tr` =
+> totals count every leg the vehicle drove, incl. < 3 km legs; no EP nulling). `tr` =
 > the **cleaned PAGE-2 analysis set** below (figures / fits / conclusions only). The **OPERATING PERIOD
 > label and the output directory naming stay keyed to the valid-trip (`tr`) span** so naming is stable.
 

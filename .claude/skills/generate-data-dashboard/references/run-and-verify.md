@@ -11,6 +11,11 @@ python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.7
 Optional: `--details none|all|<REG,REG,…>` (default `none`) additionally writes
 per-vehicle drill-down `detail_<REG>.html` pages into the same dashboard folder.
 
+Optional: `--fetch-uplot` (one-off) downloads the vendored uPlot JS/CSS from jsDelivr
+before continuing — the only network-touching flag of this CLI. Detail pages refuse to
+render when these assets are missing and their error message names this flag; once
+vendored, everything is offline again.
+
 The CLI prints a per-vehicle summary table (events vs raw day counts per category)
 — include it in the reply so the user can sanity-check coverage at a glance.
 

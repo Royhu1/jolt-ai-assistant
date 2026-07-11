@@ -19,5 +19,7 @@ workflow, `static/core/workflow.md`; `references/` paths are relative to the ski
 > diesel's channels** by listing `leg.types` and `leg.get_data_frame(<channel>)`
 > columns on a `SRFLOGGER` leg (channels CCVS/LFC/LFE/VDHR/CVW/AMB/2/7); these J1939
 > names are OEM-independent, so a new diesel usually reuses `daf_diesel_logger`
-> verbatim. See `references/YT21EFD.md` (Scania) + `references/WU70GLV` for worked
-> examples. Then jump to §2.4 (no speed/SOC branch question for diesel).
+> verbatim. See `references/YT21EFD.md` for the worked example (Scania; its channel
+> table is byte-identical to the WU70GLV/DAF template — WU70GLV itself predates the
+> per-vehicle case-study convention and has no reference file). Then jump to §2.4
+> (no speed/SOC branch question for diesel).
