@@ -15,56 +15,49 @@ description: |
   to the jolt-toolkit-dev agent instead — this skill only RUNS the generator.
 ---
 
-# Generate Data-Availability Dashboard — jolt_toolkit CLI wrapper
+# Generate Data-Availability Dashboard — Router
 
-Produce `data_dashboard.html` for one report-database version. This skill is a thin
-driver over `jolt_toolkit.report_generator.data_dashboard`; all logic lives in the
-package (owned by the `jolt-toolkit-dev` agent — route any behaviour/layout change there).
+A thin CLI wrapper split into two layers (anatomy v2, pattern adapted from
+nature-skills/nature-figure), sized per the proportionality rule in
+`.claude/rules/skill-design.md`:
 
-## Inputs to confirm with the user (ask only if ambiguous)
+- A **static layer**: `static/core/conventions.md` — the always-loaded conventions
+  (inputs to confirm, preconditions, no-version-bump / never-commit rules).
+- A **dynamic layer** (this file plus `manifest.yaml`) that loads the run-and-verify
+  reference only when actually executing the CLI.
 
-- **Version** — the `excel_report_database/<version>/` sub-directory to scan
-  (e.g. `2.2.7`). **Default to `2.2.7`** (the current canonical/latest version) if not given.
-- **Output path** — defaults to `excel_report_database/<version>/dashboard/data_dashboard.html`;
-  only override (`--out`) if the user asks.
+There is a single execution path — run the `jolt_toolkit` dashboard CLI — so there are
+no axes, gates or fragments. All dashboard logic lives in
+`jolt_toolkit.report_generator.data_dashboard`, owned by the `jolt-toolkit-dev` agent —
+route any behaviour/layout/detection change there; this skill only RUNS the generator.
 
-## Preconditions
+## Routing protocol
 
-- No network/API keys needed — the generator reads only local files:
-  - `excel_report_database/<version>/<REG>/jolt_report_*.xlsx` (skips `*_finetuned`)
-  - raw dirs: `raw_telematics/`, `raw_logger_v1/`, `raw_logger_v2/`,
-    `raw_charger/charger_transactions.csv`
-  - configs: `src/jolt_toolkit/configs/vehicles.json` + `plot_config.json`
-    (make/model, capacity, operator assignment + colours)
-- OneDrive caveat: ask the user to close any of the version's `.xlsx` open in Excel
-  first — a locked workbook fails the scan.
-- Run from the repo root with the `jolt` conda env. If `import jolt_toolkit` resolves
-  to a stale editable install, prefix with `PYTHONPATH=src`.
+Follow these four steps every time the skill is invoked.
 
-## How to run
+### 1. Load the manifest and the core layer
 
-```bash
-python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.7
-# → excel_report_database/2.2.7/dashboard/data_dashboard.html (open offline by double-click)
-# overrides: --db-root <reports root>   --out <html path>
-```
+Read [manifest.yaml](manifest.yaml), then every file listed under `always_load`:
+[static/core/conventions.md](static/core/conventions.md).
 
-The CLI prints a per-vehicle summary table (events vs raw day counts per category)
-— include it in the reply so the user can sanity-check coverage at a glance.
+### 2. Resolve version and output path
 
-## Verify after generating
+Per the core conventions ("Inputs to confirm with the user"): the report-database
+version (default `2.2.7`) and the output path (default in-place under
+`excel_report_database/<version>/dashboard/`); ask only if ambiguous. Check the
+preconditions (local files only, Excel-lock caveat, `jolt` env / `PYTHONPATH=src`).
 
-1. The HTML file was (re)written and is self-contained — no `http(s)://` /
-   CDN / `<link>` references (it must open offline by double-click).
-2. The embedded `const DATA` blob contains every vehicle directory present under
-   `excel_report_database/<version>/` (compare against `ls`).
-3. Console summary table shows no vehicle skipped due to a locked/unreadable file.
+### 3. Run the CLI
 
-## Conventions
+Read [references/run-and-verify.md](references/run-and-verify.md) and run the command
+exactly as written there (with any `--db-root` / `--out` / `--details` overrides the
+user asked for). Include the CLI's per-vehicle summary table in the reply.
 
-- Regenerating the dashboard is a **routine artefact refresh** — do NOT bump the
-  `jolt_toolkit` package version for it.
-- The output lives under gitignored `excel_report_database/` — never commit it.
-- What the dashboard shows (for reference when answering follow-ups): full
-  documentation lives in `src/jolt_toolkit/README.md` ("Data-availability
-  dashboard" section + the `data_dashboard.py` module-table row).
+### 4. Verify and report
+
+Apply the "Verify after generating" checklist from the same reference (self-contained
+HTML, every vehicle present in the `const DATA` blob, no vehicle skipped), then report
+the output path. Never bump the package version or commit the output (see conventions).
+
+The human-facing map + pipeline live in [README.md](README.md). Update the core file
+and the reference, not this router, when the workflow changes.

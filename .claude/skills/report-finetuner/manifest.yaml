@@ -1,0 +1,20 @@
+name: report-finetuner
+description: >
+  Declarative manifest for the static/dynamic split. SKILL.md uses this to
+  decide which fragments to load for a given request. This skill is a thin
+  slash-command shortcut that launches the report-finetuner AGENT with a
+  registration + period — a single handoff path, so there are no axes and no
+  gates (proportionality rule in .claude/rules/skill-design.md); the
+  always-loaded core is the handoff contract, and the resource pointers stay
+  in one on-demand reference.
+
+always_load:
+  # Skill-local core: the single contract that applies to every invocation —
+  # launch the report-finetuner agent (Agent() call with REG + period), the
+  # why-an-agent rationale, and the never-overwrite *_finetuned discipline.
+  - static/core/handoff-contract.md
+
+references:
+  on_demand:
+    - condition: needing the resource pointers (agent definition, finetune core library, past case studies / evaluation logs) or the user-side trigger phrasings
+      path: references/related-resources.md

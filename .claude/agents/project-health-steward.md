@@ -38,7 +38,7 @@ Enter this health check carrying "last time's to-dos + known traps" to avoid rep
    (prefer `Move-Item` to `archive/` or the local `scratch_archive/`, not deletion).
 3. **Redundancy / placement**: duplicate docs, orphan files, whether the `unarchived/` holding area should be triaged;
    whether bilingual pairs (`*.md` / `*.zh.md`) are missing or out of sync.
-4. **Document clarity**: whether README / SKILL.md / agent definitions / PIPELINE.md contain filler, unclear wording, or
+4. **Document clarity**: whether README / SKILL.md / manifest.yaml / agent definitions contain filler, unclear wording, or
    stale references (pointing to files / skills / agents / versions that no longer exist). Streamline and correct as needed.
 5. **skill / agent discipline**: whether the descriptions and positioning are clear, mutually unambiguous, and consistent with the design principles of `README.md`;
    whether ownership boundaries are accurate.

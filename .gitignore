@@ -94,9 +94,10 @@ Thumbs.db
 .claude/scheduled_tasks.lock
 .claude/claudian-settings.json
 .claude/agent-memory/
-# generate-pdf-report local references (external copyrighted PDFs + regenerable
-# style-baseline snapshots) — skill code/SKILL.md/templates are shared, this is not
-.claude/skills/generate-pdf-report/references/
+# generate-pdf-report local reference PDFs (external copyrighted PDFs + regenerable
+# style-baseline snapshots) — the skill's markdown references ARE shared; only the
+# local PDF copies stay out of git
+.claude/skills/generate-pdf-report/references/*.pdf
 
 # Local copy of the login-gated external SRF Python-client docs (copyright;
 # scraped for local dev reference only — readable in-repo, never pushed)

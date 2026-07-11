@@ -1,0 +1,53 @@
+name: vehicle-onboarding
+description: >
+  Declarative manifest for the static/dynamic split (pattern adapted from
+  nature-skills/nature-figure). SKILL.md uses this to decide which fragments
+  to load for a given onboarding run. The main axis is the vehicle energy
+  type (EV vs DIESEL, read from SRF `fuel`), which selects the Phase 2
+  algorithm-branch fragment; the interaction mode (Guided vs Auto) is a
+  start-of-run gate, and the SRF discovery code plus the case-study template
+  stay in on-demand references.
+
+always_load:
+  # Skill-local core: the workflow and the interaction rules apply to every run.
+  - static/core/workflow.md
+  - static/core/interaction-contract.md
+
+axes:
+  vehicle-type:
+    detect: |
+      Resolved during Phase 1 discovery from SRF metadata: SRF `fuel` = DIESEL
+      → `diesel`; otherwise → `ev`. Read the SRF field — never guess from the
+      make/model. If SRF is unreachable or ambiguous, ask the user (numbered
+      options per the interaction contract). Load the fragment before Phase 2
+      §2.1.
+    values:
+      ev: static/fragments/vehicle-type/ev.md
+      diesel: static/fragments/vehicle-type/diesel.md
+    multi: false
+
+gates:
+  interaction_mode: |
+    BLOCKING, at start. Present the user with the two run modes — Guided
+    (step-by-step with user confirmation at each decision point) vs Auto
+    (best-guess decisions automatically, present results for review).
+    Default: Guided mode. Full text in static/core/interaction-contract.md.
+  new_registration: |
+    BLOCKING. This skill is for a registration NOT yet in vehicles.json (see
+    the SKILL.md description). If <REG> is already configured, the vehicle is
+    already onboarded — stop and confirm with the user what they actually
+    need (numbered options per the interaction contract). One vehicle at a
+    time; complete onboarding before starting the next.
+
+references:
+  on_demand:
+    - condition: Phase 1 — SRF discovery (vehicle metadata query, organisation → company mapping, nominal capacity, data date range, raw telematics column inspection)
+      path: references/srf-discovery.md
+    - condition: Phase 6 — writing the post-onboarding case study references/{reg}.md
+      path: references/case-study-template.md
+    - condition: onboarding a rigid EV / city multi-drop vehicle similar to a Renault E-Tech D Wide (worked example)
+      path: references/T88RNW.md
+    - condition: onboarding an artic EV similar to a Renault E-Tech T (worked example)
+      path: references/TA70WTL.md
+    - condition: onboarding a DIESEL vehicle (worked example — Scania P410 on the SRF-Logger J1939 path, incl. the WJF operator-code gotcha)
+      path: references/YT21EFD.md

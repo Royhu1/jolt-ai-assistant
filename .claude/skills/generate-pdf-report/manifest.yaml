@@ -1,0 +1,70 @@
+name: generate-pdf-report
+description: >
+  Declarative manifest for the static/dynamic split (pattern adapted from
+  nature-skills/nature-figure). SKILL.md uses this to decide which fragments
+  to load for a given briefing request. The main axis is the mode (generate a
+  new briefing for a REG + period vs revise the briefing product's layout /
+  charts / commentary); the deep commentary / field-applicability /
+  verification material stays in on-demand references under references/
+  (markdown git-tracked; only the local PDF exemplars are gitignored, see
+  README.md). The rendered output is contract-fixed: two A4-portrait pages
+  matching references/style_baseline_*.pdf (layout rules in
+  static/core/layout-contract.md — finalised, do not revert).
+
+always_load:
+  # Skill-local core: the two contracts that apply to every run of the skill.
+  - static/core/layout-contract.md
+  - static/core/discipline.md
+
+axes:
+  mode:
+    detect: |
+      Default to `generate` whenever a briefing for a REG + period is
+      requested (triggers 1–3 in the SKILL.md description), including
+      --all-data / per-operator / --anon / --page1-basis runs. Choose
+      `revise` when the request is about the wording, charts, layout or
+      commentary of the briefing product or an existing briefing — e.g.
+      applying partner review comments, rewording conclusions, chart/layout
+      spec changes (trigger 4). If ambiguous (e.g. "update the briefing"),
+      ask whether the user wants a fresh generation run for a period or a
+      change to how briefings look/read.
+    values:
+      generate: static/fragments/mode/generate.md
+      revise: static/fragments/mode/revise.md
+    multi: false
+
+gates:
+  source_xlsx: |
+    BLOCKING. The xlsx for the target period must already exist under
+    excel_report_database/<version>/<REG>/ — either an exact-period report,
+    or a wider one whose [start,end] covers the target period (the generator
+    auto-selects the closest covering report and clips the data to the target
+    window). If neither exists, hand off to /generate-excel-report first.
+  headless_chrome: |
+    BLOCKING for PDF output. This machine must have Chrome / Edge (headless
+    PDF rendering). (HERE_API_KEY in the repo-root .env is NOT blocking: if
+    missing / on network failure the route map falls back to a basemap-free
+    schematic and the caption switches to "indicative".)
+  temperature_backfilled: |
+    BLOCKING for a meaningful EP-vs-temperature figure. The report's
+    temperature column must hold real values, not the LoggerPatcher
+    placeholder 0 (the run will not crash, but EP-vs-temp is meaningless) —
+    backfill first via the weather-patch flow in the generate fragment
+    (§2 Preconditions). Check: driving-segment temperature nunique > 1.
+
+references:
+  on_demand:
+    - condition: writing or editing the page-2 Conclusions / page-1 Summary (load points + band judgement, load sensitivity, temperature line, regen line, distribution-variant wording, PAGE-2-ONLY cleaning rules) — mandatory whenever commentary is produced or changed
+      path: references/commentary-style.md
+    - condition: deciding whether a briefing field is real pipeline data, partially available, or N/A ("—" not 0; never fabricate)
+      path: references/field-applicability.md
+    - condition: after every generation run (MANDATORY) — AI-side PDF checks + the shipped verification_*.xlsx workbook for the human verifier
+      path: references/verification.md
+
+assets:
+  references_local: |
+    references/ also holds the two gitignored local PDF style references
+    (root .gitignore ignores references/*.pdf; see README.md §Style
+    references): the EVITA Round Robin 1 Case Study (source of the layout)
+    and style_baseline_YK73WFN_20250306_20250522.pdf (the authoritative
+    finalised-style snapshot new reports must match).

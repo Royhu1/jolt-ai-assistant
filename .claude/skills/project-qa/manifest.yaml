@@ -1,0 +1,34 @@
+name: project-qa
+description: >
+  Declarative manifest for the static/dynamic split (pattern adapted from
+  nature-skills/nature-figure). SKILL.md uses this to decide what to load for
+  a given question. A strictly read-only Q&A flow has no genuine mode branch,
+  so there are no axes: every run always loads the read-only contract, clears
+  the blocking language-preference gate, then pulls the data-source map and
+  the matching category recipe from references on demand. The behaviour is
+  contract-fixed: this skill never modifies any file.
+
+always_load:
+  # Skill-local core: the contract that applies to every question — the strict
+  # read-only constraint, the mandatory Step-0 language preference, and the
+  # presentation guidelines.
+  - static/core/read-only-contract.md
+
+# No axes: read-only Q&A follows a single flow for every question category, so
+# per the proportionality rule in .claude/rules/skill-design.md (a skill with
+# no genuine branch simply omits axes) there are no static/fragments/.
+
+gates:
+  language_preference: |
+    BLOCKING, on EVERY interaction. Before answering any question, present the
+    response-language choice (Chinese default / English / other) and wait for
+    the user's reply (or proceed with Chinese if they don't respond / reply
+    with a number). The exact wording to present lives in
+    static/core/read-only-contract.md (Step 0).
+
+references:
+  on_demand:
+    - condition: locating any project fact — which read-only file holds vehicles / pipelines / operators / test date ranges / reports / simulation results / changelog / package version / architecture docs
+      path: references/data-sources.md
+    - condition: answering one of the eight known question categories (fleet overview, data-collection date ranges, generated-report status, pipeline/algorithm parameters, vehicle specs, simulation results, recent changes, package version/branch) — the per-category answer recipe
+      path: references/question-categories.md

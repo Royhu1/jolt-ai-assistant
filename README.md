@@ -125,7 +125,7 @@ All skills / commands / agents follow the shared design principles in
 [nature-skills](https://github.com/Yuan1z0825/nature-skills) design philosophy) — one line each;
 the rules file carries the full statements *with their reasons*:
 
-1. **Single source of truth, progressive disclosure** — each level's `README.md` owns its structure; `SKILL.md` stays a lean router over `references/` / `PIPELINE.md`.
+1. **Single source of truth, progressive disclosure** — each level's `README.md` owns its structure; `SKILL.md` stays a lean router over `manifest.yaml`-declared fragments and `references/`.
 2. **Explicit beats implicit** — rules state their reason; artefact paths and trigger phrases are written out, never assumed.
 3. **Output-first** — every skill run ends in a directly usable artefact at a documented path.
 4. **Single ownership, explicit routing** — each artefact / code area has exactly one owner; everyone else routes changes to it.
@@ -156,22 +156,25 @@ links, valid statuses, minimum files per skill).
 
 ### Skills (`.claude/skills/`)
 
-> Each JOLT skill folder also contains a concise `PIPELINE.md` — a quick, human-readable
-> walk-through of what happens when you invoke that skill (data in → processing → artefacts
-> out, plus ownership and how it connects to neighbouring skills). The skill names below link
-> to it — read it to grasp a skill's working principle without opening its full `SKILL.md`.
+> Each JOLT skill follows the **router / static-dynamic split** (anatomy v2, adapted from
+> nature-figure — see `.claude/rules/skill-design.md`): a short `SKILL.md` router +
+> declarative `manifest.yaml` (always-loaded `static/core/` contracts, per-mode
+> `static/fragments/`, on-demand `references/`) + a human-facing `README.md` — the skill's
+> single source of truth, whose **Pipeline** section gives the quick walk-through (data in
+> → processing → artefacts out, ownership, neighbouring skills; it absorbed the former
+> `PIPELINE.md`). The skill names below link to that `README.md`.
 
 | Skill | Status | What it does |
 |-------|--------|--------------|
-| [`/generate-excel-report <REG> <period>`](.claude/skills/generate-excel-report/PIPELINE.md) | Stable | Generate a formatted Excel report for a vehicle + date range (drives the report CLI → `excel_report_database/`). |
-| [`/generate-pdf-report <REG> <period>`](.claude/skills/generate-pdf-report/PIPELINE.md) | Stable | Generate the industrial-partner one-page PDF/HTML briefing from xlsx pipeline artefacts (→ `pdf_report_workspace/output_by_TBD/`, frozen as `output_by_<YYYYMMDD>/` on finalisation). **Self-contained owner of all PDF-briefing development** — its own generator code (`generate_pdf_report.py` / `build_pdf.py` / `templates/`), layout, chart specs, commentary style guide and KPI computation all live in the skill; reads `excel_report_database/*.xlsx` (and may read-only call `jolt_toolkit.analysis`), routing to `jolt-toolkit-dev` *only* for new xlsx fields. |
-| [`/generate-data-dashboard <version>`](.claude/skills/generate-data-dashboard/PIPELINE.md) | Stable | Generate/refresh the offline data-availability dashboard (`data_dashboard.html`) for a report-database version (drives the `jolt_toolkit` dashboard CLI). |
-| [`/data-collection-monitor [--cadence weekly]`](.claude/skills/data-collection-monitor/PIPELINE.md) | Beta | Periodic (designed for `/loop`, default weekly) fleet data-intake check: append-only extends `excel_report_database/<version>/` with newly-collected SRF data (never overwrites), refreshes the dashboard, and emits a fixed-template PDF "data collection digest" (+ `MONITOR_STATUS.md`) → `data_collection_reports/`. |
-| [`/plot-figure`](.claude/skills/plot-figure/PIPELINE.md) | Stable | Generate energy-performance figures (EP-vs-mass scatter+fit, range, per-OEM…) from xlsx reports into a `--out-dir` you specify. |
-| [`/param-tuner <REG>`](.claude/skills/param-tuner/PIPELINE.md) | Stable | Review and optimise a vehicle's trip/charging segmentation parameters from its validation figures. |
-| [`/report-finetuner <REG> <period>`](.claude/skills/report-finetuner/PIPELINE.md) | Beta | Vision-driven post-processing of a generated xlsx's segmentation (merge / split / delete legs → `*_finetuned` artefacts). |
-| [`/vehicle-onboarding <REG>`](.claude/skills/vehicle-onboarding/PIPELINE.md) | Beta | Onboard a new vehicle: query SRF, configure `vehicles.json` / `pipelines.json` / `plot_config.json`, produce the first report. |
-| [`/project-qa`](.claude/skills/project-qa/PIPELINE.md) | Stable | Read-only Q&A about project state (vehicles, data coverage, configs, results, changelog) — never edits anything. |
+| [`/generate-excel-report <REG> <period>`](.claude/skills/generate-excel-report/README.md) | Stable | Generate a formatted Excel report for a vehicle + date range (drives the report CLI → `excel_report_database/`). |
+| [`/generate-pdf-report <REG> <period>`](.claude/skills/generate-pdf-report/README.md) | Stable | Generate the industrial-partner one-page PDF/HTML briefing from xlsx pipeline artefacts (→ `pdf_report_workspace/output_by_TBD/`, frozen as `output_by_<YYYYMMDD>/` on finalisation). **Self-contained owner of all PDF-briefing development** — its own generator code (`generate_pdf_report.py` / `build_pdf.py` / `templates/`), layout, chart specs, commentary style guide and KPI computation all live in the skill; reads `excel_report_database/*.xlsx` (and may read-only call `jolt_toolkit.analysis`), routing to `jolt-toolkit-dev` *only* for new xlsx fields. |
+| [`/generate-data-dashboard <version>`](.claude/skills/generate-data-dashboard/README.md) | Stable | Generate/refresh the offline data-availability dashboard (`data_dashboard.html`) for a report-database version (drives the `jolt_toolkit` dashboard CLI). |
+| [`/data-collection-monitor [--cadence weekly]`](.claude/skills/data-collection-monitor/README.md) | Beta | Periodic (designed for `/loop`, default weekly) fleet data-intake check: append-only extends `excel_report_database/<version>/` with newly-collected SRF data (never overwrites), refreshes the dashboard, and emits a fixed-template PDF "data collection digest" (+ `MONITOR_STATUS.md`) → `data_collection_reports/`. |
+| [`/plot-figure`](.claude/skills/plot-figure/README.md) | Stable | Generate energy-performance figures (EP-vs-mass scatter+fit, range, per-OEM…) from xlsx reports into a `--out-dir` you specify. |
+| [`/param-tuner <REG>`](.claude/skills/param-tuner/README.md) | Stable | Review and optimise a vehicle's trip/charging segmentation parameters from its validation figures. |
+| [`/report-finetuner <REG> <period>`](.claude/skills/report-finetuner/README.md) | Beta | Vision-driven post-processing of a generated xlsx's segmentation (merge / split / delete legs → `*_finetuned` artefacts). |
+| [`/vehicle-onboarding <REG>`](.claude/skills/vehicle-onboarding/README.md) | Beta | Onboard a new vehicle: query SRF, configure `vehicles.json` / `pipelines.json` / `plot_config.json`, produce the first report. |
+| [`/project-qa`](.claude/skills/project-qa/README.md) | Stable | Read-only Q&A about project state (vehicles, data coverage, configs, results, changelog) — never edits anything. |
 | [`/html-artifacts`](.claude/skills/html-artifacts/SKILL.md) | Stable | Produce a self-contained HTML artefact deliverable (instead of Markdown) for content that needs layout / diagrams / interactivity. (Vendored third-party skill — keeps its `UPSTREAM_README.md` instead of a `PIPELINE.md`.) |
 
 ### Agents (`.claude/agents/`)

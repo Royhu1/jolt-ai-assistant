@@ -16,12 +16,14 @@
 - **`*.zh.md` are gitignored Chinese copies**; `README.md` (English) is the authoritative version committed to the repository.
 - **Run the two consistency checkers FIRST — they are the fastest structural health signal.**
   `python .claude/scripts/check_skill_registry.py --verbose` (README index tables ↔ `.claude/` skills/commands/agents:
-  one row each, links resolve, status ∈ Draft/Beta/Stable, every skill has SKILL.md + PIPELINE.md unless vendored)
+  one row each, links resolve, status ∈ Draft/Beta/Stable, every skill has SKILL.md + manifest.yaml + README.md unless vendored)
   and `python .claude/scripts/check_subproject_independence.py` (no cross-sub-project `sys.path.insert`). Both exit 1 on
   violation. If both pass, the registry/anatomy/independence layer is sound and you can focus on version drift + tidiness.
 - **Harness-design yardstick lives in `.claude/rules/skill-design.md`** (7 principles + status taxonomy + skill anatomy +
-  `_shared/` promotion rule). Skill anatomy = `SKILL.md` (required) + `PIPELINE.md` (required unless vendored). **`html-artifacts`
-  is the ONLY vendored exemption** — it keeps `UPSTREAM_README.md` instead of PIPELINE.md; don't flag it as missing PIPELINE.
+  `_shared/` promotion rule). Skill anatomy v2 (2026-07-11, router/static-dynamic) = `SKILL.md` router (required) +
+  `manifest.yaml` + `README.md` (required unless vendored; the former PIPELINE.md was absorbed into each skill README's
+  "Pipeline" section). **`html-artifacts` is the ONLY vendored exemption** — it keeps `UPSTREAM_README.md` instead;
+  don't flag it as missing manifest/README.
   Rules files under `.claude/rules/` are English-only (no `.zh` copies) — that's by design, not a bilingual gap.
 - **Version-consistency judgement — distinguish two kinds of version string.** BUMP references that assert a *current /
   default / canonical* version (e.g. a skill's "Default to 2.2.5", `--out-dir .../2.2.5` examples, a README "Current version"

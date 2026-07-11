@@ -11,9 +11,11 @@ Checks
    row, and every row points at something that exists on disk (no orphans either way).
 2. Links: every row's name is a markdown link whose target file exists.
 3. Statuses: every row's Status is one of ``Draft`` / ``Beta`` / ``Stable``.
-4. Minimum files: every skill directory contains ``SKILL.md``, and ``PIPELINE.md``
-   unless listed in ``VENDORED_SKILLS`` (vendored third-party skills keep their
-   upstream README instead).
+4. Minimum files (anatomy v2, router / static-dynamic split): every skill directory
+   contains ``SKILL.md``, and ``manifest.yaml`` + ``README.md`` unless listed in
+   ``VENDORED_SKILLS`` (vendored third-party skills keep their upstream README
+   instead). The former per-skill ``PIPELINE.md`` was absorbed into each skill's
+   ``README.md`` ("Pipeline" section) on 2026-07-11.
 
 Usage (from the repo root)
 --------------------------
@@ -31,8 +33,8 @@ from pathlib import Path
 
 VALID_STATUSES = {"Draft", "Beta", "Stable"}
 
-# Vendored third-party skills: exempt from the PIPELINE.md requirement (they carry
-# their upstream README instead) but still registered and status-labelled.
+# Vendored third-party skills: exempt from the manifest.yaml + README.md requirement
+# (they carry their upstream README instead) but still registered and status-labelled.
 VENDORED_SKILLS = {"html-artifacts"}
 
 # Directory names under .claude/skills that are not skills (shared layer, caches).
@@ -166,11 +168,13 @@ def main() -> int:
     for name, d in disk["skill"].items():
         if not (d / "SKILL.md").is_file():
             violations.append(f"skill {name!r} has no SKILL.md")
-        if name not in VENDORED_SKILLS and not (d / "PIPELINE.md").is_file():
-            violations.append(
-                f"skill {name!r} has no PIPELINE.md (add one, or list it in "
-                f"VENDORED_SKILLS if vendored)"
-            )
+        if name not in VENDORED_SKILLS:
+            for required in ("manifest.yaml", "README.md"):
+                if not (d / required).is_file():
+                    violations.append(
+                        f"skill {name!r} has no {required} (add one per anatomy v2, "
+                        f"or list the skill in VENDORED_SKILLS if vendored)"
+                    )
 
     if violations:
         print(f"FAIL: {len(violations)} registry violation(s)\n" + "\n".join(

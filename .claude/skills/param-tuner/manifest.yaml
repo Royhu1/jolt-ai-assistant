@@ -1,0 +1,58 @@
+name: param-tuner
+description: >
+  Declarative manifest for the static/dynamic split (pattern adapted from
+  nature-skills/nature-figure). SKILL.md uses this to decide which fragments
+  to load for a given tuning request. The main axis is the tuning mode
+  (quick sampled iteration vs thorough full review); the symptom tables,
+  parameter table and record formats stay in on-demand references, alongside
+  the per-vehicle case studies (references/<REG>.md). The tuning discipline
+  is contract-fixed: holistic optimization, one parameter at a time,
+  `--fast --debug` validation then patcher backfill — never plain `--debug`
+  (static/core/principles.md).
+
+always_load:
+  # Skill-local core: the workflow and the discipline that apply to every tuning run.
+  - static/core/workflow.md
+  - static/core/principles.md
+
+axes:
+  mode:
+    detect: |
+      When starting, present both modes to the user and let them choose —
+      there is no silent default. Quick suits vehicles with known similar
+      characteristics to a previously tuned vehicle; Thorough suits
+      first-time optimization or vehicles with unique data characteristics.
+      If the user's request already names a mode, use it; if ambiguous, ask.
+    values:
+      quick: static/fragments/mode/quick.md
+      thorough: static/fragments/mode/thorough.md
+    multi: false
+
+gates:
+  vehicle_data: |
+    BLOCKING. Identify the vehicle registration from user input. The vehicle
+    must be configured in src/jolt_toolkit/configs/vehicles.json /
+    pipelines.json and have a report directory with validation figures under
+    excel_report_database/{version}/{reg}/ — workflow step 1 (locate data)
+    cannot proceed otherwise. An unconfigured vehicle is /vehicle-onboarding
+    territory (onboarding itself runs this skill once the first report
+    exists); missing validation figures are produced by the fast-validation
+    command (batch_generate.py --debug --fast --veh {reg}).
+
+references:
+  on_demand:
+    - condition: assessing a validation figure's four panels — symptom → diagnosis → parameter tables (A discharge trips / B mass clustering / C charging events)
+      path: references/evaluation-criteria.md
+    - condition: looking up any tunable parameter's config location, default and effect
+      path: references/parameter-reference.md
+    - condition: creating/updating evaluations/{REG}_review_results.md, or writing the post-run case study references/{reg}.md (workflow steps 3, 5.5, 6)
+      path: references/record-format.md
+    - condition: workflow step 0 — prior experience with this vehicle or a similar one (same make, similar operation pattern, similar data availability)
+      path: references/<REG>.md   # per-vehicle case studies, e.g. references/YN25RSY.md
+
+assets:
+  evaluations: |
+    evaluations/ holds the persistent per-vehicle review logs
+    ({REG}_review_results.md) — created on the first review and appended
+    (Round N) on every subsequent one, per the key rules in
+    static/core/principles.md; file structure in references/record-format.md.

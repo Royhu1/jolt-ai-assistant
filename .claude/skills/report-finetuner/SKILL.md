@@ -13,54 +13,49 @@ description: |
   (4) user says param-tuner exhausted but figures still show segmentation errors
 ---
 
-# Report Finetuner (slash-command shortcut)
+# Report Finetuner — Router (slash-command shortcut)
 
 **This is only a thin trigger.** The real work is done by the `report-finetuner` agent
-(see `.claude/agents/report-finetuner.md`).
+(see `.claude/agents/report-finetuner.md`). Per the proportionality rule in
+`.claude/rules/skill-design.md`, this launcher has no axes, no fragments and no gates —
+a single always-loaded handoff contract plus one on-demand reference. Do not perform
+the finetune work in the main conversation; load the handoff contract from disk and
+follow it.
 
-## What the main conversation should do when triggered
+## Routing protocol
 
-Launch the `report-finetuner` agent immediately:
+Follow these three steps every time the skill is invoked.
 
-```python
-Agent(
-    subagent_type="report-finetuner",
-    description="Finetune {REG} {period} report",
-    prompt=(
-        "Finetune the xlsx report for {REG} covering {start}~{end}. "
-        "Full workflow: (0) locate inputs and check prior references, "
-        "(1) visual diagnosis across all validation figures in the period, "
-        "(2) propose MergeOp/SplitOp/DeleteOp list, (3) apply via finetune.py "
-        "and regenerate overlay figures + inspect HTML, (4) finalize "
-        "evaluations log and references case study. Follow the workflow in "
-        "your agent definition."
-    ),
-)
-```
+### 1. Load the manifest and the core layer
 
-## Why an agent rather than the skill doing it directly
+Read [manifest.yaml](manifest.yaml). It declares the single always-load contract and
+the on-demand reference table.
 
-- **Context isolation**: visual diagnosis often needs to read tens of PNGs; doing that in the
-  main conversation would burn through context fast. The agent's separate context does not
-  crowd the main conversation.
-- **Cross-session memory**: the agent has its own `.claude/agent-memory/report-finetuner/`, so
-  it can remember "what was previously fixed on this vehicle" and "typical pitfalls for this
-  kind of OEM". A skill starts from scratch every time.
-- **Traceability**: the agent is forced to write two layers of logs, `evaluations/` and
-  `references/`, building a long-term asset.
+Also read the file listed under `always_load`:
+[static/core/handoff-contract.md](static/core/handoff-contract.md) — the exact
+`Agent(...)` launch call (substitute in REG + period), the "why an agent rather than
+the skill doing it directly" rationale, and the never-overwrite `*_finetuned` output
+discipline the agent's artefacts follow.
 
-## Related resources
+### 2. Hand off to the agent
 
-- Agent definition: `.claude/agents/report-finetuner.md`
-- Core library: `src/jolt_toolkit/report_generator/finetune.py` (maintained by `jolt-toolkit-dev`)
-- Past case studies: `.claude/skills/report-finetuner/references/{REG}.md`
-- Past logs: `.claude/skills/report-finetuner/evaluations/{REG}_{period}_finetune_log.md`
+There is no axis to resolve — every invocation follows the single path in the handoff
+contract: launch the `report-finetuner` agent immediately with the vehicle
+registration and report period. All actual work (visual diagnosis, operation
+planning, xlsx finetune, figure + inspect-HTML regeneration, evaluations/references
+logging) happens in the agent's isolated context.
 
-## User-side usage
+### 3. Reach for the reference only when needed
 
-No need to remember the agent name; any of the following phrasings triggers it:
+Open [references/related-resources.md](references/related-resources.md) on demand per
+the manifest table: pointers to the agent definition, the finetune core library, past
+case studies / logs, and the user-side trigger phrasings.
 
-- `/report-finetuner YK73WFN 20240601_20240901`
-- "fix the segmentation on AV24LXK's early-2025 report"
-- "merge rows 12 and 13 of YK73 for me" (single-operation mode; the agent skips the stage-1
-  visual sweep)
+## Why this split
+
+- The handoff contract (launch call + rationale + never-overwrite discipline) is the
+  one piece that must never drift, so it is the one piece that always loads.
+- The router stays short on purpose: this skill is a launcher, not a workflow — adding
+  scope means updating the contract or the agent definition, not growing this file.
+- The human-facing map + pipeline live in [README.md](README.md), per anatomy v2 in
+  `.claude/rules/skill-design.md`.

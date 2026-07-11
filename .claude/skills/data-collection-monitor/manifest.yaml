@@ -1,0 +1,55 @@
+name: data-collection-monitor
+description: >
+  Declarative manifest for the static/dynamic split (pattern adapted from
+  nature-skills/nature-figure). SKILL.md uses this to decide which fragments
+  to load for a given monitor request. The main axis is the run mode
+  (full-check loop iteration vs template-only digest test); the /loop cadence
+  rules and the digest artefact spec stay in on-demand references. The
+  behaviour is contract-fixed: the report database is APPEND-ONLY — never
+  overwrite an existing report or its raw data (static/core/conventions.md).
+
+always_load:
+  # Skill-local core: the behaviour conventions + discipline that apply to
+  # every monitor run (append-only is THE contract of this skill).
+  - static/core/conventions.md
+
+axes:
+  run-mode:
+    detect: |
+      Default to `full-check`. Choose `template-only` ONLY when the user
+      explicitly asks to test the digest PDF / template on existing data
+      (no SRF, no dashboard refresh — the `--dry-run` path). Anything else —
+      a /loop iteration, a "check for new data" request, "produce the
+      data-collection digest/report" — is `full-check`.
+    values:
+      full-check: static/fragments/run-mode/full-check.md
+      template-only: static/fragments/run-mode/template-only.md
+    multi: false
+
+gates:
+  first_run_cadence: |
+    BLOCKING under /loop. Read data_collection_reports/MONITOR_STATUS.md
+    first. If it does not exist (= the first run of this loop), ASK the user
+    for the trigger cadence (daily / weekly (default) / fortnightly /
+    monthly) via AskUserQuestion; the lookback window defaults to follow the
+    cadence (weekly → 7 days), overridable by the user. On every subsequent
+    trigger, read the cadence back from MONITOR_STATUS.md and reuse it — do
+    NOT ask again. Full rules: references/loop-usage.md.
+
+references:
+  on_demand:
+    - condition: /loop wiring, first-run cadence question, MONITOR_STATUS.md layout, why a true weekly schedule needs the harness cron
+      path: references/loop-usage.md
+    - condition: digest artefact spec — output paths, the single 14-column whole-fleet table, per-column definitions, green/amber/grey colour semantics, layout
+      path: references/digest-spec.md
+
+assets:
+  scripts: |
+    run_monitor.py is the orchestrator CLI this skill drives (SRF check →
+    append-only extend → dashboard refresh → digest); build_digest_pdf.py is
+    the HTML→PDF step (headless Chrome/Edge, vendored from
+    generate-pdf-report's build_pdf.py, zero extra dependencies);
+    templates/digest_template.html.j2 is the fixed digest template;
+    watched_vehicles.json is the watched-vehicle list (default the full
+    configured fleet). These are the skill's executable layer — orchestrate
+    them, never re-implement them.

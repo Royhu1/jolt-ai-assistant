@@ -13,148 +13,72 @@ description: |
   "project overview", "fleet status", "report status", "/project-qa"
 ---
 
-# Project Q&A — JOLT Report
+# Project Q&A — Router
 
-Read-only agent for answering questions about the JOLT project. **Never modifies
-any file.** Only reads config, data, and result files to answer questions.
+This skill is split into two layers (pattern adapted from nature-skills/nature-figure):
 
----
+- A **static layer** under `static/` holding the one contract that applies to every
+  interaction: the strict read-only constraint, the mandatory Step-0 language
+  preference and the presentation guidelines.
+- A **dynamic layer** (this file plus `manifest.yaml`) that clears the language gate,
+  classifies the question, and loads only the reference material the current question
+  needs. This skill has no genuine mode branch, so it has no axes and no
+  `static/fragments/` (proportionality rule, `.claude/rules/skill-design.md`).
 
-## Step 0 — Language preference (MANDATORY, every interaction)
+Do not answer from memory or from this router alone. Always load the material from
+disk as described below. **The behaviour is contract-fixed**: strictly read-only, with
+the Step-0 language choice on every interaction — this refactor changes how the skill
+is organised, never how it answers.
 
-**Before answering any question**, present the user with language options:
+## Routing protocol
 
-> Please choose your response language:
->
-> **[1] Chinese** (default)
-> **[2] English**
-> **[3] Other** — please specify
+Follow these four steps every time the skill is invoked.
 
-Wait for the user's reply (or proceed with Chinese if they don't respond / reply
-with a number). Then answer the question in the chosen language.
+### 1. Load the manifest and the core layer
 
----
+Read [manifest.yaml](manifest.yaml). It declares the always-load core contract, the
+blocking language-preference gate, and the on-demand reference table (no axes).
 
-## Data sources
+Also read the file listed under `always_load`:
+[static/core/read-only-contract.md](static/core/read-only-contract.md) — the strict
+read-only constraint, the mandatory Step-0 language preference, and the presentation
+guidelines. It applies to every question.
 
-All sources are **read-only**. Never write to or modify any of these files.
+### 2. Clear the language gate — blocking
 
-| Source | Path | Contains |
-|--------|------|----------|
-| Vehicle registry | `src/jolt_toolkit/configs/vehicles.json` | Vehicle make/model, pipeline, capacity, mass params |
-| Pipeline configs | `src/jolt_toolkit/configs/pipelines.json` | Segmentation algorithm parameters per pipeline |
-| Plot / operator config | `src/jolt_toolkit/configs/plot_config.json` | Operator → vehicle assignment, vehicle specs |
-| Test date ranges | `.claude/skills/generate-excel-report/test_data_config.json` | Standard date ranges used for batch report generation |
-| Reports directory | `excel_report_database/<version>/` | Generated Excel reports per vehicle |
-| Simulation results | `simulation/results/EP_simulation_report.md` | Physics simulation findings |
-| Simulation tables | `simulation/results/tables/*.csv` | Numerical experiment data |
-| Changelog | `changelogs/changelog_*.md` | Weekly Q&A logs of completed tasks |
-| Package version | `pyproject.toml` | Current version number |
-| Architecture docs | `src/jolt_toolkit/README.md` | Module structure |
+Before answering any question, present the response-language options exactly as
+written in the core contract's Step 0 (Chinese default / English / other) and wait
+for the user's reply (or proceed with Chinese if they don't respond / reply with a
+number). Then answer in the chosen language.
 
----
+### 3. Classify the question and load the matching references
 
-## Question categories and how to answer them
+Classify the question into one of the eight known categories: fleet overview,
+data-collection date ranges, generated-report status, pipeline/algorithm parameters,
+vehicle specifications, simulation results, recent changes (changelog), or package
+version/branch. Then open the references on demand per the manifest table:
 
-### 1. Fleet overview — operators and vehicles
+- [references/data-sources.md](references/data-sources.md) — the read-only map of
+  where every project fact lives (configs, reports, test ranges, simulation,
+  changelog, version, architecture docs).
+- [references/question-categories.md](references/question-categories.md) — the
+  per-category answer recipe (which source to read, what to show, in what shape).
 
-Read `src/jolt_toolkit/configs/plot_config.json` → `company_assignment.simple`
-for operator → vehicle mapping, and `src/jolt_toolkit/configs/vehicles.json`
-for vehicle specs (make, model, capacity).
+### 4. Answer per the presentation guidelines
 
-Present as a table:
+Apply the core contract: lead with the direct answer, use tables for multiple
+vehicles/parameters, include units, say so clearly when data is unavailable — and
+decline any change request per the strict read-only constraint.
 
-| Operator | Vehicles | Make/Model |
-|----------|---------|------------|
-| KNOWLES | AV24LXJ, AV24LXK, AV24LXL | ... |
-| ...      | ...     | ... |
+## Why this split
 
-### 2. Data collection date ranges
-
-Read `.claude/skills/generate-excel-report/test_data_config.json` for the standard date
-ranges used in batch report generation. Present per vehicle and grouped by operator.
-
-For each vehicle, show:
-- Registration
-- Operator
-- Earliest start date
-- Latest end date
-- Number of date range windows defined
-
-### 3. Generated reports status
-
-List directories under `excel_report_database/` using Glob (`excel_report_database/**/`) to identify which
-versions and vehicles have reports already generated. Check for `.xlsx` files
-under `excel_report_database/<version>/<reg>/`.
-
-Summarise: version → list of vehicles with reports → approximate file count.
-
-### 4. Pipeline and algorithm parameters
-
-Read `src/jolt_toolkit/configs/vehicles.json` to find which pipeline a vehicle
-uses, then read `src/jolt_toolkit/configs/pipelines.json` for that pipeline's
-parameters.
-
-Present key parameters in a table:
-
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| branch | speed / standard | Segmentation algorithm |
-| min_stop_duration_min | 5.0 | Zero-speed duration to end trip |
-| min_trip_duration_min | 2.0 | Minimum trip duration |
-| ... | ... | ... |
-
-### 5. Vehicle specifications
-
-From `plot_config.json` → `vehicle_specs` or `vehicles.json`:
-- Make and model
-- Effective battery capacity (kWh)
-- Tractor weight (kg)
-- Nominal GVW
-
-### 6. Simulation experiment results
-
-Read `simulation/results/EP_simulation_report.md` for a summary.
-For specific numerical data, read the relevant CSV from `simulation/results/tables/`.
-
-Key findings to highlight:
-- Baseline EP₀ ≈ 1.329 kWh/km (42 t, dry road, 20°C, no wind, flat)
-- Sensitivity ranking (highest ΔEP first): road surface > CdA > elevation > temperature > wind > stop-start
-- All linear factors (mass, Crr, CdA) have R² = 1.000
-
-### 7. Recent changes
-
-Read the current week's changelog file from `changelogs/changelog_YYYYMMDD_YYYYMMDD.md`.
-Today's date is available from context. Find the file matching the current week
-(Monday–Sunday), and summarise recent tasks.
-
-### 8. Package version and branch
-
-Read `pyproject.toml` for the version. Run `git branch --show-current` (read-only)
-to confirm the current branch.
-
----
-
-## Presentation guidelines
-
-- Use tables wherever there are multiple vehicles or parameters
-- Keep answers concise — lead with the direct answer, then provide details
-- If the user asks a question that requires modifying config or code, politely
-  decline and suggest they ask Claude directly (not this agent)
-- If data is unavailable (file missing, directory empty), say so clearly
-- For numerical values, include units
-
----
-
-## Strict read-only constraint
-
-This agent **must not**:
-- Edit any file (no Edit, Write, or NotebookEdit tool calls)
-- Run any command that modifies state (no pip install, git commit, etc.)
-- Generate reports (no batch_generate.py calls)
-
-Permitted tools: Read, Glob, Grep, Bash (read-only commands: ls, git log,
-git status, git branch, cat — but prefer Read/Glob/Grep)
-
-If the user asks the agent to make changes, respond:
-> "This Q&A agent is read-only. Please ask Claude directly to make that change."
+- The rules that must never drift — the strict read-only constraint and the mandatory
+  Step-0 language preference — are the ones that always load (`static/core/`).
+- Each invocation stays cheap: the data-source map and the category recipes enter
+  context only when a question needs them.
+- The router itself is short on purpose. Update the core contract and references, not
+  this file, when adding scope (a ninth question category = one new recipe).
+- This structure mirrors nature-figure's static/dynamic split, adapted to the JOLT
+  skill anatomy v2 (`README.md` + `manifest.yaml` + `references/` per
+  `.claude/rules/skill-design.md`); the human-facing map + pipeline live in
+  [README.md](README.md).

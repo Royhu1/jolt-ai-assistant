@@ -1,13 +1,32 @@
-# report-finetuner — Pipeline
+# report-finetuner — slash-command shortcut for the report-finetuner agent
 
 > A thin slash-command trigger that launches the `report-finetuner` agent, which does
 > vision-driven segmentation corrections producing `*_finetuned` artefacts.
+> This README is the skill's human-facing single source of truth; `SKILL.md` is the
+> agent-facing router over `manifest.yaml`.
 
 **Invoke:** `/report-finetuner <REG> <period>` · **In:** the period's `jolt_report_*.xlsx` +
 its `validation_*.png` · **Out:** `*_finetuned.xlsx` + overlay `*_finetuned.png` +
 `inspect_*_finetuned.html` (originals never overwritten)
 
-## Flow
+## Directory map
+
+```
+report-finetuner/
+├── SKILL.md            # router: routing protocol only (agent entry point)
+├── manifest.yaml       # always_load (handoff contract) + on-demand reference table; no axes / gates
+├── README.md           # this file — human-facing map + pipeline
+├── static/
+│   └── core/           # handoff-contract.md (always loaded): agent launch call + why-an-agent + never-overwrite discipline
+├── references/         # related-resources.md (on demand) + per-vehicle case studies {REG}.md
+└── evaluations/        # per-run logs {REG}_{period}_finetune_log.md
+```
+
+> Content ownership: the `report-finetuner` **agent** (not this skill) writes
+> `references/{REG}.md` and the `evaluations/` logs at the end of each run — they are the
+> agent's cross-session memory; the skill only points to them.
+
+## Pipeline
 
 1. **Route** — the skill itself only launches the `report-finetuner` agent (via `Agent`,
    `subagent_type="report-finetuner"`) with the registration + period; all real work happens

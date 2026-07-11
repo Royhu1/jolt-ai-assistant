@@ -1,0 +1,66 @@
+name: generate-excel-report
+description: >
+  Declarative manifest for the static/dynamic split (pattern adapted from
+  nature-skills/nature-figure). SKILL.md uses this to decide which fragments
+  to load for a given request. The main axis is the run mode (single report
+  via generate_report.py vs batch/quarter-split via batch_generate.py); the
+  mandatory post-generation checklist lives in references/. This is a lean
+  CLI wrapper — the algorithms live in the jolt_toolkit package (owned by
+  the jolt-toolkit-dev agent; route code changes there, not here).
+
+always_load:
+  # Skill-local core: the contract-grade conventions for every run —
+  # inputs to confirm (date-range / quarter-split rules, --debug / --raw-only /
+  # --fast semantics and warnings), blocking preconditions (API key, vehicle
+  # configured, version + output-dir confirmation), output artefact paths,
+  # and the weather/elevation cache-first contract.
+  - static/core/conventions.md
+
+axes:
+  mode:
+    detect: |
+      Choose `single` when the run produces exactly one .xlsx: one vehicle
+      and one explicit period of <= ~3 months, or a deliberately single
+      full-range report (generate_report.py). Choose `batch` when the user
+      asks for the standard test-vehicle set, multiple vehicles, or a
+      whole-range / longer-than-a-quarter span that must be auto-split into
+      meteorological-quarter reports (batch_generate.py). If the user gives
+      NO date range, that is a blocking question (see the inputs_confirmed
+      gate / core conventions) — resolve it with the user before picking the
+      mode.
+    values:
+      single: static/fragments/mode/single.md
+      batch: static/fragments/mode/batch.md
+    multi: false
+
+gates:
+  vehicle_configured: |
+    BLOCKING. The vehicle must already be configured in
+    src/jolt_toolkit/configs/ (vehicles.json / pipelines.json). If it is
+    NOT, hand off to /vehicle-onboarding <REG> first — that configures the
+    pipeline and produces the first report.
+  inputs_confirmed: |
+    BLOCKING. Confirm with the user (ask if not given): vehicle registration;
+    date range (inclusive -ds/-de — if NO range is given, ASK, never silently
+    pick one); optional mode flags; and — a mandatory pre-step for every run —
+    the active jolt_toolkit.__version__ plus the output directory it implies.
+    Full rules in static/core/conventions.md.
+
+references:
+  on_demand:
+    - condition: >
+        MANDATORY after every generation run (single or batch) — the
+        weather-backfill / charger-backfill / dashboard-refresh checklist,
+        downstream skill pointers, and the definition of a complete
+        full-fleet regen. Open it BEFORE declaring any run finished.
+      path: references/after-generating.md
+
+assets:
+  scripts: |
+    generate_report.py (single report) and batch_generate.py (quarter-split /
+    standard test fleet, with split_into_periods) are the CLIs this skill
+    drives, self-contained in the skill dir. test_data_config.json holds the
+    standard test-fleet date ranges (hand-maintained end dates can be stale).
+    patch_graphs_2_2_3.py is a version-neutral in-place re-chart tool for the
+    Graphs worksheet of existing reports (maintenance pass, no pipeline
+    re-run).

@@ -96,4 +96,5 @@ Log reusable lessons in `evaluations/` per its README.
 - The router itself is short on purpose. Update fragments and references, not this file,
   when adding scope.
 - This structure mirrors nature-figure's static/dynamic split, adapted to the JOLT skill
-  anatomy (`PIPELINE.md` + `references/` + `evaluations/` per `.claude/rules/skill-design.md`).
+  anatomy v2 (`README.md` + `manifest.yaml` + `references/` + `evaluations/` per
+  `.claude/rules/skill-design.md`); the human-facing map + pipeline live in `README.md`.

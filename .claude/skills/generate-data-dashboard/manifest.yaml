@@ -1,0 +1,20 @@
+name: generate-data-dashboard
+description: >
+  Declarative manifest for the static/dynamic split. SKILL.md uses this to
+  decide what to load for a given request. This skill is a thin wrapper over
+  the jolt_toolkit dashboard CLI with a single execution path, so per the
+  proportionality rule there are no axes, no gates and no fragments: the
+  always-loaded core carries the conventions (inputs to confirm,
+  preconditions, no-version-bump / never-commit rules), and the exact
+  command + verify checklist load on demand when actually executing.
+  Routing boundary: dashboard CODE (layout, detection rules, new panels)
+  belongs to the jolt-toolkit-dev agent — this skill only RUNS the generator.
+
+always_load:
+  # Skill-local core: inputs to confirm, preconditions, conventions.
+  - static/core/conventions.md
+
+references:
+  on_demand:
+    - condition: actually executing the dashboard CLI (exact command incl. --db-root / --out / --details overrides) or verifying its output
+      path: references/run-and-verify.md
