@@ -89,7 +89,7 @@ generate-pdf-report/
 ```bash
 # Run from the repo root (PYTHONUTF8=1 avoids the Windows cp1252 encoding crash)
 PYTHONUTF8=1 python .claude/skills/generate-pdf-report/generate_pdf_report.py \
-    --reg YK73WFN --period 20250301_20250601 [--version 2.2.7] [--base]
+    --reg YK73WFN --period 20250301_20250601 [--version 2.2.8] [--base]
 ```
 
 Full option semantics (`--all-data`, the automatic per-operator split +
@@ -104,6 +104,9 @@ preconditions (covering xlsx, Chrome, weather backfill) live in
 this skill; only route to `jolt-toolkit-dev` if a *new xlsx field* is needed. Artefacts are
 gitignored. **Prereq:** if no covering xlsx exists → `/generate-excel-report` first.
 
+- Chart-style boundary: **partner-briefing charts** (square, no legend / no ±1σ band)
+  belong to this skill; **analysis figures** (10×6, legend, ±1σ band) belong to the
+  `plot-figure` skill — route style requests accordingly.
 - Full discipline text (data-source read-only boundary, `jolt_toolkit.analysis` read-only
   calls, no version bumps, changelog duty): `static/core/discipline.md` (always loaded).
 - The `pdf-report-auditor` agent independently re-derives the briefing numbers from raw

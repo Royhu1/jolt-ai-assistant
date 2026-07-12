@@ -7,7 +7,8 @@ package (owned by the `jolt-toolkit-dev` agent — route any behaviour/layout ch
 ## Inputs to confirm with the user (ask only if ambiguous)
 
 - **Version** — the `excel_report_database/<version>/` sub-directory to scan
-  (e.g. `2.2.7`). **Default to `2.2.7`** (the current canonical/latest version) if not given.
+  (e.g. `2.2.8`). **Default to the current `jolt_toolkit` version in `pyproject.toml`**
+  (2.2.8 at the time of writing) — confirm before running.
 - **Output path** — defaults to `excel_report_database/<version>/dashboard/data_dashboard.html`;
   only override (`--out`) if the user asks.
 

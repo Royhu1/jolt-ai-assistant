@@ -3,8 +3,8 @@
 ## How to run
 
 ```bash
-python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.7
-# → excel_report_database/2.2.7/dashboard/data_dashboard.html (open offline by double-click)
+python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.8
+# → excel_report_database/2.2.8/dashboard/data_dashboard.html (open offline by double-click)
 # overrides: --db-root <reports root>   --out <html path>
 ```
 

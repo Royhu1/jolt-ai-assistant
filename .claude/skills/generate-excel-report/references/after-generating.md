@@ -24,18 +24,15 @@
   persists). **A regen without this step ships reports with empty weather columns** — after
   any full-fleet regen, verify weather coverage (non-null `Average Temperature (C)` per
   report) before treating the version as complete.
-- **Charger backfill (v2.2.8+)** — charger transactions are fused at generation time, but
-  SRF charge-point data can be uploaded **days/weeks after** the vehicle telematics, so a
-  report generated "now" may legitimately miss transactions that appear later. After a batch /
-  full-fleet regen (and periodically — the data-collection-monitor does this sweep weekly),
-  re-patch the whole version directory:
+- **Charger backfill (v2.2.8+)** — SRF charge-point data can be uploaded days/weeks after
+  the vehicle telematics, so after a batch / full-fleet regen re-patch the whole version
+  directory (the data-collection-monitor also runs this sweep weekly):
   ```bash
   python -m jolt_toolkit.report_generator.charger_patcher ./excel_report_database/<ver> --persist-raw
   ```
-  Idempotent: only **empty** `Charger Link` cells are filled (existing links untouched), and
-  `--persist-raw` merge-accumulates each vehicle's `raw_charger/charger_transactions.csv`
-  (dedup by transaction URI) — the file the dashboard raw base and the monitor digest read.
-  Diesel vehicles are skipped automatically.
+  Full contract (idempotent, empty-Charger-Link-only, `--persist-raw` merge-accumulation):
+  see `.claude/skills/data-collection-monitor/static/core/conventions.md` (canonical
+  statement).
 - **Dashboard refresh** (also part of "finishing" a batch / full-fleet regen) →
   `/generate-data-dashboard <version>`.
 - For segmentation review / tuning → `/param-tuner <REG>`.

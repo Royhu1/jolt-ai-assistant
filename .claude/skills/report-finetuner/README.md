@@ -41,6 +41,10 @@ report-finetuner/
 6. **Agent (4) log** — write the `evaluations/{REG}_{period}_finetune_log.md` and update the
    `references/{REG}.md` case study.
 
+The authoritative four-phase workflow definition lives in
+`.claude/agents/report-finetuner.md` — this pipeline is the summary, the agent file is the
+contract.
+
 **Why an agent:** context isolation (reading tens of PNGs), cross-session memory, and forced
 two-layer logging. **Owner:** the core library `finetune.py` belongs to `jolt-toolkit-dev`;
 the agent definition is `.claude/agents/report-finetuner.md`. Use after `/param-tuner` is

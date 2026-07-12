@@ -27,7 +27,8 @@ Contract-grade rules that apply to every run of this skill. The first convention
   charger_transactions.csv` is merge-accumulated per vehicle — the very file the digest's
   Charger columns and the dashboard raw base read). Disable with `--no-charger-sweep`. This
   is the ONLY sanctioned in-place update to existing reports (it appends previously-missing
-  charger facts; it never alters energies or segmentation).
+  charger facts; it never alters energies or segmentation). Canonical statement of this
+  contract — `generate-excel-report/references/after-generating.md` points here.
 
 ## Discipline
 

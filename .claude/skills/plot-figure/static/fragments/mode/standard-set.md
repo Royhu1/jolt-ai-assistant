@@ -9,7 +9,7 @@ full standard set and is the authoritative source of style + data-loading + fit 
 
 ```bash
 cd <project_root>
-PYTHONPATH=src python data_analysis_workspace/shared/generate_figures.py --out-dir <your/output/dir> [--version 2.2.7] [--anon]
+PYTHONPATH=src python data_analysis_workspace/shared/generate_figures.py --out-dir <your/output/dir> [--version 2.2.8] [--anon]
 ```
 
 - **Outputs**: `<out-dir>/named/` (real names) and `<out-dir>/anon/` (anonymised OEM

@@ -3,8 +3,10 @@
 ### 1. Fleet overview — operators and vehicles
 
 Read `src/jolt_toolkit/configs/plot_config.json` → `company_assignment.simple`
-for operator → vehicle mapping, and `src/jolt_toolkit/configs/vehicles.json`
-for vehicle specs (make, model, capacity).
+AND `company_assignment.round_robin` for operator → vehicle mapping, and
+`src/jolt_toolkit/configs/vehicles.json` for vehicle specs (make, model, capacity).
+Note: since v2.2.5 the authoritative per-leg operator is the `Operator` column in
+the xlsx reports (SRF-derived); plot_config is the configured assignment only.
 
 Present as a table:
 
@@ -58,11 +60,13 @@ From `plot_config.json` → `vehicle_specs` or `vehicles.json`:
 
 ### 6. Simulation experiment results
 
-Read `simulation/results/EP_simulation_report.md` for a summary.
-For specific numerical data, read the relevant CSV from `simulation/results/tables/`.
+Read `research_projects/simulation/results/EP_simulation_report.md` for a summary.
+For specific numerical data, read the relevant CSV from
+`research_projects/simulation/results/tables/`.
 
 Key findings to highlight:
-- Baseline EP₀ ≈ 1.329 kWh/km (42 t, dry road, 20°C, no wind, flat)
+- Baseline EP₀ (42 t, dry road, 20°C, no wind, flat) — read the current value from the
+  report's summary, do not quote a memorised number
 - Sensitivity ranking (highest ΔEP first): road surface > CdA > elevation > temperature > wind > stop-start
 - All linear factors (mass, Crr, CdA) have R² = 1.000
 

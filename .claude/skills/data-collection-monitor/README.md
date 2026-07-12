@@ -50,7 +50,7 @@ Flow of one loop iteration:
    step, and it never overwrites existing reports or raw data.
 3. **Read window** — collect trip/charge detail within the lookback window (cadence-derived,
    default 7 days).
-4. **Refresh dashboard** — regenerate `excel_report_database/<version>/data_dashboard.html`.
+4. **Refresh dashboard** — regenerate `excel_report_database/<version>/dashboard/data_dashboard.html`.
 5. **Digest** — build the single 14-column whole-fleet overview table → HTML → headless-Chrome
    PDF (`build_digest_pdf.py`) → `data_collection_digest_<start>_<end>.pdf`.
 6. **Status** — rewrite `MONITOR_STATUS.md` (cadence / last run / next due / per-vehicle
@@ -63,26 +63,19 @@ data-collection ledger, not an energy-performance briefing.
 
 ## How to run
 
-Run from the **repo root** (needs `SRF_API_KEY` in the root `.env`, and `excel_report_database/`):
+Standard single check, from the **repo root**:
 
 ```bash
-# Standard single check (all 17 vehicles, weekly / 7-day lookback, latest version)
+# All 17 vehicles, weekly / 7-day lookback, latest version
 PYTHONUTF8=1 python .claude/skills/data-collection-monitor/run_monitor.py --cadence weekly
-
-# A subset / custom lookback window
-PYTHONUTF8=1 python .claude/skills/data-collection-monitor/run_monitor.py --veh YK73WFN,AV24LXJ --window-days 7
-
-# Quick PDF/template check on existing data only (no SRF, no dashboard refresh)
-PYTHONUTF8=1 python .claude/skills/data-collection-monitor/run_monitor.py --dry-run
 ```
 
-Common switches: `--version X.Y.Z` (defaults to the installed version), `--end-date
-YYYY-MM-DD` (defaults to today UTC), `--no-raw` (skip raw CSV, faster but no raw stats),
-`--fast` (skip Logger/Charger fetching), `--force` (regenerate even if the period file already
-exists), `--no-dashboard` / `--no-pdf` / `--no-charger-sweep`.
-
-Preconditions: use the `jolt` conda env; `SRF_API_KEY` in `.env`; under OneDrive, first close
-any `.xlsx` open in Excel (a locked workbook is skipped on read with a warning).
+The full switch list (`--veh` / `--window-days` / `--version` / `--end-date` / `--no-raw` /
+`--fast` / `--force` / `--max-backfill-days` / `--dry-run` / `--no-dashboard` / `--no-pdf` /
+`--no-charger-sweep`) and the preconditions (`jolt` conda env, `SRF_API_KEY` in the root
+`.env`, OneDrive Excel-lock caveat) live in
+[static/fragments/run-mode/full-check.md](static/fragments/run-mode/full-check.md)
+(the authoritative statement).
 
 ## Artefacts
 

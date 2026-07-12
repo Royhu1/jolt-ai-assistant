@@ -45,8 +45,8 @@ produces no artefacts and therefore accumulates no per-run state.
    - configs — `vehicles.json` / `pipelines.json` / `plot_config.json`
    - reports — `excel_report_database/<version>/` (via Glob)
    - test ranges — `generate-excel-report/test_data_config.json`
-   - simulation — `simulation/results/…`; changelog — `changelogs/changelog_*.md`;
-     version — `pyproject.toml`
+   - simulation — `research_projects/simulation/results/…`; changelog —
+     `changelogs/changelog_*.md`; version — `pyproject.toml`
 5. **Answer** — lead with the direct answer, then details; use tables for multiple
    vehicles/params; include units; say so clearly if data is missing.
 
@@ -62,3 +62,5 @@ edit request is declined → "ask Claude directly".
   `/generate-excel-report`; dashboards → `/generate-data-dashboard`).
 - Everything it reads is owned elsewhere and consumed read-only — see
   `references/data-sources.md` for the full source map.
+- Periodic inspection/cleanup and version-consistency ENFORCEMENT belong to the
+  `project-health-steward` agent; this skill only answers questions (read-only).

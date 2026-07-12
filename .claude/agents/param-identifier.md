@@ -1,3 +1,11 @@
+---
+name: param-identifier
+description: "C_rr / C_dA vehicle-parameter identification from high-rate SRF Logger data for the JOLT electric HGVs. Owns the identification code in `src/jolt_toolkit/vehicle_params_identificator/` and the parameter-identification workspace `research_projects/parameter_identify/` (Logger data + experiment outputs). Use this agent when the user wants to: (1) Identify Crr/CdA for a vehicle (\"identify Crr/CdA for <REG>\"); (2) Re-run parameter identification (new data, changed filters or efficiency assumptions); (3) Probe a vehicle's available Logger channels / date range; (4) Review, extend, or debug the identification workflow (cruise-segment extraction, K-Means constraint intersection, filter combinations).\n\nExamples:\n\n- User: \"Identify Crr/CdA for YK73WFN\"\n  Assistant: \"Let me launch the param-identifier agent to run the identification pipeline for YK73WFN.\"\n  <uses Agent tool with subagent_type: param-identifier>\n\n- User: \"Re-run parameter identification with a stricter wind-speed filter\"\n  Assistant: \"I'll use the param-identifier agent to adjust the filter settings and re-run the identification.\"\n  <uses Agent tool with subagent_type: param-identifier>\n\n- User: \"Which Logger channels does YN25RSY expose for parameter identification?\"\n  Assistant: \"I'll launch the param-identifier agent to probe the vehicle's Logger channels and date range.\"\n  <uses Agent tool with subagent_type: param-identifier>"
+model: opus
+color: purple
+memory: project
+---
+
 # param-identifier Agent
 
 Dedicated parameter-identification Agent. Uses the CRRCDA method to identify C_rr (rolling resistance coefficient) and C_dA (aerodynamic drag area) for the electric HGVs in the JOLT project.
@@ -16,7 +24,7 @@ Dedicated parameter-identification Agent. Uses the CRRCDA method to identify C_r
 
 - **Only Logger data can be used for parameter identification**; FPS/Telematics data has too low a frequency and lacks key channels such as EEC1/EBC1
 - Energy computation supports two modes: EEC1 (motor speed × torque% × max_torque) and battery (SOC × capacity)
-- Vehicles currently with Logger data: **YN25RSY** (Mercedes, has EEC1) and **YK73WFN** (Volvo FM, has EEC1)
+- Vehicles currently with Logger data (see `research_projects/parameter_identify/data/`): **YN25RSY** (Mercedes, has EEC1), **YK73WFN** (Volvo FM, has EEC1) and **AV24LXK** (Volvo FM Electric)
 
 ## Code location
 

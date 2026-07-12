@@ -25,7 +25,19 @@ expense of overall accuracy. Follow this process strictly:
    (`static/fragments/mode/quick.md` / `thorough.md`).
 10. **Append new Round to `evaluations/{REG}_review_results.md`**: record each re-checked
     figure's updated status (Resolved / still Issue / New issue). Update the Summary table.
-11. **Backfill via patchers**: once segmentation is confirmed, backfill Logger/Charger data with `ChargerPatcher` + `LoggerPatcher`.
+11. **Backfill via patchers** — once segmentation is confirmed, backfill Logger/Charger data
+    with the patchers (avoids `--fast` overwriting existing data):
+    ```python
+    from jolt_toolkit.report_generator.charger_patcher import ChargerPatcher
+    from jolt_toolkit.report_generator.logger_patcher import LoggerPatcher
+    ChargerPatcher().patch_folder("excel_report_database/{version}/{reg}/")
+    LoggerPatcher().patch_folder("excel_report_database/{version}/{reg}/")
+    ```
+    > **Important**: do NOT regenerate with `batch_generate.py --debug` (without `--fast`)
+    > directly — that overwrites the Logger/Charger data already backfilled by the patchers.
+    > Correct flow: `--fast --debug` to validate → patcher backfill.
+    This is the single full statement of the validation/backfill command discipline;
+    workflow step 5.6 and the guideline below point here.
 
 ## Phase 4 — Finalize
 
@@ -59,7 +71,10 @@ every run (its file-structure template lives in `references/record-format.md`):
 - Review multiple days (not just one) to avoid overfitting to a single day
 - Different vehicles may need different parameters due to different operation patterns
 - Each vehicle has its own pipeline in pipelines.json; changes to one vehicle's pipeline do not affect others
-- After parameter changes, always regenerate with `--debug --fast` to get validation figures
-- Once segmentation is confirmed, backfill Logger/Charger data with `ChargerPatcher` + `LoggerPatcher`
-- **Never** regenerate with `--debug` (without `--fast`) directly — that overwrites the data already backfilled by the patchers
+- Validation/backfill command discipline (`--fast --debug` to validate → patcher backfill,
+  never plain `--debug`): full statement in Phase 3 step 11 above
+- Isolated wrongly-segmented days that a GLOBAL parameter change cannot fix (without
+  regressing correct days) are NOT a tuning problem: stop and hand off to
+  `/report-finetuner` (per-leg xlsx post-processing). Do not over-tune global parameters
+  to chase single outlier days.
 - Check `references/` for prior experience with similar vehicles before starting

@@ -10,7 +10,7 @@ Single vehicle, single period (≤ ~3 months):
 python .claude/skills/generate-excel-report/generate_report.py -veh YK73WFN -ds 2025-03-01 -de 2025-05-31
 # add --debug for validation figures + raw CSV; --raw-only for raw + HTML without baked figures
 # --fast only for quick non-final runs
-# --out-dir ./excel_report_database/2.2.7   # override the version-derived output dir
+# --out-dir ./excel_report_database/2.2.8   # override the version-derived output dir
 ```
 
 Flag semantics (`--debug` / `--raw-only` / `--fast`) and the output artefact paths are

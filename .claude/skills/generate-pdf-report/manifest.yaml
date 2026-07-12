@@ -1,5 +1,5 @@
 name: generate-pdf-report
-version: 2.0.0   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline
+version: 2.0.1   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline
 description: >
   Declarative manifest for the static/dynamic split (pattern adapted from
   nature-skills/nature-figure). SKILL.md uses this to decide which fragments
@@ -54,6 +54,9 @@ gates:
     (§2 Preconditions). Check: driving-segment temperature nunique > 1.
 
 references:
+  # NOTE: in `generate` mode all three on-demand references are effectively mandatory
+  # (commentary-style + verification on every run; field-applicability whenever any
+  # field shows "—") — agents must not skip them.
   on_demand:
     - condition: writing or editing the page-2 Conclusions / page-1 Summary (load points + band judgement, load sensitivity, temperature line, regen line, distribution-variant wording, PAGE-2-ONLY cleaning rules) — mandatory whenever commentary is produced or changed
       path: references/commentary-style.md

@@ -21,7 +21,7 @@ For every watched vehicle:
 
 The version number is **taken dynamically from the installed `jolt_toolkit.__version__`**
 (unless `--version` is given explicitly), so it always uses the current latest version
-(e.g. 2.2.6 / 2.2.7…). The watched-vehicle list is in `watched_vehicles.json` (default all 17).
+(e.g. 2.2.8). The watched-vehicle list is in `watched_vehicles.json` (default all 17).
 
 ## How to run
 
@@ -38,7 +38,9 @@ PYTHONUTF8=1 python .claude/skills/data-collection-monitor/run_monitor.py --veh 
 Common switches: `--version X.Y.Z` (defaults to the installed version), `--end-date
 YYYY-MM-DD` (defaults to today UTC), `--no-raw` (skip raw CSV, faster but no raw stats),
 `--fast` (skip Logger/Charger fetching), `--force` (regenerate even if the period file already
-exists), `--no-dashboard` / `--no-pdf` / `--no-charger-sweep`.
+exists), `--max-backfill-days N` (cap how far back a stale/dormant vehicle is re-fetched on
+each run; default 0 = uncapped — e.g. `90` avoids re-querying months of empty gaps every
+week), `--no-dashboard` / `--no-pdf` / `--no-charger-sweep`.
 
 Preconditions: use the `jolt` conda env; `SRF_API_KEY` in `.env`; under OneDrive, first close
 any `.xlsx` open in Excel (a locked workbook is skipped on read with a warning).

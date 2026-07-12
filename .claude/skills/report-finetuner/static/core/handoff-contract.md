@@ -29,9 +29,11 @@ Agent(
 - **Context isolation**: visual diagnosis often needs to read tens of PNGs; doing that in the
   main conversation would burn through context fast. The agent's separate context does not
   crowd the main conversation.
-- **Cross-session memory**: the agent has its own `.claude/agent-memory/report-finetuner/`, so
-  it can remember "what was previously fixed on this vehicle" and "typical pitfalls for this
-  kind of OEM". A skill starts from scratch every time.
+- **Cross-session memory**: the agent's memory is this skill's
+  `.claude/skills/report-finetuner/evaluations/` logs plus the `references/<REG>.md` case
+  studies (as the README states), so it can remember "what was previously fixed on this
+  vehicle" and "typical pitfalls for this kind of OEM". A skill starts from scratch every
+  time.
 - **Traceability**: the agent is forced to write two layers of logs, `evaluations/` and
   `references/`, building a long-term asset.
 

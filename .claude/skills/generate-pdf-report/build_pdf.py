@@ -1,10 +1,12 @@
 """把 HTML 模板渲染为 PDF —— 使用本机已安装的 headless Chrome / Edge。
 
-设计取舍见同目录 ``SKILL.md``：在 Windows 上 Chromium 系内核
+设计取舍见同目录 ``static/core/layout-contract.md``：在 Windows 上 Chromium 系内核
 （Chrome 或 Edge）的 ``--print-to-pdf`` 提供最高保真度且零额外依赖
-（无需 WeasyPrint 的 GTK、也无需 Playwright）。HTML 模板文末的测高脚本会在
-load 后注入命名 ``@page`` 尺寸，使 PDF 每页 = 浏览器预览的内容自适应高度
-（PDF 与 HTML 预览一致）。
+（无需 WeasyPrint 的 GTK、也无需 Playwright）。The HTML template carries a fixed
+``@page { size: A4; margin: 0 }`` — the briefing is two fixed A4-portrait pages, so
+the PDF matches the browser preview page-for-page. (The old measure-and-inject
+scheme — a script at the end of the template injecting a named dynamic ``@page``
+height after load — is RETIRED per the layout contract; do not restore it.)
 
 用法（从仓库根运行）：
     python .claude/skills/generate-pdf-report/build_pdf.py --html <输入.html> --out <输出.pdf>
@@ -21,7 +23,7 @@ import time
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[3]  # repo root (script lives at .claude/skills/generate-pdf-report/)
-DEFAULT_OUT = PROJECT / "pdf_report_workspace" / "output" / "report_sample.pdf"
+DEFAULT_OUT = PROJECT / "pdf_report_workspace" / "output_by_TBD" / "report_sample.pdf"
 
 # 常见的 Chromium 系内核安装位置（按优先级）
 CANDIDATES = [
@@ -80,8 +82,9 @@ def html_to_pdf(html: Path, out: Path, browser: str | None = None) -> Path:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="HTML → PDF（headless Chrome/Edge）。"
-                                 "通常由 generate_report.py 调用；此 CLI 仅作通用 HTML→PDF 工具。")
+    ap = argparse.ArgumentParser(description="HTML → PDF (headless Chrome/Edge). "
+                                 "Normally called by generate_pdf_report.py; this CLI "
+                                 "doubles as a generic standalone HTML→PDF tool.")
     ap.add_argument("--html", type=Path, required=True, help="输入 HTML 路径")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT, help="输出 PDF 路径")
     ap.add_argument("--browser", type=str, default=None, help="浏览器可执行文件路径（可选）")

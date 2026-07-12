@@ -37,7 +37,11 @@ Load exactly one vehicle-type fragment per the manifest's `vehicle-type` axis:
 #### 2.2 Pipeline configuration
 
 Based on branch selection, create a new pipeline entry in `pipelines.json`.
-Use naming convention: `{make_lower}_{branch}_{sequence}` (e.g., `renault_speed_01`).
+Use naming convention: `{make_lower}_{branch}[_{sequence}]` (e.g., `volvo_speed_04`).
+The `_{sequence}` suffix is optional and the existing entries are legacy-mixed:
+`renault_speed` / `mercedes_speed` carry no sequence, while `volvo_speed_00..04`,
+`daf_speed_00`, `scania_soc_01` do. Match what already exists for that make — do NOT
+create a sequenced sibling (e.g. `renault_speed_01`) of an existing unsequenced name.
 
 Start with default parameters — param-tuner will optimize later.
 
@@ -105,8 +109,9 @@ their logic here):
    new vehicle's directory is picked up and appears in `data_dashboard.html`.
 3. **Data-collection-monitor registration** — add `{REG}` to
    `.claude/skills/data-collection-monitor/watched_vehicles.json` so the periodic intake
-   check covers it from now on. (Optionally run `/data-collection-monitor --veh {REG}` once
-   to seed its digest; the essential step is registering the vehicle.)
+   check covers it from now on; that registration is the essential step. Optionally verify
+   with `python .claude/skills/data-collection-monitor/run_monitor.py --veh {REG} --dry-run`
+   (`--veh` is a `run_monitor.py` CLI argument, not a skill invocation form).
 
 > **Division of labour — orchestrate, don't duplicate.** This phase only *calls*
 > `/generate-excel-report`'s weather step, `/generate-data-dashboard`, and

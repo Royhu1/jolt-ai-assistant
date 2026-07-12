@@ -21,7 +21,6 @@ python research_projects/simulation/run_all.py
 ```
 research_projects/simulation/
 ├── README.md                         # installation and run instructions
-├── EP_simulation_design.md           # detailed documentation of the physical model and experimental design
 ├── run_all.py                        # main orchestrator (runs Exp 1–8 + generates the report)
 ├── models/
 │   └── vehicle_physics.py            # core physical model: compute_ep() + eta_bat()
@@ -35,13 +34,15 @@ research_projects/simulation/
 │   ├── exp7_cda.py                   # Exp 7: EP vs drag area CdA
 │   └── exp8_ep_vs_mass_factors.py    # Exp 8: factor sensitivity analysis + tornado plot
 └── results/
-    ├── figures/                      # 18 PNG figures (300 DPI, publication-grade)
-    ├── tables/                       # 7 CSV data tables
+    ├── figures/                      # PNG figures (300 DPI, publication-grade)
+    ├── tables/                       # CSV data tables
     ├── EP_simulation_report.md       # auto-generated Chinese report
     └── EP_simulation_report_en.md    # auto-generated English report
 ```
 
-> **Note**: the files under `results/` **may be committed to git** (pure computational results, no API keys).
+> **Note**: the former design doc `EP_simulation_design.md` (physical model + experimental design) was lost in the clean repository rebuild; it should be recreated on the next major model change.
+
+> **Note**: the files under `results/` stay **local-only** — `research_projects/**/figures/` and `research_projects/**/results/` are gitignored, so computational results are not committed.
 
 ## Core physical model (`vehicle_physics.py`)
 
@@ -138,7 +139,7 @@ EP = c₀ + α₁·m + α₂·V_wind² + f_T(T) + α₃·C_rr + f_h(Δh) + α₅
 # research_projects/simulation/experiments/exp9_<name>.py
 import sys
 from pathlib import Path
-ROOT = Path(__file__).resolve().parents[2]      # -> <repo>/research
+ROOT = Path(__file__).resolve().parents[2]      # -> <repo>/research_projects
 sys.path.insert(0, str(ROOT / 'simulation'))
 from models.vehicle_physics import compute_ep, BASELINE
 
@@ -160,9 +161,9 @@ Then import and call `run9()` in `run_all.py`, and incorporate the coefficient i
 ## Procedure for modifying the baseline or the physical model
 
 1. Edit `research_projects/simulation/models/vehicle_physics.py` (the `BASELINE` dictionary or `compute_ep()`)
-2. Run `python research_projects/simulation/run_all.py` to regenerate all 18 figures, 7 CSVs and the two reports
+2. Run `python research_projects/simulation/run_all.py` to regenerate all figures/tables under `results/` and the two reports
 3. Verify EP₀ is still in a physically reasonable range (expected 1.3–1.4 kWh/km, 42 t baseline)
-4. If the model change is substantial, update `research_projects/simulation/EP_simulation_design.md` in step
+4. If the model change is substantial, document it — the former design doc `EP_simulation_design.md` was lost in the clean rebuild and should be recreated on the next major model change
 
 ## Figure conventions (all figures must follow)
 

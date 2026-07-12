@@ -1,5 +1,5 @@
 name: plot-figure
-version: 2.0.0   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline
+version: 2.0.1   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline
 description: >
   Declarative manifest for the static/dynamic split (pattern adapted from
   nature-skills/nature-figure). SKILL.md uses this to decide which fragments
@@ -33,9 +33,9 @@ gates:
     BLOCKING. Every run needs an explicit output destination: `--out-dir` for
     standard-set, the target workspace's figures dir for bespoke. The old
     top-level `figures/<version>/` is deprecated (moved to `archive/figures/`)
-    — never write there. If the destination workspace is ambiguous in bespoke
-    mode, ask the user; default to the workspace that owns the destination
-    `figures/` directory.
+    — never write there. If the user named a destination figures directory,
+    infer its owning workspace from that path; otherwise ASK the user. Never
+    guess between workspaces.
 
 references:
   on_demand:

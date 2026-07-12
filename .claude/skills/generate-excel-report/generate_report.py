@@ -1,11 +1,11 @@
 
 '''
-示例1: python generate_report.py -veh KY24LHT -ds 2025-10-01 -de 2025-10-31
-示例2: python generate_report.py -veh YK73WFN -ds 2025-08-25 -de 2025-08-25
-示例3: python generate_report.py -veh KY24LHT -ds 2025-10-01 -de 2025-10-31 --debug
-示例4: python generate_report.py -veh KY24LHT -ds 2025-10-01 -de 2025-10-31 --fast
-示例5: python generate_report.py -veh KY24LHT -ds 2025-10-01 -de 2025-10-31 --out-dir ./excel_report_database/2.2.4
-示例6: python generate_report.py -veh KY24LHT -ds 2025-10-01 -de 2025-10-31 --raw-only  # 存 raw+HTML、不画烤版图（提速）
+Example 1: python generate_report.py -veh KY24LHT -ds 2025-10-01 -de 2025-10-31
+Example 2: python generate_report.py -veh YK73WFN -ds 2025-08-25 -de 2025-08-25
+Example 3: python generate_report.py -veh KY24LHT -ds 2025-10-01 -de 2025-10-31 --debug
+Example 4: python generate_report.py -veh KY24LHT -ds 2025-10-01 -de 2025-10-31 --fast
+Example 5: python generate_report.py -veh KY24LHT -ds 2025-10-01 -de 2025-10-31 --out-dir ./excel_report_database/2.2.8
+Example 6: python generate_report.py -veh KY24LHT -ds 2025-10-01 -de 2025-10-31 --raw-only  # save raw+HTML, skip baked figures (faster)
 '''
 import argparse
 import logging
@@ -58,11 +58,11 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
     logging.info("JOLT Report Generator v%s", __version__)
 
-    # 输出目录默认由已安装的 jolt_toolkit 版本号决定；可用 --out-dir 显式覆盖。
+    # The output dir defaults to the installed jolt_toolkit version; override explicitly with --out-dir.
     out_dir = args.out_dir or f"./excel_report_database/{__version__}"
     logging.info("Report output folder: %s", out_dir)
 
-    # --raw-only：仍落盘 raw CSV + inspect HTML（需 debug_mode 落盘），但跳过烤版图。
+    # --raw-only: still writes the raw CSV + inspect HTML (needs debug_mode), but skips the baked figures.
     debug_mode = args.debug or args.raw_only
     save_figures = not args.raw_only
 

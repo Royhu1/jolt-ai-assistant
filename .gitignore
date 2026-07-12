@@ -156,6 +156,12 @@ cache/
 #  README architecture map; the CONTENTS stay local-only)
 data_analysis_workspace/*
 !data_analysis_workspace/.gitkeep
+# EXCEPTION: shared/ holds the executable style source of the committed plot-figure
+# skill (generate_figures.py) — code only, tracked so the skill contract is versioned
+!data_analysis_workspace/shared/
+data_analysis_workspace/shared/*
+!data_analysis_workspace/shared/*.py
+!data_analysis_workspace/shared/README.md
 monthly_presentation/*
 !monthly_presentation/.gitkeep
 publication_workspace/*

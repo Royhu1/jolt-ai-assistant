@@ -50,9 +50,9 @@ mandatory persisted-script rules). These apply to every figure job.
 
 Every run needs an explicit destination: `--out-dir` for the standard set, or the target
 workspace's figures dir for a bespoke figure. The old top-level `figures/<version>/` is
-deprecated (moved to `archive/figures/`) — never write there. If the destination workspace
-is ambiguous in bespoke mode, ask the user; default to the workspace that owns the
-destination `figures/` directory.
+deprecated (moved to `archive/figures/`) — never write there. If the user named a
+destination figures directory, infer its owning workspace from that path; otherwise ASK
+the user. Never guess between workspaces.
 
 ### 3. Resolve the mode and load the matching fragment
 

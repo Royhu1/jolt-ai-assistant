@@ -25,7 +25,9 @@
 
 - Report file: `excel_report_database/<version>/<REG>/jolt_report_<REG>_<start>_<end>.xlsx`.
 - HTML viewer: `inspect_*.html`; raw telematics: `raw_telematics/raw_*.csv`;
-  validation figures: `validation_<REG>_<date>_<HHMM>.png`.
+  validation figures: `validation_<REG>_<YYYY-MM-DD>.png` (+ `.boxes.json` sidecar) —
+  one figure per day since v2.2.6; legacy per-leg `validation_<REG>_<date>_<NNNN>.png`
+  files (NNNN = leg index) persist for some vehicles and are kept as history.
 - Post-processing (finetune) artefacts always take the `*_finetuned.*` suffix, and **never overwrite the original file**.
 
 ### Versioned output layout

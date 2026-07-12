@@ -40,6 +40,10 @@ Enter this health check carrying "last time's to-dos + known traps" to avoid rep
    whether bilingual pairs (`*.md` / `*.zh.md`) are missing or out of sync.
 4. **Document clarity**: whether README / SKILL.md / manifest.yaml / agent definitions contain filler, unclear wording, or
    stale references (pointing to files / skills / agents / versions that no longer exist). Streamline and correct as needed.
+   **Scripted sub-step (mandatory)**: sweep every repo path referenced in `.claude/agents/*.md` and
+   `.claude/commands/*.md` for existence — grep the path-like tokens out of each file and `Test-Path`
+   each one against the repo root; any missing file or renamed layout is a finding. (This scripted
+   sweep catches the fossil-path class of defect that manual read-throughs missed twice.)
 5. **skill / agent discipline**: whether the descriptions and positioning are clear, mutually unambiguous, and consistent with the design principles of `README.md`;
    whether ownership boundaries are accurate.
 6. **Local storage**: whether JOLT remnants are scattered on the D drive; consolidate to `D:\JOLT_local\` per `housekeeping.md`.

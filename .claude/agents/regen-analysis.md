@@ -37,7 +37,7 @@ research_projects/regen_analysis/
 │       ├── summary_statistics.csv
 │       └── data_explore_summary.json
 ├── report.md                    # English analysis report
-└── report_zh.md                 # Chinese analysis report
+└── report.zh.md                 # Chinese analysis report
 ```
 
 ## Data sources
@@ -136,7 +136,7 @@ After modifying scripts or data, you must verify:
 - `config.json` is the single source of truth for vehicleId and calibration parameters
 - The calibration results of `03_energy_model.py` (R² < 0) are for reference only and not used in the main analysis
 - `research_projects/simulation/models/vehicle_physics.py` provides the baseline parameters Crr=0.00465, CdA=6.16
-- After modifying the reports (`report.md`, `report_zh.md`), do not mark "which round" — just give the final version directly
+- After modifying the reports (`report.md`, `report.zh.md`), do not mark "which round" — just give the final version directly
 
 ## New-vehicle workflow
 

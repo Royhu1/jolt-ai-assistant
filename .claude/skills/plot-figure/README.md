@@ -67,6 +67,9 @@ refine the figure.
 - The old top-level `figures/<version>/` is deprecated (moved to `archive/`); always
   write to a `--out-dir` the user specifies. Use `--anon` / an `ANON` switch for
   anonymised OEM labels.
+- Chart-style boundary: **analysis figures** (10×6, legend, ±1σ band) belong to this
+  skill; **partner-briefing charts** (square, no legend / no ±1σ band) belong to the
+  `generate-pdf-report` skill — route style requests accordingly.
 - `plot_config.json` and anything under `src/jolt_toolkit/` belong to the
   `jolt-toolkit-dev` agent; this skill only reads them.
 - Missing source reports → generate via `/generate-excel-report` first.

@@ -19,6 +19,10 @@ Checks
 5. Per-skill version: every ``manifest.yaml`` declares a valid SemVer ``version:``
    (see ``.claude/rules/git-workflow.md`` "Per-skill versions" — bumped on every
    edit to the skill's files).
+6. Agent frontmatter: every ``.claude/agents/*.md`` starts with a YAML frontmatter
+   block whose ``name:`` matches the filename and whose ``description:`` is
+   non-empty — an agent definition without frontmatter is not a launchable agent
+   type (this exact gap let a broken agent pass the registry for months).
 
 Usage (from the repo root)
 --------------------------
@@ -54,6 +58,28 @@ _LINK_RE = re.compile(r"\[(?P<text>.+?)\]\((?P<path>[^)]+)\)")
 
 # Per-skill SemVer in manifest.yaml, e.g. `version: 2.0.0` (optional quotes/comment).
 _VERSION_RE = re.compile(r"^version:\s*['\"]?\d+\.\d+\.\d+['\"]?\s*(#.*)?$", re.MULTILINE)
+
+
+def _frontmatter_fields(text: str) -> dict[str, str] | None:
+    """Parse the leading YAML frontmatter block into a flat {key: value} dict.
+
+    Returns None when the file does not START with a ``---`` fence (i.e. it has no
+    frontmatter at all). Only top-level ``key: value`` lines are extracted; a key
+    introducing a block scalar (``description: |`` / ``>``) is recorded with a
+    truthy placeholder, since we only validate presence, not content.
+    """
+    lines = text.replace("\r\n", "\n").split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+    fields: dict[str, str] = {}
+    for line in lines[1:]:
+        if line.strip() == "---":
+            return fields
+        m = re.match(r"^([A-Za-z_][\w-]*):\s*(.*)$", line)
+        if m:
+            key, value = m.group(1), m.group(2).strip()
+            fields[key] = "<block>" if value in ("|", ">", "|-", ">-") else value
+    return None  # no closing fence -> malformed, treat as missing
 
 
 def _split_row(line: str) -> list[str]:
@@ -189,6 +215,22 @@ def main() -> int:
                         f"skill {name!r} manifest.yaml has no valid SemVer 'version:' "
                         f"field (per-skill versioning, see git-workflow.md)"
                     )
+
+    for name, f in disk["agent"].items():
+        text = f.read_text(encoding="utf-8")
+        fm = _frontmatter_fields(text)
+        if fm is None:
+            violations.append(
+                f"agent {name!r} has no YAML frontmatter (not a launchable agent type)"
+            )
+            continue
+        if fm.get("name") != name:
+            violations.append(
+                f"agent {name!r} frontmatter name is {fm.get('name')!r} "
+                f"(must match the filename)"
+            )
+        if not fm.get("description"):
+            violations.append(f"agent {name!r} frontmatter has no description")
 
     if violations:
         print(f"FAIL: {len(violations)} registry violation(s)\n" + "\n".join(

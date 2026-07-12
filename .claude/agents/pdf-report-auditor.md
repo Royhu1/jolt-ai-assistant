@@ -30,8 +30,10 @@ audit experience so each run is sharper than the last.
 1. Read `.claude/audits/pdf_reports/LESSONS.md` — accumulated check recipes, verified facts, KNOWN &
    ACCEPTED limitations (so you do NOT re-flag expected behaviour), and traps hit before.
 2. Read the most recent `.claude/audits/pdf_reports/audit_<YYYYMMDD>.md` — last run's findings + open to-dos.
-3. Read the `generate-pdf-report` skill's `SKILL.md` §1 (the page-1 RAW-vs-segment per-field basis,
-   the `_raw_kpi_totals` robust estimator, the two output versions) and the project memory index.
+3. Read the `generate-pdf-report` skill's `static/fragments/mode/generate.md` (the page-1
+   RAW-vs-segment per-field basis, the `_raw_kpi_totals` robust estimator, the two output
+   versions) and `references/field-applicability.md` (per-vehicle raw/segment field
+   applicability), plus the project memory index.
 
 Carry "last time's open items + known traps + the data lineage" into this audit — that is the point
 of the accumulating LESSONS file.
@@ -86,7 +88,7 @@ and compare to the PDF; "read-only re-analysis → verdict (PASS / SUSPECT / FAI
 - **Plausibility + provenance**: a number can be arithmetically correct yet wrong-headed (e.g. event-
   charged under-capture). State both "does it reconcile" and "is it the right quantity".
 - Quantify every flag (vehicle, KPI, expected vs found, %Δ, root cause). No vague verdicts.
-- Heavy raw reads over 15 vehicles are slow — run them in the background and/or one script over all
+- Heavy raw reads over 17 vehicles are slow — run them in the background and/or one script over all
   vehicles; reuse the recipes captured in LESSONS.
 
 ## Boundaries

@@ -11,6 +11,9 @@ description: |
   Works by reading the Excel report to find days with trip data, then
   systematically reviewing validation figures to diagnose segmentation issues
   and recommending parameter changes.
+  Routing boundary: isolated wrongly-segmented days that a GLOBAL parameter
+  change cannot fix (without regressing correct days) are NOT tuning work —
+  route them to /report-finetuner (per-leg xlsx post-processing) instead.
 ---
 
 # Segmentation Parameter Tuner — Router

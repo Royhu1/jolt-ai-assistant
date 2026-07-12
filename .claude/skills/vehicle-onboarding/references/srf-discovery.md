@@ -59,6 +59,10 @@ ORG_TO_COMPANY = {
 company = ORG_TO_COMPANY.get(org_name)
 ```
 
+> **Note**: this mapping covers only KNOWLES / NESTLE / WELCH_TRANSPORT / JLP — other live
+> companies (WJF, SJG, PORT_EXPRESS_DAIMLER, DP_WORLD, WS, …) fall through to the
+> ask-the-user path, which is expected.
+
 ## 1.1d Nominal capacity from SRF
 
 `v.fuel_capacity` returns the SRF-registered battery capacity in kWh.

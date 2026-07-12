@@ -68,16 +68,8 @@ Present changes as a table: parameter, current value, proposed value, reason.
    each re-checked figure's status (resolved / still problematic / newly broken).
    Update the summary table at the top of the file.
 6. **Backfill via patchers** — once segmentation is verified, backfill Logger/Charger data
-   with the patchers (avoids `--fast` overwriting existing data):
-   ```python
-   from jolt_toolkit.report_generator.charger_patcher import ChargerPatcher
-   from jolt_toolkit.report_generator.logger_patcher import LoggerPatcher
-   ChargerPatcher().patch_folder("excel_report_database/{version}/{reg}/")
-   LoggerPatcher().patch_folder("excel_report_database/{version}/{reg}/")
-   ```
-   > **Important**: do NOT regenerate with `batch_generate.py --debug` (without `--fast`)
-   > directly, because that overwrites the Logger/Charger data already backfilled by the
-   > patchers. Correct flow: `--fast --debug` to validate → patcher backfill.
+   per the full statement (patcher snippet + never plain `--debug` warning) in
+   `static/core/principles.md`, Phase 3 step 11.
 
 ## 6. Finalize
 

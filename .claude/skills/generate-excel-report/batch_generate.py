@@ -1,25 +1,30 @@
 """
-批量生成报告。两种模式：
+Batch report generation. Two modes:
 
-1) 配置文件模式（默认）—— 按 test_data_config.json 里的车队 + 日期区间逐个生成：
-     python batch_generate.py                 # 普通模式
-     python batch_generate.py --fast          # 跳过 Charger/Logger
-     python batch_generate.py --debug         # 生成验证图 + 原始 CSV
-     python batch_generate.py --raw-only      # 只存 raw CSV + HTML，不画烤版图（提速）
-     python batch_generate.py --debug --fast  # 常用测试组合
-     python batch_generate.py --veh YK73WFN   # 仅生成配置文件里的某辆车
+1) Config-file mode (default) — generate one report per vehicle + date range listed
+   in test_data_config.json:
+     python batch_generate.py                 # normal mode
+     python batch_generate.py --fast          # skip Charger/Logger
+     python batch_generate.py --debug         # validation figures + raw CSV
+     python batch_generate.py --raw-only      # raw CSV + HTML only, no baked figures (faster)
+     python batch_generate.py --debug --fast  # common test combination
+     python batch_generate.py --veh YK73WFN   # only one vehicle from the config file
 
-2) 自动切分模式 —— 给单车一个总起止区间，**默认按气象季度**（DJF/MAM/JJA/SON，含末日、
-   无重叠）切成多份逐个生成；末段按 date_end 裁剪。--months N 是等长切分逃生口。
-   触发条件：同时给出 --veh / --ds / --de（此时忽略配置文件）。
-     python batch_generate.py --veh YK73WFN --ds 2024-06-01 --de 2026-06-09            # 默认气象季度切分
-     python batch_generate.py --veh YK73WFN --ds 2024-06-01 --de 2025-12-01 --months 1 # 每月一份（等长逃生口）
-   想要单份覆盖整段（不切分），直接用 generate_report.py：
+2) Auto-split mode — give a single vehicle one overall start/end range; by default it
+   is split into **meteorological quarters** (DJF/MAM/JJA/SON, inclusive end,
+   non-overlapping) and generated one report per segment; the last segment is clipped
+   to date_end. --months N is the equal-length escape hatch.
+   Triggered by giving --veh / --ds / --de together (the config file is then ignored).
+     python batch_generate.py --veh YK73WFN --ds 2024-06-01 --de 2026-06-09            # default quarter split
+     python batch_generate.py --veh YK73WFN --ds 2024-06-01 --de 2025-12-01 --months 1 # one report per month (equal-length escape hatch)
+   For a single report covering the whole range (no split), use generate_report.py directly:
      python generate_report.py -veh YK73WFN -ds 2024-06-01 -de 2026-06-09
 
-输出目录默认 ./excel_report_database/<package_version>，可用 --out-dir 覆盖。版本号由
-已安装的 jolt_toolkit 决定，整个 conda env 共享，并行会话会互相覆盖——批量生成前务必
-先与用户确认版本号与输出目录一致（见 SKILL.md 的前置确认规则）。
+The output dir defaults to ./excel_report_database/<package_version>, overridable with
+--out-dir. The version comes from the installed jolt_toolkit, shared across the whole
+conda env, so parallel sessions can overwrite each other — before a batch run, always
+confirm the version and output dir with the user (see the pre-run confirmation rules
+in SKILL.md).
 """
 import argparse
 import json
@@ -36,7 +41,7 @@ from jolt_toolkit.report_generator._generator import JOLTReportGenerator
 
 
 def _met_quarter_start_on_or_before(ts: pd.Timestamp) -> pd.Timestamp:
-    """返回 ``ts`` 当天或之前最近的气象季度起始日（12-01 / 03-01 / 06-01 / 09-01）。"""
+    """Return the latest meteorological-quarter start on or before ``ts`` (12-01 / 03-01 / 06-01 / 09-01)."""
     candidates = [
         pd.Timestamp(ts.year - 1, 12, 1),
         pd.Timestamp(ts.year, 3, 1),
@@ -48,7 +53,7 @@ def _met_quarter_start_on_or_before(ts: pd.Timestamp) -> pd.Timestamp:
 
 
 def _next_met_quarter_start(qstart: pd.Timestamp) -> pd.Timestamp:
-    """给定一个气象季度起始日，返回下一个季度的起始日（exclusive 边界）。"""
+    """Given a meteorological-quarter start, return the next quarter's start (exclusive boundary)."""
     if qstart.month == 12:
         return pd.Timestamp(qstart.year + 1, 3, 1)
     return pd.Timestamp(qstart.year, qstart.month + 3, 1)
@@ -57,28 +62,34 @@ def _next_met_quarter_start(qstart: pd.Timestamp) -> pd.Timestamp:
 def split_into_meteorological_quarters(
     date_start: str, date_end: str
 ) -> list[tuple[str, str]]:
-    """把 [date_start, date_end] 按气象季度切成连续多段，**含末日、无重叠**。
+    """Split [date_start, date_end] into consecutive meteorological quarters — **inclusive end, non-overlapping**.
 
-    气象季度边界固定在 12-01（DJF 冬）/ 03-01（MAM 春）/ 06-01（JJA 夏）/
-    09-01（SON 秋）。每段 = ``[季度起始, 下一季度起始的前一天]``，即 end 是**含末日**
-    （例：12-01 → 02-28/29、03-01 → 05-31、06-01 → 08-31、09-01 → 11-30；闰年
-    02-29 由 pandas 自动处理）。首段从 ``date_start`` 起、末段到 ``date_end`` 止
-    （首尾按数据范围裁剪）。
+    Meteorological-quarter boundaries are fixed at 12-01 (DJF winter) / 03-01 (MAM
+    spring) / 06-01 (JJA summer) / 09-01 (SON autumn). Each segment =
+    ``[quarter start, day before the next quarter start]``, i.e. the end is
+    **inclusive** (e.g. 12-01 → 02-28/29, 03-01 → 05-31, 06-01 → 08-31,
+    09-01 → 11-30; leap-year 02-29 is handled automatically by pandas). The first
+    segment starts at ``date_start`` and the last ends at ``date_end`` (first and
+    last clipped to the data range).
 
-    含末日 end 不丢数据由 :func:`report_generator.data_fetcher.fetch_events` 保证：
-    它把 date_end 与 ``datetime.time.max`` 组合（23:59:59.999999）后再下发 SRF 查询，
-    故"含末日"标签天然覆盖该日全天；查询 filter 作用在 ``leg.start_time`` 上，相邻段
-    （前段含末日、后段次日 00:00 起）不会把同一条 leg 重复计入两份报告。
+    That an inclusive end loses no data is guaranteed by
+    :func:`report_generator.data_fetcher.fetch_events`: it combines date_end with
+    ``datetime.time.max`` (23:59:59.999999) before issuing the SRF query, so the
+    "inclusive end" label naturally covers that whole day; the query filter acts on
+    ``leg.start_time``, so adjacent segments (previous segment's inclusive end day
+    vs the next segment starting 00:00 the following day) never count the same leg
+    into two reports.
 
     Args:
-        date_start: 总起始日期 (YYYY-MM-DD)。
-        date_end:   总结束日期 (YYYY-MM-DD，含末日)，需不早于 ``date_start``。
+        date_start: Overall start date (YYYY-MM-DD).
+        date_end:   Overall end date (YYYY-MM-DD, inclusive); must not be earlier
+            than ``date_start``.
 
     Returns:
-        ``[(start_str, end_str), ...]``，日期均为 ``YYYY-MM-DD``（含末日）。
+        ``[(start_str, end_str), ...]``, all dates ``YYYY-MM-DD`` (inclusive end).
 
     Raises:
-        ValueError: ``date_end < date_start``。
+        ValueError: ``date_end < date_start``.
     """
     start = pd.Timestamp(date_start)
     end = pd.Timestamp(date_end)
@@ -88,9 +99,9 @@ def split_into_meteorological_quarters(
     periods: list[tuple[str, str]] = []
     qstart = _met_quarter_start_on_or_before(start)
     while qstart <= end:
-        nxt = _next_met_quarter_start(qstart)            # 下一季度起始（exclusive）
-        seg_start = max(qstart, start)                   # 首段裁剪到 date_start
-        seg_end = min(nxt - pd.Timedelta(days=1), end)   # 含末日；末段裁剪到 date_end
+        nxt = _next_met_quarter_start(qstart)            # next quarter start (exclusive)
+        seg_start = max(qstart, start)                   # first segment clipped to date_start
+        seg_end = min(nxt - pd.Timedelta(days=1), end)   # inclusive end; last segment clipped to date_end
         if seg_start <= seg_end:
             periods.append(
                 (seg_start.strftime("%Y-%m-%d"), seg_end.strftime("%Y-%m-%d"))
@@ -102,24 +113,28 @@ def split_into_meteorological_quarters(
 def split_into_periods(
     date_start: str, date_end: str, months: int | None = None
 ) -> list[tuple[str, str]]:
-    """把 [date_start, date_end] 切成连续多段，**含末日、无重叠**。
+    """Split [date_start, date_end] into consecutive segments — **inclusive end, non-overlapping**.
 
-    默认（``months=None``）按**气象季度**切分（DJF/MAM/JJA/SON，见
-    :func:`split_into_meteorological_quarters`）——这是全队报告的标准跨度。
+    By default (``months=None``) split into **meteorological quarters**
+    (DJF/MAM/JJA/SON, see :func:`split_into_meteorological_quarters`) — the standard
+    span for fleet reports.
 
-    ``months=N`` 是等长切分的逃生口：每份覆盖 ``N`` 个日历月，同样**含末日、无重叠**
-    （每段 = ``[cur, cur + N 个月 - 1 天]``，末段裁剪到 ``date_end``）。
+    ``months=N`` is the equal-length escape hatch: each report covers ``N`` calendar
+    months, likewise **inclusive-end and non-overlapping** (each segment =
+    ``[cur, cur + N months - 1 day]``, the last clipped to ``date_end``).
 
     Args:
-        date_start: 总起始日期 (YYYY-MM-DD)。
-        date_end:   总结束日期 (YYYY-MM-DD，含末日)，需不早于 ``date_start``。
-        months:     ``None`` → 气象季度（默认）；``>= 1`` → 等长 N 月切分。
+        date_start: Overall start date (YYYY-MM-DD).
+        date_end:   Overall end date (YYYY-MM-DD, inclusive); must not be earlier
+            than ``date_start``.
+        months:     ``None`` → meteorological quarters (default); ``>= 1`` →
+            equal-length N-month split.
 
     Returns:
-        ``[(start_str, end_str), ...]``，日期均为 ``YYYY-MM-DD``（含末日）。
+        ``[(start_str, end_str), ...]``, all dates ``YYYY-MM-DD`` (inclusive end).
 
     Raises:
-        ValueError: ``months`` 给定且 ``< 1``，或 ``date_end < date_start``。
+        ValueError: ``months`` given and ``< 1``, or ``date_end < date_start``.
     """
     if months is None:
         return split_into_meteorological_quarters(date_start, date_end)
@@ -134,15 +149,15 @@ def split_into_periods(
     periods: list[tuple[str, str]] = []
     cur = start
     while cur <= end:
-        nxt = cur + pd.DateOffset(months=months)         # 下一段起始（exclusive）
-        seg_end = min(nxt - pd.Timedelta(days=1), end)   # 含末日；末段裁剪到 date_end
+        nxt = cur + pd.DateOffset(months=months)         # next segment start (exclusive)
+        seg_end = min(nxt - pd.Timedelta(days=1), end)   # inclusive end; last segment clipped to date_end
         periods.append((cur.strftime("%Y-%m-%d"), seg_end.strftime("%Y-%m-%d")))
         cur = nxt
     return periods
 
 
 def _load_vehicles_from_config(cfg_path: Path, only_veh: str | None) -> list[dict]:
-    """从 test_data_config.json 读取车队（可选只取一辆）。"""
+    """Load the fleet from test_data_config.json (optionally a single vehicle only)."""
     with open(cfg_path, encoding="utf-8") as f:
         cfg = json.load(f)
     vehicles = cfg["vehicles"]
@@ -153,28 +168,30 @@ def _load_vehicles_from_config(cfg_path: Path, only_veh: str | None) -> list[dic
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="批量生成报告（配置文件模式 / 单车自动按月切分模式）"
+        description="Batch report generation (config-file mode / single-vehicle auto-split mode)"
     )
     parser.add_argument(
         "--config",
         default=str(Path(__file__).resolve().parent / "test_data_config.json"),
-        help="配置文件路径（配置文件模式）",
+        help="Path to the config file (config-file mode)",
     )
-    parser.add_argument("--debug", action="store_true", help="生成验证图和原始 CSV")
+    parser.add_argument("--debug", action="store_true", help="Generate validation figures and raw CSV")
     parser.add_argument(
         "--raw-only",
         dest="raw_only",
         action="store_true",
-        help="只落盘 raw telematics CSV + inspect HTML（等同 --debug 的数据落盘），"
-             "但跳过 generate 阶段烤入标注的 validation 图。用于「批量重生成 + 随后 "
-             "overlay regenerate 重画新样式图」工作流，避免把图画两遍。",
+        help="Save only the raw telematics CSV + inspect HTML (same data output as "
+             "--debug), but skip baking the annotated validation figures during the "
+             "generate stage. For the 'batch regenerate + subsequent overlay-regenerate "
+             "redraw with the new style' workflow, to avoid plotting the figures twice.",
     )
-    parser.add_argument("--fast", action="store_true", help="跳过 Charger/Logger 数据")
+    parser.add_argument("--fast", action="store_true", help="Skip Charger/Logger data")
     parser.add_argument(
         "--veh",
         type=str,
         default=None,
-        help="指定车辆（车牌号）。配置文件模式下仅生成该车；与 --ds/--de 同用则进入自动切分模式",
+        help="Select one vehicle (registration). In config-file mode, generate only this "
+             "vehicle; combined with --ds/--de it enters auto-split mode",
     )
     parser.add_argument(
         "-ds",
@@ -182,7 +199,7 @@ def main() -> int:
         dest="ds",
         type=str,
         default=None,
-        help="自动切分模式：总起始日期 (YYYY-MM-DD)",
+        help="Auto-split mode: overall start date (YYYY-MM-DD)",
     )
     parser.add_argument(
         "-de",
@@ -190,14 +207,16 @@ def main() -> int:
         dest="de",
         type=str,
         default=None,
-        help="自动切分模式：总结束日期 (YYYY-MM-DD)",
+        help="Auto-split mode: overall end date (YYYY-MM-DD)",
     )
     parser.add_argument(
         "--months",
         type=int,
         default=None,
-        help="自动切分模式的等长切分逃生口：每份报告跨度（日历月数）。不传则默认按"
-             "气象季度（DJF/MAM/JJA/SON，含末日、无重叠）切分。仅在 --ds/--de 模式下生效",
+        help="Equal-length escape hatch for auto-split mode: span of each report "
+             "(calendar months). If omitted, defaults to meteorological-quarter splits "
+             "(DJF/MAM/JJA/SON, inclusive end, non-overlapping). Only effective in "
+             "--ds/--de mode",
     )
     parser.add_argument(
         "--out-dir",
@@ -205,8 +224,9 @@ def main() -> int:
         dest="out_dir",
         type=str,
         default=None,
-        help=("输出目录，默认 ./excel_report_database/<package_version>。"
-              "版本号全 conda env 共享，批量前请先与用户确认版本与目录"),
+        help=("Output folder, defaults to ./excel_report_database/<package_version>. "
+              "The version is shared across the whole conda env — confirm the version "
+              "and output dir with the user before a batch run"),
     )
     args = parser.parse_args()
 
@@ -217,10 +237,12 @@ def main() -> int:
         force=True,
     )
 
-    # ── 组装待生成的 (reg, ranges) 列表 ───────────────────────────────────
+    # ── Assemble the (reg, ranges) list to generate ──────────────────────
     adhoc = bool(args.veh and args.ds and args.de)
     if adhoc:
-        # 自动切分模式：忽略配置文件，默认按气象季度（--months 给定则等长 N 月）切分单车总区间。
+        # Auto-split mode: ignore the config file; split the single vehicle's overall
+        # range into meteorological quarters by default (equal-length N-month segments
+        # when --months is given).
         try:
             ranges = split_into_periods(args.ds, args.de, months=args.months)
         except ValueError as exc:
@@ -248,10 +270,10 @@ def main() -> int:
             logging.error("车辆 %s 不在配置文件中", args.veh)
             return 1
 
-    # 输出目录默认由已安装 jolt_toolkit 版本号决定；可用 --out-dir 覆盖。
+    # The output dir defaults to the installed jolt_toolkit version; override with --out-dir.
     out_dir = args.out_dir or f"./excel_report_database/{__version__}"
 
-    # --raw-only：仍落盘 raw CSV + HTML（需 debug_mode 数据落盘），但跳过烤版图。
+    # --raw-only: still writes the raw CSV + HTML (needs debug_mode), but skips the baked figures.
     debug_mode = args.debug or args.raw_only
     save_figures = not args.raw_only
 

@@ -15,6 +15,11 @@ It tracks every figure's status across multiple optimization rounds.
 > always-loaded contract material in `static/core/principles.md`
 > ("Evaluations-log key rules").
 
+> **Figure naming**: since v2.2.6 validation figures are per-day
+> `validation_<REG>_<YYYY-MM-DD>.png` (with a `.boxes.json` sidecar); legacy per-leg
+> `validation_<REG>_<date>_<NNNN>.png` files still exist for some vehicles (e.g. AV24LXJ),
+> so both schemes may appear in older logs.
+
 ### File structure
 
 ```markdown
@@ -45,8 +50,8 @@ Parameters: {current parameter snapshot}
 
 | Figure | Type | Status | Issue | Root cause |
 |--------|------|--------|-------|------------|
-| validation_{REG}_2025-06-01_0000.png | Active | OK | — | — |
-| validation_{REG}_2025-06-02_0000.png | Active | Issue | Over-segmentation: 1 trip split into 3 | min_stop_duration_min too small |
+| validation_{REG}_2025-06-01.png | Active | OK | — | — |
+| validation_{REG}_2025-06-02.png | Active | Issue | Over-segmentation: 1 trip split into 3 | min_stop_duration_min too small |
 | ... | ... | ... | ... | ... |
 
 ### Round 1 summary
@@ -66,9 +71,9 @@ Parameters changed: {what changed}
 
 | Figure | Previous | Current | Notes |
 |--------|----------|---------|-------|
-| validation_{REG}_2025-06-02_0000.png | Issue | **Resolved** | Now correctly 1 trip |
-| validation_{REG}_2025-06-05_0000.png | OK | OK | No regression |
-| validation_{REG}_2025-06-08_0000.png | OK | **New issue** | ... |
+| validation_{REG}_2025-06-02.png | Issue | **Resolved** | Now correctly 1 trip |
+| validation_{REG}_2025-06-05.png | OK | OK | No regression |
+| validation_{REG}_2025-06-08.png | OK | **New issue** | ... |
 | ... | ... | ... | ... |
 
 ### Round 2 summary

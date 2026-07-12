@@ -62,7 +62,7 @@ When starting, the skill presents both modes to the user — there is no silent 
 
 **Principle:** optimise *global* segmentation quality, not individual outliers; change one
 parameter at a time. Parameters live per-vehicle in `pipelines.json` (changes don't affect
-other vehicles). For outliers Quick can't fix → `/report-finetuner`.
+other vehicles). For outliers global parameters can't fix → `/report-finetuner`.
 
 ## How to run
 
@@ -75,8 +75,8 @@ other vehicles). For outliers Quick can't fix → `/report-finetuner`.
   ```
 
 - After segmentation is verified, backfill Logger/Charger data via `ChargerPatcher` +
-  `LoggerPatcher` (exact snippet in `static/core/workflow.md`, step 5.6) — never plain
-  `--debug`, which overwrites the backfilled data.
+  `LoggerPatcher` (exact snippet in `static/core/principles.md`, Phase 3 step 11) — never
+  plain `--debug`, which overwrites the backfilled data.
 
 ## Ownership and neighbours
 

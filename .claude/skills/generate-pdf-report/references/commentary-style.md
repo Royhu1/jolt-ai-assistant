@@ -50,11 +50,11 @@ unladen (e.g. CMZ6260's KDE → ~19 t, whereas the true tractor+trailer unladen 
 - **Band mode** (`briefing_vehicle_specs.json` `unladen_band_t`=[lo,hi], opt. `laden_min_t`): the
   AI-judged artic case above (**takes priority** over single-group / legacy-tertile / KDE). Unladen =
   data points in [lo,hi) (tractor + empty trailer); laden = GVM ≥ laden_min (default hi); bobtail
-  (< lo) excluded; `unladen_mass_t` pins the marker when the band is sparse. Current bands (all
-  artics; per-vehicle histogram + judgement in the JSON `note`s): **EX74JXW [13,19]/19** (unladen
-  pinned ~17 t), **CMZ6260 [13,18]/18** (unladen ~17 t), **YK73WFN [13,24]/24** (bobtail ~11 t — 106
-  data points! — excluded, unladen ~19 t, laden ~35 t), **YN25RSY [13,21]/21** (unladen ~19 t,
-  laden ~24 t).
+  (< lo) excluded; `unladen_mass_t` pins the marker when the band is sparse. Illustrative examples:
+  **EX74JXW [13,19]/19** (unladen pinned ~17 t), **YK73WFN [13,24]/24** (bobtail ~11 t — 106 data
+  points! — excluded, unladen ~19 t, laden ~35 t); all 12 current entries live in
+  `briefing_vehicle_specs.json` (the single source, with per-vehicle histogram + judgement in each
+  JSON `note`; do not enumerate them here).
 - **Single-group** (`SINGLE_GROUP_REGS`): laden = GVM > threshold, no unladen point — for a vehicle
   that genuinely runs only laden. **None currently** (YN25RSY moved to a band once its ~19 t unladen
   cluster was identified); a configured band overrides single-group.

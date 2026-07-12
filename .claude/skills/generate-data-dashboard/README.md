@@ -21,7 +21,8 @@ generate-data-dashboard/
 
 ## Pipeline
 
-1. **Confirm** — the version to scan (default `2.2.7`) and the output path (default in-place).
+1. **Confirm** — the version to scan (default: the current `jolt_toolkit` version in
+   `pyproject.toml`, 2.2.8 at the time of writing) and the output path (default in-place).
 2. **Read (local only)** — per vehicle: `jolt_report_*.xlsx` (skips `_finetuned`), the raw
    dirs (`raw_telematics/`, `raw_logger_v1/`, `raw_logger_v2/`,
    `raw_charger/charger_transactions.csv`), and configs (`vehicles.json` + `plot_config.json`
@@ -36,8 +37,8 @@ generate-data-dashboard/
 ## How to run
 
 ```bash
-python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.7
-# → excel_report_database/2.2.7/dashboard/data_dashboard.html (open offline by double-click)
+python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.8
+# → excel_report_database/2.2.8/dashboard/data_dashboard.html (open offline by double-click)
 # overrides: --db-root <reports root>   --out <html path>
 ```
 
@@ -52,5 +53,7 @@ All detection/layout logic lives in `jolt_toolkit.report_generator.data_dashboar
 (route changes to `jolt-toolkit-dev`); this skill only RUNS it. A routine refresh — never bump
 the version, never commit the output (gitignored). Full dashboard documentation:
 `src/jolt_toolkit/README.md` ("Data-availability dashboard" section + the
-`data_dashboard.py` module-table row). Regenerate it after new Excel reports / raw data
-were added (e.g. after `/generate-excel-report` or a `/data-collection-monitor` run).
+`data_dashboard.py` module-table row). Regenerate it after `/generate-excel-report`
+regens, or after a `/data-collection-monitor` run that skipped the refresh
+(`--no-dashboard` / `--dry-run`) — a normal monitor run already refreshes the
+dashboard automatically.

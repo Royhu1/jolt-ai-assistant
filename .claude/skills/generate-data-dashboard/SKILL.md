@@ -13,6 +13,9 @@ description: |
   (4) regenerate the dashboard after new Excel reports / raw data were added
   Route CODE changes to the dashboard (layout, detection rules, new panels)
   to the jolt-toolkit-dev agent instead — this skill only RUNS the generator.
+  The weekly data-collection-monitor refreshes this dashboard automatically as
+  part of its run — invoke this skill directly only for one-off or
+  historical-version refreshes.
 ---
 
 # Generate Data-Availability Dashboard — Router
@@ -43,7 +46,8 @@ Read [manifest.yaml](manifest.yaml), then every file listed under `always_load`:
 ### 2. Resolve version and output path
 
 Per the core conventions ("Inputs to confirm with the user"): the report-database
-version (default `2.2.7`) and the output path (default in-place under
+version (default: the current `jolt_toolkit` version in `pyproject.toml` — 2.2.8 at
+the time of writing) and the output path (default in-place under
 `excel_report_database/<version>/dashboard/`); ask only if ambiguous. Check the
 preconditions (local files only, Excel-lock caveat, `jolt` env / `PYTHONPATH=src`).
 

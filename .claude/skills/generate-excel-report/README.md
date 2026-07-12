@@ -86,7 +86,4 @@ refresh.
 - **Owner:** algorithms live in `jolt_toolkit` (route code changes to `jolt-toolkit-dev`); this
   skill only drives the CLI. **Next:** `/param-tuner`, `/report-finetuner`, `/plot-figure`,
   `/generate-pdf-report`.
-- Produce JOLT `.xlsx` reports from SRF telematics. This skill is a thin driver over the
-  report-generation CLI; the actual algorithms live in the `jolt_toolkit` package
-  (owned by the `jolt-toolkit-dev` agent — route code changes there, not here).
 - If the target vehicle is not yet configured, hand off to `/vehicle-onboarding` first.

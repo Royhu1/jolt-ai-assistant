@@ -7,9 +7,10 @@
     python .claude/skills/generate-pdf-report/generate_pdf_report.py --reg YK73WFN --period 20250301_20250601
     python .claude/skills/generate-pdf-report/generate_pdf_report.py --reg YK73WFN --period 20250301_20250601 --base  # 用非 finetuned
 
-产物写到 pdf_report_workspace/output_by_TBD/<REG>_<period>/（工作区；定稿后整体改名为 output_by_<YYYYMMDD> 快照，gitignored）。
+产物写到 pdf_report_workspace/output_by_TBD/<REG>_<OPERATOR>_<op_period>/（工作区；定稿后整体改名为 output_by_<YYYYMMDD> 快照，gitignored）。
 
-图表风格刻意对齐 analysis/ 下的图：白底 + 浅网格 + 散点 + 线性拟合 + ±1σ 阴影带 + 图例。
+Chart style: white background + light grid + scatter + linear fit — NO legend and
+NO ±1σ shaded band (mandated by static/core/layout-contract.md).
 """
 from __future__ import annotations
 
@@ -34,6 +35,11 @@ from jinja2 import Template
 from scipy.optimize import curve_fit
 from scipy.signal import find_peaks
 from scipy.stats import gaussian_kde
+
+try:
+    from jolt_toolkit import __version__ as _TOOLKIT_VERSION
+except ImportError:
+    _TOOLKIT_VERSION = "2.2.8"  # fallback when src/ is not on sys.path
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
@@ -78,12 +84,14 @@ MIN_TRIP_KM = 3.0
 
 # 轻/重载分组方式按车辆区分：此集合内的车保留**固定 1/3 三分位**的旧表述
 # （"Lightest/Heaviest 1/3 of trips"，合作方风格基准，如 YK73WFN）；其余车用
-# GVM 密度谷聚类（_gvm_cluster_split）。见 SKILL.md §5。
+# GVM 密度谷聚类（_gvm_cluster_split）。See references/commentary-style.md
+# ("Load-point masses & EP basis" — the _compute_load_points section).
 LEGACY_TERTILE_REGS = {"YK73WFN"}
 
 # 单组分析（不分轻/重簇）：这些车主要满载运行、GVM 分簇无意义——改为只给
 # **GVM > 阈值(t) 的离群剔除（IQR 1.5×）平均**（EP 与续航各一条 bullet）。值 = GVM 阈值(t)。
-# 优先级高于 LEGACY_TERTILE_REGS / KDE 聚类。见 SKILL.md §5。
+# 优先级高于 LEGACY_TERTILE_REGS / KDE 聚类。See references/commentary-style.md
+# ("Load-point masses & EP basis" — the _compute_load_points section).
 SINGLE_GROUP_REGS = {}  # none currently — YN25RSY moved to an AI-judged artic band (a band, when set in briefing_vehicle_specs.json, overrides single-group anyway via the guard below)
 
 # 统一坐标轴范围与刻度（参数化，所有报告跨车辆/周期可比）
@@ -1419,7 +1427,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reg", default="YK73WFN")
     ap.add_argument("--period", default="20250301_20250601")
-    ap.add_argument("--version", default="2.2.7")
+    ap.add_argument("--version", default=_TOOLKIT_VERSION,
+                    help="report-database version under excel_report_database/ "
+                         "(default tracks the installed jolt_toolkit version)")
     ap.add_argument("--base", action="store_true", help="用非 finetuned 的 base xlsx")
     ap.add_argument("--anon", action="store_true",
                     help="匿名化展示版：隐去运营方与车牌、底图换无地名 CARTO，"

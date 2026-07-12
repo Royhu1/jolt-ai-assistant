@@ -16,6 +16,7 @@ Key fields used:
 - `colors.vehicle_override.{REG}` — per-vehicle colour
 - `colors.company.{company}` — per-company colour
 - `colors.oem_by_make.{make}` — OEM colour by make
+- `colors.oem_by_label.{label}` — OEM colour by anonymised label (e.g. "OEM A"); read in anon mode
 - `oem_anonymization.{make}` — anonymised OEM label (e.g. "OEM A")
 - `driving_leg_types` — list of Leg Type values to include
 

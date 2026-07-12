@@ -10,7 +10,7 @@ so outputs stay recognisable.
 **Filename**: `{REG}_{Make}_{Company}_{metric}_vs_{dimension}.png`
 **Size**: `(FIG_W, FIG_H_SM)` = (10, 3.5)
 
-Five sub-variants per vehicle+company:
+Six sub-variants per vehicle+company:
 
 | Filename suffix | x-axis | y-axis | Fit |
 |---|---|---|---|

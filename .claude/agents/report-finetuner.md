@@ -131,7 +131,10 @@ only 1 extra `_finetuned.png` appears in `validation_figures/`, so no space is w
 1. Parse the vehicle registration `{REG}` and period `{start}_{end}` given by the user
 2. Confirm all of the following paths exist:
    - `excel_report_database/{version}/{REG}/jolt_report_{REG}_{start}_{end}.xlsx`
-   - `excel_report_database/{version}/{REG}/validation_figures/validation_{REG}_{date}_{idx}.png` × N figures
+   - `excel_report_database/{version}/{REG}/validation_figures/` containing validation PNGs in
+     **either** naming scheme — per-day `validation_{REG}_{YYYY-MM-DD}.png` (+ optional
+     `.boxes.json` sidecar; the standard since v2.2.6) **or** legacy per-leg
+     `validation_{REG}_{date}_{idx}.png` — accept whichever pattern the report directory uses
    - `excel_report_database/{version}/{REG}/raw_telematics/raw_{date}_{idx}.csv` × N files
 3. **Check history**: read `.claude/skills/report-finetuner/references/{REG}.md` if it exists,
    to absorb prior experience with this vehicle (common problem patterns, typical operations)

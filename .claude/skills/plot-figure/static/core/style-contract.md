@@ -33,7 +33,7 @@ PERF_YLIM      = (0, 3)       # Energy Performance (kWh/km) y-axis
 RANGE_YLIM     = (0, 900)     # Max Range (km) y-axis
 MASS_XLIM      = (0, 45000)   # Vehicle Total Mass (kg) x-axis
 PT_XLIM        = (0, 35000)   # Payload+Trailer (kg) x-axis
-MASS_CUTOFF    = 42000        # solid fit line ends here; dashed extension to MASS_XLIM[1]
+MASS_CUTOFF    = 42000        # dashed fit-extension target: solid fit ends at the observed data max; dashed extends to 42 t (also the mass-filter upper bound)
 ```
 
 Apply style to every axis:

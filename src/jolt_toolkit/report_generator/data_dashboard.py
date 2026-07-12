@@ -126,8 +126,8 @@ Usage
 -----
 ::
 
-    python -m jolt_toolkit.report_generator.data_dashboard            # version 2.2.3
-    python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.3
+    python -m jolt_toolkit.report_generator.data_dashboard            # installed package version
+    python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.8
     python -m jolt_toolkit.report_generator.data_dashboard --out /tmp/dash.html
 """
 
@@ -147,6 +147,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
+from jolt_toolkit import __version__
 from jolt_toolkit.report_generator.report_builder import DIESEL_HEADERS, HEADERS
 
 LOG = logging.getLogger("data_dashboard")
@@ -1810,8 +1811,11 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--version",
-        default="2.2.3",
-        help="Report-database version subdirectory (default: 2.2.3)",
+        default=__version__,
+        help=(
+            "Report-database version subdirectory (default: the installed "
+            f"jolt_toolkit version, currently {__version__})"
+        ),
     )
     ap.add_argument(
         "--db-root",

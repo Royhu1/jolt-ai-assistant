@@ -10,7 +10,7 @@ Single vehicle, long range → auto-split into one report per meteorological qua
 # whole range for one vehicle, meteorological-quarter reports (the default span, inclusive end)
 python .claude/skills/generate-excel-report/batch_generate.py --veh YK73WFN --ds 2024-06-01 --de 2026-06-09
 # equal-length escape hatch (e.g. monthly) or a forced output dir
-python .claude/skills/generate-excel-report/batch_generate.py --veh YK73WFN --ds 2024-06-01 --de 2025-12-01 --months 1 --out-dir ./excel_report_database/2.2.7
+python .claude/skills/generate-excel-report/batch_generate.py --veh YK73WFN --ds 2024-06-01 --de 2025-12-01 --months 1 --out-dir ./excel_report_database/2.2.8
 # raw-only (fast) batch regenerate; figures re-drawn later by the overlay regenerate step
 python .claude/skills/generate-excel-report/batch_generate.py --raw-only
 ```

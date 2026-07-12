@@ -1,6 +1,6 @@
 # Parameter reference
 
-Every tunable segmentation parameter: where it lives, its default, and what it does.
+Core tunable segmentation parameters: where each lives, its default, and what it does.
 The symptom → parameter mapping is in `evaluation-criteria.md`. Per the guidelines
 (`static/core/principles.md`), each vehicle has its own pipeline in `pipelines.json`,
 so changes to one vehicle's pipeline do not affect others.
@@ -15,3 +15,12 @@ so changes to one vehicle's pipeline do not affect others.
 | `min_cluster_gap_kg` | vehicles.json -> vehicle config | 2000.0 | Minimum mass difference (kg) between clusters |
 | `plateau_window_min` | pipelines.json -> charge_params | 60 | SOC plateau window for charge detection (min) |
 | `min_soc_rise` | pipelines.json -> charge_params | 5.0 | Minimum SOC rise (%) for a valid charge event |
+
+## Other live keys (names only)
+
+Semantics live in `src/jolt_toolkit/configs/pipelines.json` / `vehicles.json` and
+`segment_algorithms.py` — look them up there before touching one:
+
+- pipelines.json: `min_trip_distance_km`, `soc_rise_abort_pct`, `max_extend_minutes`,
+  `trip_endpoint_anchor`, the `discharge_params` block
+- vehicles.json: `mass_agg`, `merge_by_mass`, `split_by_mass`, `split_long_stops_min`
