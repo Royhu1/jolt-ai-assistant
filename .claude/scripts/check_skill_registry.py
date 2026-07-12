@@ -16,6 +16,9 @@ Checks
    ``VENDORED_SKILLS`` (vendored third-party skills keep their upstream README
    instead). The former per-skill ``PIPELINE.md`` was absorbed into each skill's
    ``README.md`` ("Pipeline" section) on 2026-07-11.
+5. Per-skill version: every ``manifest.yaml`` declares a valid SemVer ``version:``
+   (see ``.claude/rules/git-workflow.md`` "Per-skill versions" — bumped on every
+   edit to the skill's files).
 
 Usage (from the repo root)
 --------------------------
@@ -48,6 +51,9 @@ SECTIONS = {
 }
 
 _LINK_RE = re.compile(r"\[(?P<text>.+?)\]\((?P<path>[^)]+)\)")
+
+# Per-skill SemVer in manifest.yaml, e.g. `version: 2.0.0` (optional quotes/comment).
+_VERSION_RE = re.compile(r"^version:\s*['\"]?\d+\.\d+\.\d+['\"]?\s*(#.*)?$", re.MULTILINE)
 
 
 def _split_row(line: str) -> list[str]:
@@ -174,6 +180,14 @@ def main() -> int:
                     violations.append(
                         f"skill {name!r} has no {required} (add one per anatomy v2, "
                         f"or list the skill in VENDORED_SKILLS if vendored)"
+                    )
+            manifest = d / "manifest.yaml"
+            if manifest.is_file():
+                text = manifest.read_text(encoding="utf-8")
+                if not _VERSION_RE.search(text):
+                    violations.append(
+                        f"skill {name!r} manifest.yaml has no valid SemVer 'version:' "
+                        f"field (per-skill versioning, see git-workflow.md)"
                     )
 
     if violations:

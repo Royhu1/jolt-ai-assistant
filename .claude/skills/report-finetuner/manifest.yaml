@@ -1,4 +1,5 @@
 name: report-finetuner
+version: 2.0.0   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline
 description: >
   Declarative manifest for the static/dynamic split. SKILL.md uses this to
   decide which fragments to load for a given request. This skill is a thin

@@ -11,6 +11,22 @@ SemVer; the project's other modules (`data_analysis_workspace/` / `research_proj
 - `major` (**N**.0.0): breaking interface changes
 - Add a git tag alongside every version change: `git tag vX.Y.Z`
 
+### Per-skill versions (`manifest.yaml` `version:` field)
+
+Each skill under `.claude/skills/` carries its **own independent SemVer** in the
+`version:` field of its `manifest.yaml` (vendored third-party skills exempt). It is
+decoupled from the `jolt_toolkit` package version and is **never git-tagged** — the
+manifest field plus the changelog entry are its whole record. Baseline: `2.0.0` = the
+anatomy-v2 (router / static-dynamic) restructure of 2026-07-11.
+
+- `patch`: doc fix / wording / path correction inside the skill, no behaviour change
+- `minor`: new fragment / reference / gate / capability, backward compatible
+- `major`: breaking change to the skill's invocation contract, axes, or output paths
+- **Any conversation that edits a skill's files MUST bump that skill's `version:` in the
+  same change** and mention the new version in the changelog entry. A skill edit without
+  a version bump is an incomplete change (same discipline as `pyproject.toml` for the
+  package). `check_skill_registry.py` enforces the field's presence and SemVer format.
+
 ### Commit messages (Conventional Commits)
 
 `feat:` new feature / `fix:` fix / `refactor:` refactor / `docs:` documentation / `chore:` version bump, dependencies and other maintenance.

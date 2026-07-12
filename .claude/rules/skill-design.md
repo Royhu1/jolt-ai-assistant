@@ -86,7 +86,7 @@ Minimum files for `.claude/skills/<name>/`:
 | File | Required | Purpose |
 |------|----------|---------|
 | `SKILL.md` | required | Frontmatter (`name`, `description` with enumerated triggers) + the **routing protocol only** (load manifest → always-load core → resolve axes/gates → load one fragment → on-demand references). No deep content; update fragments and references, not the router, when adding scope. |
-| `manifest.yaml` | required¹ | Declarative loading contract: `always_load` (core contracts), `axes` (per-axis `detect` rule + `values` → fragment paths), `gates` (blocking preconditions), `references.on_demand` (condition → path table). |
+| `manifest.yaml` | required¹ | Declarative loading contract: `version` (per-skill SemVer, bumped on every skill edit — see `git-workflow.md`), `always_load` (core contracts), `axes` (per-axis `detect` rule + `values` → fragment paths), `gates` (blocking preconditions), `references.on_demand` (condition → path table). |
 | `README.md` | required¹ | The skill's human-facing single source of truth: what it is, directory map, how to run, artefact paths, and a **Pipeline** section (data in → processing → artefacts out, ownership, neighbouring skills — absorbed from the former per-skill `PIPELINE.md`). |
 | `static/core/` | as needed | Always-loaded contracts: style / persistence / discipline rules that apply to every run of the skill. |
 | `static/fragments/<axis>/` | as needed | One file per axis value (mode, vehicle type, …); exactly one loads per run. Skills with no genuine branch simply omit `axes`. |
@@ -123,6 +123,10 @@ description: |
 
 ```yaml
 name: <kebab-case-name>
+version: X.Y.Z   # per-skill SemVer — bump on EVERY edit to the skill's files
+                 # (patch = doc fix, minor = new fragment/reference/capability,
+                 #  major = breaking invocation/axes/output change); rules in
+                 # .claude/rules/git-workflow.md "Per-skill versions"
 description: >
   Declarative manifest for the static/dynamic split. SKILL.md uses this to
   decide which fragments to load for a given request.
@@ -187,7 +191,9 @@ tables against what actually exists under `.claude/`:
 - every row's link resolves to an existing file;
 - every status is one of `Draft` / `Beta` / `Stable`;
 - every skill dir contains `SKILL.md`, and `manifest.yaml` + `README.md` unless in the
-  vendored set.
+  vendored set;
+- every `manifest.yaml` declares a valid SemVer `version:` (per-skill versioning, see
+  `git-workflow.md`).
 
 Run it after touching anything under `.claude/skills|commands|agents` or the README index
 tables (exit 1 on violation, same contract as `check_subproject_independence.py`).
