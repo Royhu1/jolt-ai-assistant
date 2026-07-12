@@ -117,14 +117,16 @@ excel_report_database/*
 archive/*
 !archive/.gitkeep
 # Data-collection-monitor outputs (skill itself is shared, its outputs are not)
-data_collection_reports/
+data_collection_reports/*
+!data_collection_reports/.gitkeep
 
 # --- Temp / scratch ----------------------------------------------------------
 *.tmp
 *.bak
 Untitled.md
 _batch_debug.sh
-tmp/
+tmp/*
+!tmp/.gitkeep
 # One-off / throwaway scripts (local, delete after use; never committed)
 _tmp_*.py
 _patch_*.py
@@ -150,12 +152,18 @@ research_projects/**/data/
 research_projects/parameter_identify/results/
 cache/
 # Quick-validation scratch space + slide-deck workspace + academic paper workspace
-data_analysis_workspace/
-monthly_presentation/
-publication_workspace/
+# (dir presence is kept on the remote via .gitkeep so the repo tree matches the
+#  README architecture map; the CONTENTS stay local-only)
+data_analysis_workspace/*
+!data_analysis_workspace/.gitkeep
+monthly_presentation/*
+!monthly_presentation/.gitkeep
+publication_workspace/*
+!publication_workspace/.gitkeep
 
 # --- Holding area (items not yet slotted into the blueprint; not source) ------
-unarchived/
+unarchived/*
+!unarchived/.gitkeep
 
 # --- generate-pdf-report briefing outputs (skill code is shared, outputs not) -
 pdf_report_workspace/output*/

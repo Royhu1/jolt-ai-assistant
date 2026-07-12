@@ -20,6 +20,7 @@ Only the top level is shown. Any folder that has its own `README.md` documents i
 ├── excel_report_database    # directory holding the generated Excel reports
 ├── publication_workspace    # workspace for technical reports or academic papers
 ├── pdf_report_workspace     # generated partner-briefing artefacts (output_by_*/ + HERE-tile cache/); produced by the generate-pdf-report skill
+├── data_collection_reports  # weekly data-collection digests (PDF + MONITOR_STATUS.md); produced by the data-collection-monitor skill
 ├── monthly_presentation     # workspace for preparing the monthly JOLT meeting slides
 ├── data_analysis_workspace  # relatively standalone data-analysis workspace, mainly for quick idea validation
 ├── research_projects        # systematic academic research projects
