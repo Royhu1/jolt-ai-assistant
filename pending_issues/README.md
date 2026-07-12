@@ -19,3 +19,6 @@ one Markdown file per issue, with this README as the index. The point is to make
 |---|-------|--------|-------|
 | 001 | [Excel report / dashboard regen energy under-counted to ~5% (should be ~19%)](001_xlsx_regen_propulsion_undercounted.md) | OPEN | jolt-toolkit-dev |
 | 002 | [WU70GLV legs mis-attributed to WJF in SRF (2025-09 to 2025-11)](002_wu70glv_srf_wjf_misattribution.md) | OPEN | jolt-toolkit-dev / SRF |
+| 003 | [Route-based energy-performance analysis for the WJF fleet (John Miles request, deferred)](003_route_based_ep_analysis_deferred.md) | OPEN | unassigned (analysis-side) |
+| 004 | [Switch monthly capacity/SOH series to a ΔSOC-weighted estimator (pooled ratio / origin-OLS)](004_pooled_capacity_estimator_deferred.md) | OPEN | unassigned (analysis-side) |
+| 005 | [English-comment pass for the large generator scripts (pdf-report ×2, generate_figures, batch_generate runtime strings)](005_english_comment_pass_generator_scripts.md) | OPEN | owning skills (see issue) |
