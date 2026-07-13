@@ -41,11 +41,16 @@ Retired schemes are marked explicitly — do not restore them.
 - **Diesel-comparator variant** (auto: vehicles.json `fuel_type == "DIESEL"`, e.g. YT21EFD;
   since 2026-07-13): the metric becomes **Fuel Consumption (L/100km)** (axis `FC_MIN/FC_MAX` =
   0–80). Page 1 keeps the dashboard structure with the charging card replaced by
-  **TANK-TO-WHEEL EMISSIONS** (CO₂e emitted / per km / per active day / emission factor
-  `CO2E_KG_PER_L_DIESEL` = 2.58354 kg CO₂e/L), the 4th summary-strip tile = Tank-to-Wheel
+  **TANK-TO-WHEEL EMISSIONS** (CO₂e emitted / per km / per active day — **no emission-factor
+  row** (user review 2026-07-13); the factor `CO2E_KG_PER_L_DIESEL` = 2.58354 kg CO₂e/L is
+  stated once, in the Summary's CO₂ arithmetic), the 4th summary-strip tile = Tank-to-Wheel
   CO₂e, and the totals on the **raw cumulative-counter basis** (`_diesel_raw_kpi_totals`:
   VDHR odometer + LFC fuel — trial end minus trial start, reset/quantisation-robust,
-  incl. idling and outage gaps). Page-2 grid: (1) **Fuel Consumption vs Gross Vehicle Mass
+  incl. idling and outage gaps). The page-1 bottom row uses the **stacked layout**
+  (ctx `stack_stats` → `.ops-bottom--stack`): both stat cards in one left column (108 mm,
+  flex 1.7 : 1, `min-height:0` so the shares bind) + a **full-height route-map right column**
+  (aspect ≈ the 740×1060 map PNG) — the EV 3-column row left the 3-row emissions card
+  half-empty and the map letterboxed small; EV briefings never set the flag. Page-2 grid: (1) **Fuel Consumption vs Gross Vehicle Mass
   (trunk-haul)** — the mass + temperature figures use the trunk-haul subset (avg speed ≥
   `TRUNK_SPEED_MIN_KMH` = 50 km/h; over all trips the urban tail swamps the mass signal),
   load markers + dashed extension to the vehicle's own `full_laden_t` (specs override, 40 t

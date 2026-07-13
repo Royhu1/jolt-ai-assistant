@@ -147,7 +147,10 @@ PYTHONUTF8=1 python .claude/skills/generate-pdf-report/generate_pdf_report.py \
 
 - Artefacts → `pdf_report_workspace/output_by_TBD/<REG>_<OPERATOR>_<op_period>/` (the working
   set — on finalisation the whole dir is renamed to `output_by_<YYYYMMDD>/` as a frozen snapshot
-  and an empty `output_by_TBD/` is recreated; scheme of 2026-07-10): `report_*.html`,
+  and an empty `output_by_TBD/` is recreated; scheme of 2026-07-10). **`--snapshot <tag>`**
+  (default `TBD`) redirects the output to `output_by_<tag>/` — use it to regenerate a briefing
+  **in place inside an existing frozen snapshot** (e.g. `--snapshot 20260710` after the user
+  filed the vehicle's directory into that round): `report_*.html`,
   `report_*.pdf`, `figures/*_<token>.png` (figure names carry a run token to bust the Chrome
   cache), `verification_*.xlsx` (the manual-verification workbook, see
   `references/verification.md`). All gitignored.

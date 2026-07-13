@@ -1975,6 +1975,10 @@ def main():
                     help="第 1 页能量/距离总量口径：raw=raw_telematics 计数器（含非行驶、真里程，默认）；"
                          "segment=excel report 分段（行驶腿）口径。第 2 页分析始终为分段口径。"
                          "segment 版产物加 _xlsxkpi 后缀，与 raw 版在同一目录共存。")
+    ap.add_argument("--snapshot", default="TBD",
+                    help="输出快照目录后缀：产物写入 pdf_report_workspace/output_by_<snapshot>/"
+                         "（默认 TBD = 工作区）。当某车的简报目录已被归档进某轮冻结快照"
+                         "（如 20260710）而需原地再生时，传该轮日期即可。")
     args = ap.parse_args()
     df, tr_all, tr, ch, xlsx_path, _cov = compute(args.reg, args.period, args.version,
                                                    finetuned=not args.base, all_data=args.all_data)
@@ -2037,8 +2041,9 @@ def _emit_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mass, op_f
 
     # Working set = output_by_TBD; on finalisation the whole dir is renamed to
     # output_by_<YYYYMMDD> (frozen snapshot) and a fresh output_by_TBD is created
-    # (naming scheme of 2026-07-10; see pdf_report_workspace/README.md).
-    outdir = WORKSPACE / "output_by_TBD" / f"{args.reg}_{tag}"
+    # (naming scheme of 2026-07-10; see pdf_report_workspace/README.md). --snapshot lets a
+    # regeneration land directly inside an existing frozen snapshot (in-place refresh).
+    outdir = WORKSPACE / f"output_by_{args.snapshot}" / f"{args.reg}_{tag}"
     fig_rel = "figures_anon" if args.anon else "figures"  # 匿名版独立图目录，与命名版产物共存
     fig_dir = outdir / fig_rel
     cb = int(time.time())  # run token：图片文件名缓存破坏
@@ -2561,7 +2566,7 @@ def _emit_diesel_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mas
     _op_tag = re.sub(r"[^A-Za-z0-9]+", "_", str(operator)).strip("_") or "OP"
     tag = f"{_op_tag}_{op_period}"
 
-    outdir = WORKSPACE / "output_by_TBD" / f"{args.reg}_{tag}"
+    outdir = WORKSPACE / f"output_by_{args.snapshot}" / f"{args.reg}_{tag}"
     fig_rel = "figures_anon" if args.anon else "figures"
     fig_dir = outdir / fig_rel
     cb = int(time.time())
@@ -2823,13 +2828,18 @@ def _emit_diesel_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mas
             dict(k="Mean Fuel Consumption", v=f(mean_fc, 1, " L/100km"), cls="num"),
             dict(k="Max Daily Fuel", v=f(daily_max_fuel, 0, " L"), cls="num"),
         ],
+        # No Emission Factor row (user review 2026-07-13): the factor is stated once, in
+        # the Summary's CO2 arithmetic — a card row was redundant.
         charge_title="TANK-TO-WHEEL EMISSIONS",
         charge_rows=[
             dict(k="CO₂e Emitted", v=f(co2_t, 1, " t"), cls="num"),
             dict(k="CO₂e per km", v=f(co2_per_km, 2, " kg"), cls="num"),
             dict(k="CO₂e per Active Day", v=f(co2_per_day, 0, " kg"), cls="num"),
-            dict(k="Emission Factor", v=f"{CO2E_KG_PER_L_DIESEL} kg/L", cls="num"),
         ],
+        # Stacked page-1 bottom row (template .ops-bottom--stack): the two stat cards in
+        # one left column + a full-height route map — the 3-row emissions card otherwise
+        # leaves a half-empty middle column and a letterboxed small map (user review).
+        stack_stats=True,
         map_img=charts["map"],
         map_caption=charts.get("map_attrib") or "indicative",
         source_ops="",

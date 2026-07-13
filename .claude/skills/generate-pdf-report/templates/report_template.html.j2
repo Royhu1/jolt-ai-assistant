@@ -104,6 +104,20 @@
   .stat-list li b.v-xs { font-size:0.82em; }
   .map-card { padding:0; overflow:hidden; position:relative; background:#e9eef3; }
   .map-card img { width:100%; height:100%; object-fit:contain; display:block; }
+  /* Stacked variant (ctx stack_stats, used by the DIESEL briefing): its emissions card has
+     only 3 rows, which left the middle column half-empty and the map letterboxed small in
+     the narrow third column. Instead the two stat cards stack in one left column and the
+     route map takes a full-height right column whose aspect (~0.68) matches the 740×1060
+     map PNG — bigger map, no dead space. EV briefings never set the flag (layout as-is). */
+  .ops-bottom--stack { grid-template-columns:1.5fr 1fr; }
+  .ops-bottom--stack > .stat-col { display:flex; flex-direction:column; gap:5mm; height:108mm; }
+  .ops-bottom--stack > .card.map-card { height:108mm; }
+  /* min-height:0 so the flex shares actually bind (default min-height:auto lets the taller
+     card overflow the column and collide with the Summary block below); the 1.7 : 1 split
+     of the 108mm column fits the 6-row performance card and the 3-row emissions card. */
+  .ops-bottom--stack .stat-col > .stat-card { min-height:0; overflow:hidden; }
+  .ops-bottom--stack .stat-col > .stat-card:first-child { flex:1.7; }
+  .ops-bottom--stack .stat-col > .stat-card:last-child { flex:1; }
   .map-card__cap { position:absolute; bottom:5px; right:6px; font-size:11px;
     color:var(--muted); font-style:italic; background:rgba(255,255,255,.45);
     padding:1px 5px; border-radius:4px; opacity:.6; }
@@ -191,7 +205,8 @@
     {% endfor %}
   </section>
 
-  <section class="ops-bottom">
+  <section class="ops-bottom{% if stack_stats %} ops-bottom--stack{% endif %}">
+    {% if stack_stats %}<div class="stat-col">{% endif %}
     <div class="card stat-card">
       <h3 class="stat-card__title">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M19 9l-5 5-4-4-3 3"/></svg>
@@ -210,6 +225,7 @@
         {% for r in charge_rows %}<li><span>{{ r.k }}</span><b class="{{ r.cls }}">{{ r.v }}</b></li>{% endfor %}
       </ul>
     </div>
+    {% if stack_stats %}</div>{% endif %}
     <div class="card map-card">
       <img src="{{ map_img }}" alt="route">
       <span class="map-card__cap">{{ map_caption }}</span>
