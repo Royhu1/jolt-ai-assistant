@@ -103,7 +103,35 @@ TEMP_XTICKS = range(0, 31, 10)  # 0/10/20/30（-5 起点不设刻度，避免拥
 # Reference full-laden gross mass (t) for the EP/Range conclusion + dashed fit extension.
 # UK artic max ≈ 44 t; the briefing projects to 42 t. The dashed tail flags it as an
 # extrapolation when a vehicle's observed GVM never reaches it (e.g. a rigid).
+# Per-vehicle override: briefing_vehicle_specs.json "full_laden_t" (e.g. the diesel
+# comparator YT21EFD is plated at 40 t GCW — projecting it to 42 t would exceed its limit).
 FULL_LADEN_T = 42.0
+
+# ---- Diesel-comparator variant (vehicles.json fuel_type == "DIESEL", e.g. YT21EFD) ----
+# The briefing metric becomes Fuel Consumption (L/100km). compute() aliases the xlsx
+# "Fuel Consumption (L/100km)" column onto the internal "ep" column, so the shared
+# machinery (load points, adaptive temp window, scatter fits, operator split) operates
+# unchanged; the constants below are the diesel analogues of the EP_* axes/cleaning.
+FC_MIN, FC_MAX = 0.0, 80.0               # fuel-consumption chart axis (L/100km)
+FC_YTICKS = range(0, 81, 20)             # 0/20/40/60/80
+FC_CLEAN_MIN, FC_CLEAN_MAX = 5.0, 80.0   # outside = implausible leg, dropped (page 2 only)
+SPEED_XLIM = (0, 90)                     # average trip speed axis (km/h)
+SPEED_XTICKS = range(0, 91, 30)
+# Trunk-haul filter for the diesel MASS and TEMPERATURE analyses: fuel consumption is
+# dominated by duty cycle — low-speed urban/depot legs run 40-80 L/100km at ANY mass and
+# swamp the mass signal (all-trip fit: 0.07 L/100km/t, R² ≈ 0.01 — noise). Restricting
+# those two analyses to trips with average speed ≥ this threshold makes duty cycles
+# comparable (YT21EFD: slope 0.55 L/100km/t, R² 0.39; temperature turns physically
+# correct, colder → higher). The distribution and speed figures keep ALL valid trips —
+# the urban tail is exactly what they are there to show. Analogous to the EV briefing's
+# narrow-mass-window control on the temperature chart.
+TRUNK_SPEED_MIN_KMH = 50.0
+DIESEL_TEMP_XLIM = (-5, 35)              # YT21EFD observes up to ~31 °C — wider than the EV axis
+DIESEL_TEMP_XTICKS = range(0, 31, 10)
+# Tank-to-wheel CO2e per litre of diesel — the WJF-agreed briefing basis (all fuel carbon
+# to CO2 on combustion; tank-to-wheel only, no upstream/well-to-tank share). Keep the full
+# precision so the briefing, the verification workbook and WJF's own arithmetic agree.
+CO2E_KG_PER_L_DIESEL = 2.58354
 
 # 路线图底图请求像素尺寸 = 第 1 页地图卡显示窗口（约 370×530，竖版）的 2x。
 # 必须与卡片纵横比一致：卡片用 object-fit:cover，比例不符会裁掉两侧（连带左上角图例）。
@@ -283,6 +311,94 @@ def _raw_kpi_totals(tr, reg, version):
                 charged_dc_kwh=charged_dc_kwh, charged_ac_kwh=charged_ac_kwh)
 
 
+def _diesel_raw_kpi_totals(tr, reg, version):
+    """Page-1 distance / fuel totals for the DIESEL variant, from the ``raw_logger_v1``
+    cumulative counters (VDHR total vehicle distance, LFC engine total fuel used) — the
+    counter-difference basis the operator (WJF) proposed for the trial totals.
+
+    Same philosophy as :func:`_raw_kpi_totals` (EV): whole-period counter totals INCLUDE
+    idling between trips and telematics-outage gaps the per-leg xlsx sums miss. The
+    estimator differs in one respect — these J1939 counters are QUANTISED (LFC jumps in
+    0.5 L steps, VDHR in sub-km steps, between dense ~1 s samples), so the EV-style pure
+    ``Δ ≤ max_rate × Δt`` ceiling would misclassify every real quantum jump as a spike.
+    A step is therefore accepted when ``0 ≤ Δ ≤ max(QUANTUM, max_rate × Δt)``:
+
+    - the QUANTUM floor admits the per-sample quantum jumps at any cadence;
+    - the rate term admits genuine multi-day outage accumulations (e.g. YT21EFD's 553 h
+      Christmas 2025 gap: +4,750 km / +1,150 L ≈ 8.6 km/h average — real driving while
+      the logger was down, and exactly what the counter method captures);
+    - a negative step is a counter RESET, dropped (YT21EFD's LFC reset 49,520 → 0 L on
+      2026-06-23; consumption after the reset resumes from 0 and stays counted).
+
+    Gap-spanning increments (Δt > GAP_HOURS) stay in the TOTALS but are EXCLUDED from
+    the daily series — a 23-day accumulation dumped into the single day of the later
+    reading would otherwise fake an absurd busiest day (same rule as the EV path).
+
+    Returns ``dict(distance_km, fuel_l, daily_km, daily_fuel_l, gap_km, gap_fuel_l,
+    n_gaps)`` or ``None`` when there is no raw_logger_v1 data (caller falls back to the
+    driving-leg segment sums).
+    """
+    cfg = VEHICLES.get(reg, {})
+    fuel_col = cfg.get("fuel_energy_col", "LFC engine total fuel used")
+    dist_col = cfg.get("distance_col", "VDHR hr total vehicle distance")
+    raw_dir = PROJECT / "excel_report_database" / version / reg / "raw_logger_v1"
+    if not raw_dir.is_dir():
+        return None
+    st = tr["st"].dropna()
+    et = tr["et"].dropna()
+    if st.empty or et.empty:
+        return None
+    lo = (st.min() - pd.Timedelta(days=1)).normalize()
+    hi = (et.max() + pd.Timedelta(days=1)).normalize()
+    series = {fuel_col: [], dist_col: []}
+    for p in sorted(raw_dir.glob("logger_*.csv")):
+        m = re.search(r"logger_(\d{4}-\d{2}-\d{2})", p.name)
+        if not (m and lo <= pd.Timestamp(m.group(1)) <= hi):
+            continue
+        try:
+            head = pd.read_csv(p, nrows=0)
+            want = [c for c in (fuel_col, dist_col) if c in head.columns]
+            if not want:
+                continue
+            dfp = pd.read_csv(p, usecols=[head.columns[0]] + want,
+                              index_col=0, parse_dates=True)
+        except Exception:
+            continue
+        for col in want:
+            s = pd.to_numeric(dfp[col], errors="coerce").dropna()
+            if len(s):
+                series[col].append(s)
+
+    GAP_HOURS = 6.0   # an increment spanning > this Δt is a data-gap accumulation
+    QUANTUM = 2.0     # admits the 0.5 L / sub-km per-sample quantum jumps at any cadence
+
+    def _robust(chunks, max_rate_per_h):
+        if not chunks:
+            return float("nan"), None, float("nan"), 0
+        s = pd.concat(chunks).sort_index()
+        s = s[~s.index.duplicated(keep="first")]
+        if len(s) < 2:
+            return float("nan"), None, float("nan"), 0
+        dv = s.diff()
+        dt_h = s.index.to_series().diff().dt.total_seconds() / 3600.0
+        ok = (dv >= 0) & (dv <= np.maximum(QUANTUM, max_rate_per_h * dt_h))
+        total = float(dv[ok].sum())
+        gap = ok & (dt_h > GAP_HOURS) & (dv > QUANTUM)
+        gap_sum = float(dv[gap].sum())
+        inc_day = dv.where(ok & (dt_h <= GAP_HOURS), other=0.0)
+        per_day = inc_day.groupby(s.index.date).sum()
+        per_day = per_day[per_day > 0]
+        return total, per_day, gap_sum, int(gap.sum())
+
+    distance_km, daily_km, gap_km, n_gap_d = _robust(series[dist_col], 130.0)
+    fuel_l, daily_fuel, gap_fuel, n_gap_f = _robust(series[fuel_col], 120.0)
+    if not (pd.notna(distance_km) or pd.notna(fuel_l)):
+        return None
+    return dict(distance_km=distance_km, fuel_l=fuel_l, daily_km=daily_km,
+                daily_fuel_l=daily_fuel, gap_km=gap_km, gap_fuel_l=gap_fuel,
+                n_gaps=max(n_gap_d, n_gap_f))
+
+
 def _outlier_trimmed_mean(s):
     """IQR(1.5×) 剔除离群后的均值；返回 (mean, n_kept, n_total)。有效值 < 4 个则不剔除。"""
     x = pd.to_numeric(s, errors="coerce").dropna()
@@ -460,7 +576,8 @@ def _compute_load_points(reg, tr):
         if tw is not None:
             temp_lo, temp_hi = tw
             temp_mask = dense_mask & (gvw_t >= temp_lo) & (gvw_t <= temp_hi)
-    return dict(unladen=m_un, laden=m_la, full=FULL_LADEN_T,
+    return dict(unladen=m_un, laden=m_la,
+                full=float(spec.get("full_laden_t", FULL_LADEN_T)),
                 unladen_mask=unladen_mask, dense_mask=dense_mask, temp_mask=temp_mask,
                 temp_lo=temp_lo, temp_hi=temp_hi, temp_status=temp_status,
                 band_lo=band_lo, band_hi=band_hi, laden_min=laden_min)
@@ -708,6 +825,60 @@ def _finish_scatter(ax):
         ax.tick_params(axis="y", labelrotation=90)
 
 
+def _route_map_chart(tr, outdir, name, anon, here_key):
+    """Route-map PNG (named = HERE basemap; anon = CARTO no-labels; fallback = schematic).
+    Shared verbatim by the EV and diesel chart builders (moved out of build_charts
+    2026-07-13 when the diesel variant was added). Returns (png_filename, attrib|None);
+    attrib None => schematic fallback (caption shows "indicative")."""
+    olat, olon = _coords(tr["Origin (Lat, Lon)"]); dlat, dlon = _coords(tr["Destination (Lat, Lon)"])
+    n = min(len(olat), len(dlat))
+    basemap, attrib = None, None
+    if n:
+        try:
+            all_lat = np.concatenate([olat[:n], dlat[:n]])
+            all_lon = np.concatenate([olon[:n], dlon[:n]])
+            if anon:
+                basemap = _fetch_carto_basemap(all_lat, all_lon, MAP_PX_W, MAP_PX_H)
+                attrib = "© OpenStreetMap © CARTO"
+            elif here_key:
+                basemap = _fetch_here_basemap(all_lat, all_lon, MAP_PX_W, MAP_PX_H, here_key)
+                attrib = "map © HERE"
+        except Exception as exc:
+            print(f"  [map] 底图获取失败（{exc}），退回无底图示意")
+            basemap, attrib = None, None
+    if basemap:
+        map_png, clat, clon, zoom = basemap
+        fig = plt.figure(figsize=(MAP_PX_W / 200.0, MAP_PX_H / 200.0))
+        ax = fig.add_axes([0, 0, 1, 1])  # full-bleed: 底图铺满整张 PNG
+        ax.imshow(plt.imread(map_png), extent=[0, MAP_PX_W, MAP_PX_H, 0])
+        # 起讫点不作区分：统一样式、无图例
+        ox, oy = _ll_to_px(olat[:n], olon[:n], clat, clon, zoom, MAP_PX_W, MAP_PX_H)
+        dx, dy = _ll_to_px(dlat[:n], dlon[:n], clat, clon, zoom, MAP_PX_W, MAP_PX_H)
+        for i in range(n):
+            ax.plot([ox[i], dx[i]], [oy[i], dy[i]], color=OEM_BLUE, lw=1.0, alpha=0.3)
+        ax.scatter(np.concatenate([ox, dx]), np.concatenate([oy, dy]), s=24,
+                   color="#e74c3c", alpha=0.9, edgecolors="white", linewidths=0.5, zorder=5)
+        ax.set_xlim(0, MAP_PX_W); ax.set_ylim(MAP_PX_H, 0)
+        ax.set_xticks([]); ax.set_yticks([]); ax.grid(False)
+        for sp in ax.spines.values():
+            sp.set_edgecolor("#c7ccda")
+        fig.savefig(outdir / name("route_map"), dpi=200)
+        plt.close(fig)
+    else:
+        fig, ax = plt.subplots(figsize=(3.7, 2.66))
+        fig.patch.set_facecolor("#eef2f6"); ax.set_facecolor("#eef2f6")
+        for i in range(n):
+            ax.plot([olon[i], dlon[i]], [olat[i], dlat[i]], color=OEM_BLUE, lw=0.7, alpha=0.18)
+        # 起讫点不作区分：统一样式、无图例
+        ax.scatter(np.concatenate([olon, dlon]), np.concatenate([olat, dlat]), s=14,
+                   color="#e74c3c", alpha=0.55, edgecolors="none")
+        ax.set_xticks([]); ax.set_yticks([]); ax.margins(0.18)
+        for sp in ax.spines.values():
+            sp.set_edgecolor("#c7ccda")
+        _save(fig, outdir / name("route_map"))
+    return name("route_map"), attrib
+
+
 def build_charts(tr, ch, outdir, reg, cb, here_key=None, cap_kwh=None, anon=False,
                  rel="figures", load_pts=None, no_mass=False):
     # 文件名带 run token 即可破坏 Chrome 缓存；旧图 best-effort 清理
@@ -852,54 +1023,146 @@ def build_charts(tr, ch, outdir, reg, cb, here_key=None, cap_kwh=None, anon=Fals
 
     # 路线图：命名版用 HERE 真实底图（lite.day，带地名）；匿名版用 CARTO light_nolabels
     # （保留线和点、无地名——SteerCo 匿名化要求）；失败/无 key 退回无底图示意。
-    olat, olon = _coords(tr["Origin (Lat, Lon)"]); dlat, dlon = _coords(tr["Destination (Lat, Lon)"])
-    n = min(len(olat), len(dlat))
-    basemap, attrib = None, None
-    if n:
-        try:
-            all_lat = np.concatenate([olat[:n], dlat[:n]])
-            all_lon = np.concatenate([olon[:n], dlon[:n]])
-            if anon:
-                basemap = _fetch_carto_basemap(all_lat, all_lon, MAP_PX_W, MAP_PX_H)
-                attrib = "© OpenStreetMap © CARTO"
-            elif here_key:
-                basemap = _fetch_here_basemap(all_lat, all_lon, MAP_PX_W, MAP_PX_H, here_key)
-                attrib = "map © HERE"
-        except Exception as exc:
-            print(f"  [map] 底图获取失败（{exc}），退回无底图示意")
-            basemap, attrib = None, None
-    if basemap:
-        map_png, clat, clon, zoom = basemap
-        fig = plt.figure(figsize=(MAP_PX_W / 200.0, MAP_PX_H / 200.0))
-        ax = fig.add_axes([0, 0, 1, 1])  # full-bleed: 底图铺满整张 PNG
-        ax.imshow(plt.imread(map_png), extent=[0, MAP_PX_W, MAP_PX_H, 0])
-        # 起讫点不作区分：统一样式、无图例
-        ox, oy = _ll_to_px(olat[:n], olon[:n], clat, clon, zoom, MAP_PX_W, MAP_PX_H)
-        dx, dy = _ll_to_px(dlat[:n], dlon[:n], clat, clon, zoom, MAP_PX_W, MAP_PX_H)
-        for i in range(n):
-            ax.plot([ox[i], dx[i]], [oy[i], dy[i]], color=OEM_BLUE, lw=1.0, alpha=0.3)
-        ax.scatter(np.concatenate([ox, dx]), np.concatenate([oy, dy]), s=24,
-                   color="#e74c3c", alpha=0.9, edgecolors="white", linewidths=0.5, zorder=5)
-        ax.set_xlim(0, MAP_PX_W); ax.set_ylim(MAP_PX_H, 0)
-        ax.set_xticks([]); ax.set_yticks([]); ax.grid(False)
-        for sp in ax.spines.values():
-            sp.set_edgecolor("#c7ccda")
-        fig.savefig(outdir / name("route_map"), dpi=200)
-        plt.close(fig)
-    else:
-        fig, ax = plt.subplots(figsize=(3.7, 2.66))
-        fig.patch.set_facecolor("#eef2f6"); ax.set_facecolor("#eef2f6")
-        for i in range(n):
-            ax.plot([olon[i], dlon[i]], [olat[i], dlat[i]], color=OEM_BLUE, lw=0.7, alpha=0.18)
-        # 起讫点不作区分：统一样式、无图例
-        ax.scatter(np.concatenate([olon, dlon]), np.concatenate([olat, dlat]), s=14,
-                   color="#e74c3c", alpha=0.55, edgecolors="none")
-        ax.set_xticks([]); ax.set_yticks([]); ax.margins(0.18)
-        for sp in ax.spines.values():
-            sp.set_edgecolor("#c7ccda")
-        _save(fig, outdir / name("route_map"))
-    charts["map"] = f"{rel}/{name('route_map')}"
+    map_name, attrib = _route_map_chart(tr, outdir, name, anon, here_key)
+    charts["map"] = f"{rel}/{map_name}"
     charts["map_attrib"] = attrib  # None => 无底图示意（caption 显示 "indicative"）
+
+    return charts, stats
+
+
+def build_diesel_charts(tr, tr_trunk, outdir, reg, cb, here_key=None, anon=False,
+                        rel="figures", load_pts=None, no_mass=False):
+    """Diesel-variant page-2 charts. The metric is Fuel Consumption (L/100km), cleaned and
+    aliased onto ``tr["ep"]`` by compute(); no battery/charging charts exist. Grid:
+
+    1. Fuel Consumption vs Gross Vehicle Mass — over the TRUNK-HAUL subset ``tr_trunk``
+       (average speed ≥ TRUNK_SPEED_MIN_KMH, so duty cycles are comparable and the mass
+       signal is not swamped by the urban tail); linear fit + unladen/laden/full load
+       markers + dashed extension to the vehicle's rated full-laden mass (specs override,
+       e.g. YT21EFD 40 t). Skipped for a no-mass diesel (3-chart page).
+    2. Fuel Consumption Distribution — ALL valid trips; histogram + KDE + mean (dashed
+       red) / median (dotted green), mirroring the EV distribution variant's machinery.
+    3. Fuel Consumption vs Ambient Temperature — trunk-haul subset within the narrow
+       laden mass window (mass AND duty held roughly constant), scatter-only when the
+       adaptive window is inconclusive.
+    4. Fuel Consumption vs Average Trip Speed — ALL valid trips; reciprocal fit
+       ``fc = a + b/v`` (the per-km idle/urban overhead dilutes with speed; a linear fit
+       would misrepresent the strong low-speed rise). Replaces the EV charging-SoC chart
+       and is where the urban tail excluded from charts 1/3 is shown on its own axis.
+
+    Same square figsize / fixed SCATTER_AXBOX / no-legend contract as build_charts.
+    ``load_pts`` must be computed over ``tr_trunk`` (its masks index that frame).
+    """
+    outdir.mkdir(parents=True, exist_ok=True)
+    for old in outdir.glob("*.png"):
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    charts, stats = {}, {}
+    SQ = 4.6
+    lp = load_pts or {}
+
+    def name(stem):
+        return f"{stem}_{cb}.png"
+
+    fc = tr["ep"].values  # cleaned Fuel Consumption (L/100km), aliased in compute()
+
+    # 1) FC vs GVM — trunk-haul subset (skipped when the vehicle reports no usable mass)
+    if not no_mass:
+        fc_tk = tr_trunk["ep"].values
+        gvw_tk = tr_trunk["mass"].values / 1000.0
+        fig, ax = plt.subplots(figsize=(SQ, SQ))
+        r = _scatter_fit(ax, gvw_tk, fc_tk, unit=" /t")
+        ax.set_xlabel("Gross Vehicle Mass (t)"); ax.set_ylabel("Fuel Consumption (L/100km)")
+        ax.set_ylim(FC_MIN, FC_MAX); ax.set_yticks(list(FC_YTICKS))
+        ax.set_xlim(*GVM_XLIM); ax.set_xticks(GVM_XTICKS)
+        if r:
+            m, b, sigma, r2, _n = r
+            stats["gvm_slope"], stats["gvm_intercept"] = m, b
+            stats["gvm_sigma"], stats["gvm_r2"] = sigma, r2
+            if lp:
+                # Dashed-extension start = max mass among the FITTED pairs (FC present) —
+                # nanmax over all masses would count legs whose FC was cleaned to NaN
+                # (e.g. YT21EFD's two 40 t legs with no fuel value), leaving a visual gap
+                # between the fit line's end and the Full marker.
+                _pair = np.isfinite(gvw_tk) & np.isfinite(fc_tk)
+                x_fit_max = float(gvw_tk[_pair].max()) if _pair.any() else float("nan")
+                _add_load_markers(ax, lp, lambda xx: m * xx + b, x_fit_max)
+        _finish_scatter(ax)
+        _save(fig, outdir / name("fc_gvm"), box=SCATTER_AXBOX)
+        charts["gvm"] = f"{rel}/{name('fc_gvm')}"
+
+    # 2) FC distribution (histogram + KDE + mean/median markers)
+    fcv = pd.to_numeric(tr["ep"], errors="coerce").dropna().values
+    fig, ax = plt.subplots(figsize=(SQ, SQ))
+    if len(fcv):
+        ax.hist(fcv, bins=np.linspace(FC_MIN, FC_MAX, 33), color=OEM_BLUE,
+                alpha=0.82, edgecolor="white")
+        if len(fcv) >= 3 and np.ptp(fcv) > 0:
+            try:
+                xs = np.linspace(FC_MIN, FC_MAX, 200)
+                ax2 = ax.twinx(); ax2.plot(xs, gaussian_kde(fcv)(xs), color="#e67e22", lw=1.7)
+                ax2.set_yticks([]); ax2.set_ylim(bottom=0)
+            except Exception:
+                pass
+        ax.axvline(float(np.mean(fcv)), color="#c0392b", lw=1.4, ls="--")
+        ax.axvline(float(np.median(fcv)), color="#27ae60", lw=1.4, ls=":")
+    ax.set_xlabel("Fuel Consumption (L/100km)"); ax.set_ylabel("Trips")
+    ax.set_xlim(FC_MIN, FC_MAX); ax.set_xticks(list(FC_YTICKS)); ax.set_ylim(bottom=0)
+    _finish_scatter(ax)
+    _save(fig, outdir / name("fc_dist"), box=SCATTER_AXBOX)
+    charts["fc_dist"] = f"{rel}/{name('fc_dist')}"
+
+    # 3) FC vs ambient temperature — trunk-haul subset within the narrow laden window
+    #    (mass AND duty held ~constant); scatter-only when inconclusive (same rule as the
+    #    EV chart). No-mass diesel → all valid trips.
+    sub = lp.get("temp_mask")
+    sub = sub if sub is not None else lp.get("dense_mask")
+    td = tr if no_mass else (tr_trunk[sub] if sub is not None else tr_trunk)
+    _temp_fit = no_mass or lp.get("temp_status", "ok") != "inconclusive"
+    fig, ax = plt.subplots(figsize=(SQ, SQ))
+    r = _scatter_fit(ax, td["temp"].values, td["ep"].values, unit=" /°C", fit=_temp_fit)
+    ax.set_xlabel("Ambient Temperature (°C)"); ax.set_ylabel("Fuel Consumption (L/100km)")
+    ax.set_ylim(FC_MIN, FC_MAX); ax.set_yticks(list(FC_YTICKS))
+    ax.set_xlim(*DIESEL_TEMP_XLIM); ax.set_xticks(DIESEL_TEMP_XTICKS)
+    _finish_scatter(ax)
+    _save(fig, outdir / name("fc_temp"), box=SCATTER_AXBOX)
+    charts["temp"] = f"{rel}/{name('fc_temp')}"
+    if r:
+        (stats["temp_slope"], stats["temp_intercept"], stats["temp_sigma"],
+         stats["temp_r2"], stats["temp_n"]) = r
+
+    # 4) FC vs average trip speed — reciprocal fit fc = a + b/v
+    spd = num(tr["Average Speed (km/h)"]).values
+    fig, ax = plt.subplots(figsize=(SQ, SQ))
+    mask = np.isfinite(spd) & np.isfinite(fc) & (spd > 0)
+    x, y = spd[mask], fc[mask]
+    ax.scatter(x, y, s=9, color=OEM_BLUE, alpha=0.35, edgecolors="none")
+    if len(x) >= 3 and np.ptp(x) > 0 and np.ptp(y) > 0:
+        try:
+            (sa, sb), _ = curve_fit(lambda v, a, b: a + b / v, x, y,
+                                    p0=[20.0, 200.0], maxfev=20000)
+            xs = np.linspace(max(float(x.min()), 5.0), float(x.max()), 200)
+            ax.plot(xs, sa + sb / xs, color=OEM_BLUE, lw=1.7)
+            pred = sa + sb / x
+            ss_res = float(((y - pred) ** 2).sum())
+            ss_tot = float(((y - y.mean()) ** 2).sum())
+            stats["speed_fit"] = (float(sa), float(sb),
+                                  1 - ss_res / ss_tot if ss_tot else 0.0, int(len(x)))
+        except (RuntimeError, ValueError):
+            pass
+    ax.set_xlabel("Average Trip Speed (km/h)"); ax.set_ylabel("Fuel Consumption (L/100km)")
+    ax.set_ylim(FC_MIN, FC_MAX); ax.set_yticks(list(FC_YTICKS))
+    ax.set_xlim(*SPEED_XLIM); ax.set_xticks(SPEED_XTICKS)
+    _finish_scatter(ax)
+    _save(fig, outdir / name("fc_speed"), box=SCATTER_AXBOX)
+    charts["speed"] = f"{rel}/{name('fc_speed')}"
+
+    # route map (shared helper — same behaviour as the EV briefing)
+    map_name, attrib = _route_map_chart(tr, outdir, name, anon, here_key)
+    charts["map"] = f"{rel}/{map_name}"
+    charts["map_attrib"] = attrib
 
     return charts, stats
 
@@ -981,10 +1244,22 @@ def compute(reg, period, version, finetuned, all_data=False):
         df = pd.read_excel(xlsx)
     tr_all = df[df["Leg Type"].isin(DRIVE)].copy()
     ch = df[df["Leg Type"].isin(CHARGE)].copy()
-    for c, col in [("d", "Distance (km)"), ("ep", "Energy Performance (kWh/km)"),
-                   ("ec", "Energy Change (kWh)"), ("temp", "Average Temperature (C)"),
-                   ("mass", "Vehicle Mass (kg)"), ("recup", "Recuperation Energy (kWh)")]:
-        tr_all[c] = num(tr_all[col])
+    # Diesel report schema (diesel_pipeline.py) has no EP/SOC/charging columns; its metric
+    # is Fuel Consumption (L/100km), ALIASED onto the internal "ep" column so all shared
+    # machinery (cleaning, load points, temp window, operator split) runs unchanged.
+    is_diesel = "Fuel Consumption (L/100km)" in df.columns
+    if is_diesel:
+        for c, col in [("d", "Distance (km)"), ("fuel", "Fuel Used (L)"),
+                       ("ep", "Fuel Consumption (L/100km)"),
+                       ("temp", "Average Temperature (C)"), ("mass", "Vehicle Mass (kg)")]:
+            tr_all[c] = num(tr_all[col])
+        tr_all["ec"] = np.nan   # EV-only channels: keep the columns so shared code indexes them
+        tr_all["recup"] = np.nan
+    else:
+        for c, col in [("d", "Distance (km)"), ("ep", "Energy Performance (kWh/km)"),
+                       ("ec", "Energy Change (kWh)"), ("temp", "Average Temperature (C)"),
+                       ("mass", "Vehicle Mass (kg)"), ("recup", "Recuperation Energy (kWh)")]:
+            tr_all[c] = num(tr_all[col])
     # A Vehicle Mass of 0 means "no GVM signal" — some vehicles report 0 rather than blank when the
     # GCW channel is absent (e.g. T88RNW / YN75NMA on the SRF-free recompute path). Treat <= 0 as
     # MISSING so the no-mass distribution-variant detection, the GVM scatter and Median GVM all
@@ -1010,11 +1285,14 @@ def compute(reg, period, version, finetuned, all_data=False):
     tr = tr[tr["d"] >= MIN_TRIP_KM].copy()
     if len(tr) < n_before:
         print(f"  [Trip 过滤·第2页] 剔除 {n_before - len(tr)} 个里程 < {MIN_TRIP_KM} km（或缺失）的行驶段")
-    # EP 超出 [EP_CLEAN_MIN, EP_CLEAN_MAX] 视为不合理数据，剔除（散点/拟合/点评统计均不计）
-    bad = (tr["ep"] < EP_CLEAN_MIN) | (tr["ep"] > EP_CLEAN_MAX)
+    # 指标清洗（散点/拟合/点评统计均不计）：EV = EP ∉ [EP_CLEAN_MIN, EP_CLEAN_MAX]；
+    # 柴油 = Fuel Consumption ∉ [FC_CLEAN_MIN, FC_CLEAN_MAX]（同一 "ep" 别名列上进行）。
+    lo_c, hi_c = (FC_CLEAN_MIN, FC_CLEAN_MAX) if is_diesel else (EP_CLEAN_MIN, EP_CLEAN_MAX)
+    bad = (tr["ep"] < lo_c) | (tr["ep"] > hi_c)
     tr.loc[bad, "ep"] = np.nan
     if bad.sum():
-        print(f"  [EP 清洗] 剔除 {int(bad.sum())} 个超出 [{EP_CLEAN_MIN}, {EP_CLEAN_MAX}] 的 EP 值")
+        _metric = "Fuel Consumption" if is_diesel else "EP"
+        print(f"  [{_metric} 清洗] 剔除 {int(bad.sum())} 个超出 [{lo_c}, {hi_c}] 的值")
     # NOTE: the earlier |SOC change| ≤ 1% "SOC-quantisation guard" was REMOVED (2026-07-02).
     # It was a downstream workaround for a jolt_toolkit bug where the ±1σ effective-capacity
     # correction back-calculated short-trip energy from the coarse integer SOC, producing a
@@ -1022,9 +1300,16 @@ def compute(reg, period, version, finetuned, all_data=False):
     # keeps the counter energy; capacity uses ΔSOC-weighted aggregation), so short-trip EP is
     # already correct at source. Keeping the guard here would now wrongly discard those
     # now-valid short-trip points, so it is gone; only the MIN_TRIP_KM distance filter remains.
-    ch["ssoc"] = num(ch["Start SOC (%)"]); ch["esoc"] = num(ch["End SOC (%)"])
-    ch["ac"] = num(ch["Energy Charged AC (kWh)"]); ch["dc"] = num(ch["Energy Charged DC (kWh)"])
-    ch["st"] = pd.to_datetime(ch["Start Time (UTC)"], errors="coerce")
+    if is_diesel:
+        # 柴油车没有充电腿：给下游一个空但列齐全的 charge 表（subset 裁剪 / len(ch) 都安全）。
+        ch = pd.DataFrame({"Start Time (UTC)": pd.Series(dtype="datetime64[ns]"),
+                           "ssoc": pd.Series(dtype=float), "esoc": pd.Series(dtype=float),
+                           "ac": pd.Series(dtype=float), "dc": pd.Series(dtype=float),
+                           "st": pd.Series(dtype="datetime64[ns]")})
+    else:
+        ch["ssoc"] = num(ch["Start SOC (%)"]); ch["esoc"] = num(ch["End SOC (%)"])
+        ch["ac"] = num(ch["Energy Charged AC (kWh)"]); ch["dc"] = num(ch["Energy Charged DC (kWh)"])
+        ch["st"] = pd.to_datetime(ch["Start Time (UTC)"], errors="coerce")
     if subset:
         # 选用覆盖周期的更宽报告时，按 Start Time 把行程/充电裁剪到目标窗口（含止日整天）。
         tgt_s, tgt_e = _parse_period(period)
@@ -1423,6 +1708,252 @@ def build_verification_workbook(path, tr_all, tr, ch, v):
     return len(rows)
 
 
+def build_diesel_verification_workbook(path, tr_all, tr, tr_trunk, v):
+    """Diesel-variant verification workbook (same discipline as the EV one): every briefing
+    number gets an Audit row recomputed with native Excel formulas over the copied leg
+    sheets. Raw-counter page-1 totals (VDHR distance / LFC fuel — whole-period cumulative
+    counter sums the leg sheets cannot reproduce) are CHECK MANUALLY rows, each paired with
+    an explicit driving-leg-sum cross-check row so the raw-vs-segment difference (idle fuel
+    + telematics-outage gaps) is visible to the verifier. The CO2e rows recompute the
+    fuel × factor arithmetic in Excel so the emission calculation itself is independently
+    checked even though the fuel total is manual. Page-2 mass/temperature formulas run over
+    the ``TrunkTrips`` sheet (avg speed ≥ TRUNK_SPEED_MIN_KMH — the same subset the charts
+    and conclusions use); the FC-distribution rows run over the full ``Trips`` sheet."""
+    from openpyxl import Workbook
+    from openpyxl.formatting.rule import CellIsRule
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    wb = Workbook()
+    bold = Font(bold=True)
+    head_fill = PatternFill("solid", start_color="E8EAF6")
+
+    _trip_header = ["Date", "Start", "End", "Distance_km", "Fuel_L",
+                    "FC_L100km_cleaned", "GVM_t", "Temp_C", "AvgSpeed_kmh"]
+
+    def _fill_trip_sheet(sheet, frame):
+        sheet.append(_trip_header)
+        for _, r in frame.iterrows():
+            sheet.append([_cell(r["date"]), _cell(r["st"]), _cell(r["et"]), _cell(r["d"]),
+                          _cell(r["fuel"]), _cell(r["ep"]),
+                          _cell(r["mass"] / 1000.0 if pd.notna(r["mass"]) else None),
+                          _cell(r["temp"]),
+                          _cell(num(pd.Series([r["Average Speed (km/h)"]])).iloc[0])])
+        for c in sheet[1]:
+            c.font = bold; c.fill = head_fill
+        sheet.freeze_panes = "A2"
+        return len(frame) + 1
+
+    # ---- Trips sheet (ALL cleaned page-2 legs: distribution + speed figures) ----
+    ws = wb.active
+    ws.title = "Trips"
+    tn = _fill_trip_sheet(ws, tr)
+
+    # ---- TrunkTrips sheet (avg speed ≥ trunk threshold: mass + temperature figures) ----
+    wt = wb.create_sheet("TrunkTrips")
+    kn = _fill_trip_sheet(wt, tr_trunk)
+
+    # ---- AllTrips sheet (EVERY driving leg — page-1 unfiltered basis) ----
+    wat = wb.create_sheet("AllTrips")
+    wat.append(["Date", "Distance_km", "Fuel_L", "GVM_t"])
+    for _, r in tr_all.iterrows():
+        wat.append([_cell(r["date"]), _cell(r["d"]), _cell(r["fuel"]),
+                    _cell(r["mass"] / 1000.0 if pd.notna(r["mass"]) else None)])
+    an = len(tr_all) + 1
+    for c in wat[1]:
+        c.font = bold; c.fill = head_fill
+    wat.freeze_panes = "A2"
+
+    # ---- Daily sheet (per-day distance / fuel sums over ALL legs) ----
+    wd = wb.create_sheet("Daily")
+    wd.append(["Date", "Distance_km", "Fuel_L"])
+    dates = sorted(d for d in tr_all["date"].dropna().unique())
+    for i, d in enumerate(dates, start=2):
+        wd.cell(row=i, column=1).value = d
+        wd.cell(row=i, column=2).value = f"=SUMIF(AllTrips!$A$2:$A${an},A{i},AllTrips!$B$2:$B${an})"
+        wd.cell(row=i, column=3).value = f"=SUMIF(AllTrips!$A$2:$A${an},A{i},AllTrips!$C$2:$C${an})"
+    dn = len(dates) + 1
+    for c in wd[1]:
+        c.font = bold; c.fill = head_fill
+
+    # ---- Audit sheet ----
+    wa = wb.create_sheet("Audit", 0)
+    wa["A1"] = f"Verification — {v['reg']} {v['period']} DIESEL (pipeline {v['version']}, source: {v['fname']})"
+    wa["A1"].font = Font(bold=True, size=13)
+    wa["A2"] = ("Each briefing number below is recomputed with native Excel formulas over the raw legs "
+                "(Trips/AllTrips/Daily sheets) — an independent path from the generator. Raw cumulative-"
+                "counter totals (VDHR odometer / LFC fuel) are CHECK MANUALLY rows with an explicit "
+                "driving-leg-sum cross-check row beneath (the raw total exceeds the leg sum by idle fuel "
+                "+ telematics-outage gaps — that difference is expected, not an error). Review every "
+                "FAIL, spot-check PASS and MANUAL rows, and fill in the sign-off columns.")
+    wa["A2"].alignment = Alignment(wrap_text=True)
+    wa.merge_cells("A2:K2")
+
+    tr_f = f"Trips!$F$2:$F${tn}"                                   # all cleaned trips: FC
+    tk_f, tk_g = f"TrunkTrips!$F$2:$F${kn}", f"TrunkTrips!$G$2:$G${kn}"  # trunk subset: FC/GVM
+    at_a, at_b, at_c, at_d = (f"AllTrips!$A$2:$A${an}", f"AllTrips!$B$2:$B${an}",
+                              f"AllTrips!$C$2:$C${an}", f"AllTrips!$D$2:$D${an}")
+    raw_dist = v.get("dist_basis") == "raw"
+    raw_fuel = v.get("fuel_basis") == "raw"
+    _raw_note = ("PAGE-1 RAW cumulative-counter total (trial end minus trial start, robust to the "
+                 "LFC reset + quantised steps; includes idling and telematics-outage gaps). ")
+    rows = []
+
+    def _add(sec, item, val, formula, tol, defn, src):
+        rows.append((sec, item, val, formula, tol, defn, src))
+        return 6 + len(rows)  # the Audit row number this entry lands on
+
+    days_row = _add("Page 1 · Summary", "Active days", v["ndays"],
+                    f"=COUNTA(Daily!$A$2:$A${dn})", 0.5,
+                    "Distinct dates with ≥1 driving leg (ALL legs — page-1 unfiltered)",
+                    "Start Time (UTC) → date")
+    _add("Page 1 · Summary", "Driving legs", v["n_tr"], f"=COUNTA({at_a})", 0.5,
+         f"ALL driving legs (page-1 unfiltered, incl. < {MIN_TRIP_KM:.0f} km legs)", "Leg Type ∈ DRIVE")
+    _add("Page 1 · Summary", "Median GVM (t)", v["gvw_med"], f"=MEDIAN({at_d})", 0.05,
+         "Median per-leg GVM over ALL legs", "Vehicle Mass (kg)/1000")
+    _add("Page 1 · Timeline", "Trips per day", v["trips_per_day"],
+         f"=COUNTA({at_a})/COUNTA(Daily!$A$2:$A${dn})", 0.05, "All driving legs ÷ active days", "—")
+    _add("Page 1 · Timeline", "Median first departure (hh:mm)", None, "manual", None,
+         f"Briefing shows ≈ {v['med_dep']} — spot-check per-day minima of Trips!B", "Start Time (UTC)")
+    _add("Page 1 · Timeline", "Median last arrival (hh:mm)", None, "manual", None,
+         f"Briefing shows ≈ {v['med_arr']} — spot-check per-day maxima of Trips!C", "End Time (UTC)")
+    dist_row = _add("Page 1 · Performance", "Total distance (km)", v["tot_km"],
+                    ("manual" if raw_dist else f"=SUM({at_b})"), (None if raw_dist else 0.5),
+                    (_raw_note + "VDHR hr total vehicle distance. Driving-leg sum for comparison "
+                     "is the next row." if raw_dist else "Sum over ALL driving legs"),
+                    "VDHR (raw_logger_v1)" if raw_dist else "Distance (km)")
+    _add("Page 1 · Performance", "  ↳ driving-leg distance sum (km)", v["tot_km_seg"],
+         f"=SUM({at_b})", 0.5,
+         "Cross-check: xlsx driving-leg sum — the raw total above exceeds this by short "
+         "(< 1 km) legs + telematics-outage gaps", "Distance (km)")
+    _add("Page 1 · Performance", "Daily average distance (km)", v["daily_avg_km"],
+         f"=$C${dist_row}/$C${days_row}", 1.0,
+         "Total distance ÷ active days (same page-1 basis)", "—")
+    _add("Page 1 · Performance", "Max daily distance (km)", v["daily_max_km"],
+         ("manual" if raw_dist else f"=MAX(Daily!$B$2:$B${dn})"), (None if raw_dist else 0.5),
+         (_raw_note + "Max per-day counter increments (gap-spanning jumps excluded from days). "
+          f"Leg-sum max: =MAX(Daily!$B$2:$B${dn})" if raw_dist else "Max of per-day distance sums"),
+         "VDHR (raw)" if raw_dist else "Distance (km)")
+    fuel_row = _add("Page 1 · Performance", "Total fuel used (L)", v["tot_fuel"],
+                    ("manual" if raw_fuel else f"=SUM({at_c})"), (None if raw_fuel else 0.5),
+                    (_raw_note + "LFC engine total fuel used (counter reset on 2026-06-23 handled: "
+                     "pre-reset span + post-reset span summed). Driving-leg sum is the next row."
+                     if raw_fuel else "Sum over ALL driving legs"),
+                    "LFC (raw_logger_v1)" if raw_fuel else "Fuel Used (L)")
+    _add("Page 1 · Performance", "  ↳ driving-leg fuel sum (L)", v["tot_fuel_seg"],
+         f"=SUM({at_c})", 0.5,
+         "Cross-check: xlsx driving-leg sum — the raw total above exceeds this by idling "
+         "between trips + outage gaps", "Fuel Used (L)")
+    _add("Page 1 · Performance", "Mean fuel consumption (L/100km)", v["mean_fc"],
+         f"=$C${fuel_row}/$C${dist_row}*100", 0.05,
+         "Total fuel ÷ total distance × 100 (both on the same page-1 basis)", "—")
+    _add("Page 1 · Performance", "Max daily fuel (L)", v["daily_max_fuel"],
+         ("manual" if raw_fuel else f"=MAX(Daily!$C$2:$C${dn})"), (None if raw_fuel else 0.5),
+         (_raw_note + f"Leg-sum max for comparison: =MAX(Daily!$C$2:$C${dn})"
+          if raw_fuel else "Max of per-day fuel sums"),
+         "LFC (raw)" if raw_fuel else "Fuel Used (L)")
+    co2_row = _add("Page 1 · Emissions", "CO2e emitted, tank-to-wheel (t)", v["co2_t"],
+                   f"=$C${fuel_row}*{CO2E_KG_PER_L_DIESEL}/1000", 0.05,
+                   f"Total fuel (L) × {CO2E_KG_PER_L_DIESEL} kg CO2e/L ÷ 1000 — the multiplication "
+                   "is recomputed here even though the fuel total is a manual row", "—")
+    _add("Page 1 · Emissions", "CO2e per km (kg)", v["co2_per_km"],
+         f"=$C${co2_row}*1000/$C${dist_row}", 0.01, "CO2e total ÷ total distance", "—")
+    _add("Page 1 · Emissions", "CO2e per active day (kg)", v["co2_per_day"],
+         f"=$C${co2_row}*1000/$C${days_row}", 1.0, "CO2e total ÷ active days", "—")
+    _add("Page 1 · Emissions", "Emission factor (kg CO2e/L)", CO2E_KG_PER_L_DIESEL, "manual", None,
+         "Tank-to-wheel factor agreed for the WJF diesel-comparator briefing (complete combustion, "
+         "no well-to-tank share) — confirm with the operator before external delivery", "—")
+    _tk_note = (f"TRUNK-HAUL subset (TrunkTrips sheet: avg speed ≥ {TRUNK_SPEED_MIN_KMH:g} km/h, "
+                f"n={v.get('n_trunk', '?')}) — the mass/temperature charts and conclusions use it "
+                "so duty cycles are comparable. " if v.get("trunk_ok") else "")
+    if v.get("has_mass", True):
+        _add("Page 2 · FC vs GVM", "GVM min (t)", v["gvm_min"],
+             f"=MIN({tk_g})", 0.05, _tk_note, "Vehicle Mass (kg)/1000")
+        _add("Page 2 · FC vs GVM", "GVM max (t)", v["gvm_max"], f"=MAX({tk_g})", 0.05, _tk_note, "")
+        _add("Page 2 · FC vs GVM", "n trips (FC & GVM present)", v["n_pairs"],
+             f'=COUNTIFS({tk_f},"<>",{tk_g},"<>")', 0.5,
+             _tk_note + "Legs with both cleaned FC and GVM", "")
+        _add("Page 2 · FC vs GVM", "Fit slope (L/100km per t)", v["gvm_slope"],
+             f"=SLOPE({tk_f},{tk_g})", 0.005,
+             _tk_note + "Least-squares linear fit (blank FC rows excluded)", "")
+        _add("Page 2 · FC vs GVM", "Fit R²", v["gvm_r2"], f"=RSQ({tk_f},{tk_g})", 0.005,
+             _tk_note, "")
+        if v.get("band_lo") is not None:
+            lo, hi, lm, mu = v["band_lo"], v["band_hi"], v["laden_min"], v["mass_unladen"]
+            _add("Page 2 · Conclusion", f"Unladen FC @ {mu:g} t (L/100km)", v["fc_unladen"],
+                 f"=SLOPE({tk_f},{tk_g})*{mu:g}+INTERCEPT({tk_f},{tk_g})", 0.5,
+                 _tk_note + f"FC-vs-GVM trend at the unladen mass (band {lo:g}-{hi:g} t = tractor "
+                 f"+ empty trailer; bobtail < {lo:g} t excluded)", "")
+            _add("Page 2 · Conclusion", f"Laden FC, GVM >= {lm:g} t (L/100km)", v["fc_laden_pt"],
+                 f'=AVERAGEIFS({tk_f},{tk_g},">={lm:g}")', 0.2,
+                 _tk_note + "Mean FC of laden operation", "")
+        _add("Page 2 · Conclusion", f"Fully-laden FC @ {v['mass_full']:g} t (L/100km)", v["fc_full"],
+             f"=SLOPE({tk_f},{tk_g})*{v['mass_full']:g}+INTERCEPT({tk_f},{tk_g})", 0.5,
+             _tk_note + "FC-vs-GVM linear fit at the vehicle's rated full-laden mass "
+             "(briefing_vehicle_specs.json full_laden_t override)", "—")
+        _add("Page 2 · Conclusion", "Unladen reference mass (t)", v["mass_unladen"], "manual", None,
+             "Unladen-band median GVM (or specs override) — cross-check against tractor + empty "
+             "trailer tare", "Vehicle Mass (kg)/1000")
+        _add("Page 2 · Conclusion", "Laden reference mass (t)", v["mass_laden"], "manual", None,
+             "Median GVM of the laden operation", "Vehicle Mass (kg)/1000")
+        _add("Page 2 · FC vs temperature (laden)", "Fit slope (L/100km per °C)", v["temp_slope"],
+             "manual", None,
+             _tk_note + f"Narrow laden-mass window subset (mass controlled), n={v['temp_n']}, "
+             f"{v['temp_min']:.0f}–{v['temp_max']:.0f} °C — no native Excel filter", "Average Temperature (C)")
+        _add("Page 2 · FC vs temperature (laden)", "Fit R²", v["temp_r2"], "manual", None,
+             "Same subset as above", "")
+    _add("Page 2 · FC distribution", "Mean FC (L/100km)", v["fc_mean"],
+         f"=AVERAGE({tr_f})", 0.2, "Mean over the cleaned page-2 trips (red dashed marker)", "")
+    _add("Page 2 · FC distribution", "Median FC (L/100km)", v["fc_median"],
+         f"=MEDIAN({tr_f})", 0.2, "Median (green dotted marker)", "")
+    if v.get("speed_fit") is not None:
+        sa, sb, sr2, sn = v["speed_fit"]
+        _add("Page 2 · FC vs speed", "Reciprocal fit fc = a + b/v", None, "manual", None,
+             f"a={sa:.1f}, b={sb:.0f}, R²={sr2:.2f}, n={sn} — nonlinear fit, no native Excel "
+             "equivalent; sanity-check the curve against the scatter", "Average Speed (km/h)")
+
+    header = ["Section", "Item", "Briefing value", "Recomputed (Excel)", "Tolerance",
+              "Status", "Definition / filter", "Source column(s)", "Verified by", "Date", "Notes"]
+    wa.append([])  # row 3 spacer
+    wa.append([])  # row 4
+    wa.append([])  # row 5
+    wa.append(header)  # row 6
+    hr = 6
+    for c in wa[hr]:
+        c.font = bold; c.fill = head_fill
+    for i, (sec, item, val, formula, tol, defn, src) in enumerate(rows, start=hr + 1):
+        wa.cell(row=i, column=1).value = sec
+        wa.cell(row=i, column=2).value = item
+        wa.cell(row=i, column=3).value = None if val is None or pd.isna(val) else float(val)
+        wa.cell(row=i, column=4).value = formula
+        wa.cell(row=i, column=5).value = tol
+        if formula == "manual":
+            wa.cell(row=i, column=6).value = "CHECK MANUALLY"
+        else:
+            wa.cell(row=i, column=6).value = f'=IF(ABS($C{i}-$D{i})<=$E{i},"PASS","FAIL")'
+        wa.cell(row=i, column=7).value = defn
+        wa.cell(row=i, column=8).value = src
+    last = hr + len(rows)
+    wa.conditional_formatting.add(
+        f"F{hr + 1}:F{last}",
+        CellIsRule(operator="equal", formula=['"FAIL"'],
+                   fill=PatternFill("solid", start_color="FFC7CE"), font=Font(color="9C0006", bold=True)))
+    wa.conditional_formatting.add(
+        f"F{hr + 1}:F{last}",
+        CellIsRule(operator="equal", formula=['"PASS"'], font=Font(color="1E7B33", bold=True)))
+    wa.conditional_formatting.add(
+        f"F{hr + 1}:F{last}",
+        CellIsRule(operator="equal", formula=['"CHECK MANUALLY"'],
+                   fill=PatternFill("solid", start_color="FFF2CC")))
+    widths = {"A": 24, "B": 36, "C": 15, "D": 22, "E": 10, "F": 17, "G": 58, "H": 26,
+              "I": 14, "J": 12, "K": 28}
+    for col, w in widths.items():
+        wa.column_dimensions[col].width = w
+    wa.freeze_panes = f"A{hr + 1}"
+
+    wb.save(path)
+    return len(rows)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reg", default="YK73WFN")
@@ -1459,15 +1990,19 @@ def main():
                if str(o).strip() and str(o).strip().lower() != "nan"]
     _min_op = args.min_operator_trips
     eligible = [o for o in ops_all if _valid_n(o) >= _min_op]
+    # 柴油对照车（vehicles.json fuel_type == DIESEL，如 YT21EFD）→ 柴油简报变体：
+    # 页 1 = VDHR/LFC 累计计数器口径 + tank-to-wheel CO2e 卡；页 2 = 油耗(L/100km)分析。
+    is_diesel = str(VEHICLES.get(args.reg, {}).get("fuel_type", "")).upper() == "DIESEL"
+    emit = _emit_diesel_briefing if is_diesel else _emit_briefing
     if args.all_data and len(eligible) > 1:
         print(f"[operator-split] {args.reg}: {len(eligible)} operator(s) → " + ", ".join(eligible))
         for o in ops_all:
             if o not in eligible:
                 print(f"[operator-split] {args.reg} / {o}: only {_valid_n(o)} valid trips (<{_min_op}) — skipped")
         for o in eligible:
-            _emit_briefing(args, tr_all, tr, ch, fname, veh_no_mass, op_filter=o)
+            emit(args, tr_all, tr, ch, fname, veh_no_mass, op_filter=o)
     else:
-        _emit_briefing(args, tr_all, tr, ch, fname, veh_no_mass, op_filter=None)
+        emit(args, tr_all, tr, ch, fname, veh_no_mass, op_filter=None)
 
 
 def _emit_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
@@ -1992,6 +2527,379 @@ def _emit_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mass, op_f
         print(f"  核实工作簿: {verif_path}（{n_audit} 项审计）")
         print("  人工核实：打开核实工作簿，复核 FAIL 项、抽查 PASS 项、完成 CHECK MANUALLY 项，"
               "并填写 Verified by / Date / Notes 列存档。")
+
+
+def _emit_diesel_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mass, op_filter=None):
+    """Diesel-comparator briefing (vehicles.json ``fuel_type == "DIESEL"``, e.g. YT21EFD/WJF).
+
+    Page 1 = operations dashboard on the raw cumulative-counter basis (VDHR odometer /
+    LFC fuel — the operator-proposed "trial end minus trial start" method, robust to the
+    LFC reset and inclusive of idling + telematics-outage gaps) + a TANK-TO-WHEEL
+    EMISSIONS card (CO2e = total fuel × CO2E_KG_PER_L_DIESEL). Page 2 = fuel-consumption
+    (L/100km) analysis: vs GVM with load points, distribution, vs temperature (narrow
+    laden window), vs average trip speed. Same template / naming / output-directory /
+    cleanup conventions as :func:`_emit_briefing`; kept as a separate function so the
+    validated EV path is untouched (the shared machinery — load points, adaptive temp
+    window, scatter style, route map — is reused via the ``tr["ep"]`` metric alias).
+    """
+    if op_filter is not None:
+        tr = tr_full[tr_full["operator"] == op_filter].copy()
+        tr_all = tr_all_full[tr_all_full["operator"] == op_filter].copy()
+        operator = op_filter
+    else:
+        tr, tr_all = tr_full.copy(), tr_all_full.copy()
+        _op = tr["operator"][tr["operator"].astype(str).str.strip().ne("")
+                             & tr["operator"].astype(str).str.lower().ne("nan")]
+        operator = _op.mode().iloc[0] if not _op.mode().empty else args.reg
+    _veh_cfg = VEHICLES.get(args.reg, {})
+    make = _veh_cfg.get("make", "") or PLOT_CFG["vehicle_specs"].get(args.reg, {}).get("make", "")
+    model = _veh_cfg.get("model", "")
+    vehicle_model = (f"{make} {model}".strip() or make or args.reg)
+
+    d0, d1 = tr["st"].min(), tr["et"].max()
+    op_period = (f"{d0:%Y%m%d}_{d1:%Y%m%d}" if pd.notna(d0) and pd.notna(d1) else args.period)
+    _op_tag = re.sub(r"[^A-Za-z0-9]+", "_", str(operator)).strip("_") or "OP"
+    tag = f"{_op_tag}_{op_period}"
+
+    outdir = WORKSPACE / "output_by_TBD" / f"{args.reg}_{tag}"
+    fig_rel = "figures_anon" if args.anon else "figures"
+    fig_dir = outdir / fig_rel
+    cb = int(time.time())
+    no_mass = veh_no_mass
+    # Trunk-haul subset for the MASS + TEMPERATURE analyses (see TRUNK_SPEED_MIN_KMH):
+    # duty cycles are comparable there, so the mass/temperature signals are not swamped
+    # by the urban tail. Falls back to all valid trips when the subset is too sparse
+    # (an urban-only diesel), and the trunk-haul wording is then dropped.
+    _spd = num(tr["Average Speed (km/h)"])
+    tr_trunk = tr[_spd >= TRUNK_SPEED_MIN_KMH].copy()
+    trunk_ok = len(tr_trunk) >= 30
+    if not trunk_ok:
+        tr_trunk = tr.copy()
+    print(f"  [trunk-haul] mass/temperature analyses over {len(tr_trunk)}/{len(tr)} trips "
+          f"(avg speed ≥ {TRUNK_SPEED_MIN_KMH:.0f} km/h)" if trunk_ok else
+          f"  [trunk-haul] only {len(tr_trunk)} trips ≥ {TRUNK_SPEED_MIN_KMH:.0f} km/h — "
+          "falling back to all valid trips for the mass/temperature analyses")
+    load_pts = _compute_load_points(args.reg, tr_trunk)
+    charts, st = build_diesel_charts(tr, tr_trunk, fig_dir, args.reg, cb,
+                                     here_key=_load_here_key(), anon=args.anon,
+                                     rel=fig_rel, load_pts=load_pts, no_mass=no_mass)
+
+    # ---- Page-1 KPIs (unfiltered tr_all; raw counter basis per --page1-basis) ----
+    daily_km = tr_all.dropna(subset=["date"]).groupby("date")["d"].sum()
+    daily_fuel = tr_all.dropna(subset=["date"]).groupby("date")["fuel"].sum()
+    ndays = tr_all["date"].nunique()
+    n_legs = int(len(tr_all))
+    tot_km_seg = tr_all["d"].sum()
+    tot_fuel_seg = tr_all["fuel"].sum()
+    tot_km, tot_fuel = tot_km_seg, tot_fuel_seg
+    raw_kpi = (_diesel_raw_kpi_totals(tr_all, args.reg, args.version)
+               if args.page1_basis == "raw" else None)
+    dist_basis = fuel_basis = "segment"
+    gap_km = gap_fuel = float("nan")
+    n_gaps = 0
+    if raw_kpi:
+        if pd.notna(raw_kpi.get("distance_km")):
+            tot_km, dist_basis = raw_kpi["distance_km"], "raw"
+            if raw_kpi.get("daily_km") is not None and len(raw_kpi["daily_km"]):
+                daily_km = raw_kpi["daily_km"]
+        if pd.notna(raw_kpi.get("fuel_l")):
+            tot_fuel, fuel_basis = raw_kpi["fuel_l"], "raw"
+            if raw_kpi.get("daily_fuel_l") is not None and len(raw_kpi["daily_fuel_l"]):
+                daily_fuel = raw_kpi["daily_fuel_l"]
+        gap_km = raw_kpi.get("gap_km", float("nan"))
+        gap_fuel = raw_kpi.get("gap_fuel_l", float("nan"))
+        n_gaps = int(raw_kpi.get("n_gaps", 0) or 0)
+    # Mean FC divides fuel by distance on the same basis (LFC + VDHR come from the same
+    # logger files so the bases coincide; the guard covers a one-sided fallback anyway).
+    _den_km = tot_km if fuel_basis == dist_basis else (tot_km_seg if fuel_basis == "segment" else tot_km)
+    mean_fc = tot_fuel / _den_km * 100 if _den_km else float("nan")
+    daily_avg_km = tot_km / ndays if ndays else float("nan")
+    daily_max_km = daily_km.max() if len(daily_km) else float("nan")
+    daily_max_fuel = daily_fuel.max() if len(daily_fuel) else float("nan")
+    co2_kg = tot_fuel * CO2E_KG_PER_L_DIESEL if pd.notna(tot_fuel) else float("nan")
+    co2_t = co2_kg / 1000.0
+    co2_per_km = co2_kg / tot_km if (pd.notna(co2_kg) and tot_km) else float("nan")
+    co2_per_day = co2_kg / ndays if (pd.notna(co2_kg) and ndays) else float("nan")
+    gvw_med = float("nan") if no_mass else tr_all["mass"].median() / 1000.0
+    print(f"  [page-1 KPI basis] distance={dist_basis}, fuel={fuel_basis} "
+          f"(raw = raw_logger_v1 cumulative counters incl. idling/outage gaps; segment = driving-leg sum)")
+    period_label = (
+        (f"{d0.day} {d0:%b %Y} – {d1.day} {d1:%b %Y}" if d0.year != d1.year
+         else f"{d0.day} {d0:%b} – {d1.day} {d1:%b %Y}") if pd.notna(d0) else args.period)
+
+    # ---- Load-point FC values (band mode preferred; same rules as the EV briefing) ----
+    # All mass/temperature statistics run over the TRUNK-HAUL subset (load_pts masks
+    # index tr_trunk), matching the page-2 mass/temperature charts.
+    dense_mask = load_pts["dense_mask"]
+    unladen_mask = load_pts["unladen_mask"]
+    m_un, m_la, m_full = load_pts["unladen"], load_pts["laden"], load_pts["full"]
+    gvm_slope = st.get("gvm_slope", float("nan"))
+    gvm_icpt = st.get("gvm_intercept", float("nan"))
+    gvm_sig = st.get("gvm_sigma", float("nan"))
+    is_band = load_pts.get("band_lo") is not None
+    gvw_t = tr_trunk["mass"] / 1000.0
+
+    def _fc_fit(mt):
+        return (gvm_slope * mt + gvm_icpt) if (pd.notna(gvm_slope) and pd.notna(mt)) else float("nan")
+
+    fc_la = float(tr_trunk.loc[dense_mask, "ep"].mean()) if dense_mask.any() else float("nan")
+    fc_la_sd = float(tr_trunk.loc[dense_mask, "ep"].std()) if dense_mask.any() else float("nan")
+    n_la = int((dense_mask & tr_trunk["ep"].notna()).sum())
+    has_un = bool(unladen_mask.any())
+    n_un = int((unladen_mask & tr_trunk["ep"].notna()).sum()) if has_un else 0
+    if not has_un:
+        fc_un = fc_un_sd = float("nan")
+    elif is_band:
+        fc_un, fc_un_sd = _fc_fit(m_un), gvm_sig
+    else:
+        fc_un = float(tr_trunk.loc[unladen_mask, "ep"].mean())
+        fc_un_sd = float(tr_trunk.loc[unladen_mask, "ep"].std())
+    fc_fl, fc_fl_sd = _fc_fit(m_full), gvm_sig
+
+    dt = tr_trunk[load_pts.get("temp_mask", dense_mask)]
+    td_min, td_max = dt["temp"].min(), dt["temp"].max()
+    laden_gvm = dt["mass"] / 1000.0
+    laden_gmin, laden_gmax = laden_gvm.min(), laden_gvm.max()
+    t_slope = st.get("temp_slope", float("nan"))
+    t_n = int(st.get("temp_n", 0))
+    t_per10 = t_slope * 10 if pd.notna(t_slope) else float("nan")
+    speed_fit = st.get("speed_fit")
+
+    _pfc = lambda v_: "—" if pd.isna(v_) else f"{v_:.1f}"
+    _psd = lambda v_: "" if pd.isna(v_) else f" (±{v_:.1f})"
+    conclusion_points = []
+    if no_mass:
+        fcv = tr["ep"].dropna()
+        conclusion_points.append(
+            f"Fuel consumption averaged {_pfc(float(fcv.mean()))} L/100km over {len(fcv)} trips.")
+        if pd.notna(t_per10):
+            conclusion_points.append(
+                f"Temperature (all trips, {tr['temp'].min():.0f}–{tr['temp'].max():.0f} °C): fuel "
+                f"consumption changes ~{abs(t_per10):.1f} L/100km per 10 °C "
+                f"{'colder' if t_per10 < 0 else 'warmer'}.")
+        conclusion_points.append(
+            "This vehicle does not report gross vehicle mass, so the load dependence of fuel "
+            "consumption cannot be assessed; the figures above characterise the observed spread.")
+    else:
+        if has_un and pd.notna(m_un):
+            conclusion_points.append(
+                f"Unladen (~{m_un:.0f} t): fuel consumption {_pfc(fc_un)}{_psd(fc_un_sd)} L/100km.")
+        conclusion_points.append(
+            f"Laden (~{m_la:.0f} t): fuel consumption {_pfc(fc_la)}{_psd(fc_la_sd)} L/100km.")
+        conclusion_points.append(
+            f"Fully laden ({m_full:.0f} t, the rated gross weight): fuel consumption "
+            f"{_pfc(fc_fl)}{_psd(fc_fl_sd)} L/100km.")
+        if pd.notna(gvm_slope):
+            conclusion_points.append(
+                f"Each extra tonne of load adds ~{gvm_slope:.2f} L/100km"
+                + (f" (trunk-haul trips, average speed ≥ {TRUNK_SPEED_MIN_KMH:.0f} km/h)."
+                   if trunk_ok else "."))
+        if load_pts.get("temp_status") == "inconclusive" or pd.isna(t_per10):
+            conclusion_points.append(
+                "Temperature: the temperature range observed in this period is too limited to "
+                "characterise a reliable temperature effect on fuel consumption.")
+        else:
+            conclusion_points.append(
+                f"Temperature ({'laden trunk-haul trips' if trunk_ok else 'laden trips'}, "
+                f"{laden_gmin:.0f}–{laden_gmax:.0f} t): fuel consumption "
+                f"changes ~{abs(t_per10):.1f} L/100km per 10 °C "
+                f"{'colder' if t_per10 < 0 else 'warmer'}.")
+    if speed_fit is not None:
+        sa, sb, _sr2, _sn = speed_fit
+        fc30, fc70 = sa + sb / 30.0, sa + sb / 70.0
+        conclusion_points.append(
+            f"Average trip speed: fitted fuel consumption is ~{fc30:.0f} L/100km at 30 km/h and "
+            f"~{fc70:.0f} L/100km at 70 km/h.")
+
+    # ---- Page-1 Summary (high-level; the load/temperature/speed detail stays on page 2) ----
+    summary_points = [
+        f"Over {ndays} active days the vehicle covered {tot_km:,.0f} km (~{daily_avg_km:.0f} km/day), "
+        f"using {tot_fuel:,.0f} litres of diesel at an average {mean_fc:.1f} L/100km.",
+        f"Tank-to-wheel CO₂ emissions over the period were ~{co2_t:,.1f} t CO₂e "
+        f"(total fuel × {CO2E_KG_PER_L_DIESEL} kg CO₂e per litre), i.e. ~{co2_per_km:.2f} kg CO₂e per km.",
+    ]
+    if dist_basis == "raw":
+        _gap_txt = (f", and {n_gaps} telematics outages (~{gap_km:,.0f} km / ~{gap_fuel:,.0f} L) "
+                    "not visible in the per-trip data" if n_gaps else "")
+        summary_points.append(
+            "Distance and fuel totals are read from the vehicle's cumulative odometer and fuel "
+            f"counters (trial end minus trial start), so they include idling between trips{_gap_txt}.")
+
+    # ---- verification workbook ----
+    vals = dict(
+        reg=args.reg, period=op_period, version=args.version, fname=fname,
+        ndays=ndays, n_tr=n_legs, gvw_med=gvw_med,
+        trips_per_day=n_legs / ndays if ndays else float("nan"),
+        med_dep=median_time(tr_all.groupby("date")["st"].min()),
+        med_arr=median_time(tr_all.groupby("date")["et"].max()),
+        tot_km=tot_km, tot_km_seg=tot_km_seg, tot_fuel=tot_fuel, tot_fuel_seg=tot_fuel_seg,
+        daily_avg_km=daily_avg_km, daily_max_km=daily_max_km, daily_max_fuel=daily_max_fuel,
+        mean_fc=mean_fc, co2_t=co2_t, co2_per_km=co2_per_km, co2_per_day=co2_per_day,
+        dist_basis=dist_basis, fuel_basis=fuel_basis, has_mass=not no_mass,
+        gvm_min=gvw_t.min(), gvm_max=gvw_t.max(),
+        n_pairs=int((tr_trunk["ep"].notna() & tr_trunk["mass"].notna()).sum()),
+        trunk_ok=trunk_ok, n_trunk=len(tr_trunk),
+        gvm_slope=gvm_slope, gvm_r2=st.get("gvm_r2", float("nan")),
+        band_lo=load_pts.get("band_lo"), band_hi=load_pts.get("band_hi"),
+        laden_min=load_pts.get("laden_min"),
+        mass_unladen=m_un, mass_laden=m_la, mass_full=m_full,
+        fc_unladen=fc_un, fc_laden_pt=fc_la, fc_full=fc_fl,
+        temp_slope=st.get("temp_slope", float("nan")), temp_r2=st.get("temp_r2", float("nan")),
+        temp_n=t_n, temp_min=td_min, temp_max=td_max,
+        fc_mean=float(tr["ep"].mean()), fc_median=float(tr["ep"].median()),
+        speed_fit=speed_fit, n_un=n_un, n_la=n_la,
+    )
+    verif_path, n_audit = None, 0
+    if not args.anon:
+        verif_path = outdir / (f"verification_{args.reg}_{tag}"
+                               f"{'_xlsxkpi' if args.page1_basis == 'segment' else ''}.xlsx")
+        try:
+            n_audit = build_diesel_verification_workbook(verif_path, tr_all, tr, tr_trunk, vals)
+        except PermissionError:
+            verif_path = verif_path.with_name(f"{verif_path.stem}_{int(time.time())}.xlsx")
+            n_audit = build_diesel_verification_workbook(verif_path, tr_all, tr, tr_trunk, vals)
+            print(f"[verify] 原核实工作簿被占用，改写到：{verif_path.name}")
+
+    filter_note = (
+        (f"Trunk-haul = average trip speed ≥ {TRUNK_SPEED_MIN_KMH:.0f} km/h (used by the mass and "
+         "temperature figures). " if trunk_ok else "")
+        + f"Figures exclude legs < {MIN_TRIP_KM:.0f} km or outside "
+          f"{FC_CLEAN_MIN:.0f}–{FC_CLEAN_MAX:.0f} L/100km."
+    )
+    if args.anon:
+        operator_disp, reg_disp = "JOLT MEMBER", ""
+        analysis_sub = f"JOLT Member · {vehicle_model} (Diesel)"
+    else:
+        operator_clean = str(operator).replace("_", " ")
+        operator_disp, reg_disp = operator_clean, args.reg
+        analysis_sub = f"{operator_clean} · {args.reg} · {vehicle_model} (Diesel)"
+
+    def f(v_, d=0, suf=""):
+        return "—" if pd.isna(v_) else f"{v_:,.{d}f}{suf}"
+
+    laden_lbl = (f"laden, {laden_gmin:.0f}–{laden_gmax:.0f} t"
+                 if pd.notna(laden_gmin) and pd.notna(laden_gmax) else "laden")
+    _tk = " (trunk-haul)" if trunk_ok else ""
+    charts_grid = []
+    if charts.get("gvm"):
+        charts_grid.append(dict(title=f"Fuel Consumption vs Gross Vehicle Mass{_tk}",
+                                img=charts["gvm"]))
+    charts_grid.append(dict(title="Fuel Consumption Distribution", img=charts["fc_dist"]))
+    # Title kept to the EV pattern "(laden, lo–hi t)" — the trunk-haul basis of this chart
+    # is stated in the page-2 footnote; adding it to the title overflows the 2-line block.
+    charts_grid.append(dict(
+        title=("Fuel Consumption vs Ambient Temperature (all trips)" if no_mass else
+               f"Fuel Consumption vs Ambient Temperature ({laden_lbl})"),
+        img=charts["temp"]))
+    charts_grid.append(dict(title="Fuel Consumption vs Average Trip Speed", img=charts["speed"]))
+
+    ctx = dict(
+        reg=reg_disp, operator=operator_disp,
+        vehicle_model=f"{vehicle_model} · Diesel".upper(),
+        period_label=period_label,
+        timeline=[
+            dict(tag="DAY START", icon=ICON_TRUCK,
+                 time=f"≈ {median_time(tr_all.groupby('date')['st'].min())}",
+                 label="Median first departure"),
+            dict(tag="", icon=ICON_CLOCK, time=f"≈ {n_legs/ndays:.1f} trips/day",
+                 label=f"{daily_avg_km:.0f} km / day average"),
+            dict(tag="DAY END", icon=ICON_TRUCK,
+                 time=f"≈ {median_time(tr_all.groupby('date')['et'].max())}",
+                 label="Median last arrival"),
+        ],
+        operating_days=f"OPERATING PERIOD · {period_label.upper()} · {ndays} ACTIVE DAYS",
+        summary=[
+            dict(k="Active Days", v=f(ndays)),
+            dict(k="Driving Legs", v=f(n_legs)),
+            dict(k="Median GVM", v=f(gvw_med, 1, " t")),
+            dict(k="Tank-to-Wheel CO₂e", v=f(co2_t, 1, " t")),
+        ],
+        perf_title="VEHICLE PERFORMANCE",
+        perf_rows=[
+            dict(k="Total Distance", v=f(tot_km, 0, " km"), cls="num"),
+            dict(k="Daily Avg Distance", v=f(daily_avg_km, 0, " km"), cls="num"),
+            dict(k="Max Daily Distance", v=f(daily_max_km, 0, " km"), cls="num"),
+            dict(k="Total Fuel Used", v=f(tot_fuel, 0, " L"), cls="num"),
+            dict(k="Mean Fuel Consumption", v=f(mean_fc, 1, " L/100km"), cls="num"),
+            dict(k="Max Daily Fuel", v=f(daily_max_fuel, 0, " L"), cls="num"),
+        ],
+        charge_title="TANK-TO-WHEEL EMISSIONS",
+        charge_rows=[
+            dict(k="CO₂e Emitted", v=f(co2_t, 1, " t"), cls="num"),
+            dict(k="CO₂e per km", v=f(co2_per_km, 2, " kg"), cls="num"),
+            dict(k="CO₂e per Active Day", v=f(co2_per_day, 0, " kg"), cls="num"),
+            dict(k="Emission Factor", v=f"{CO2E_KG_PER_L_DIESEL} kg/L", cls="num"),
+        ],
+        map_img=charts["map"],
+        map_caption=charts.get("map_attrib") or "indicative",
+        source_ops="",
+        summary_title="Summary",
+        summary_points=summary_points,
+        analysis_title="Performance Analysis",
+        analysis_sub=analysis_sub,
+        charts_grid=charts_grid,
+        conclusion_title="Conclusions",
+        conclusion_points=conclusion_points,
+        source_analysis=filter_note,
+    )
+    def _num_size_cls(s):
+        return " v-xs" if len(str(s)) >= 13 else ""
+    for _rows in (ctx.get("perf_rows") or [], ctx.get("charge_rows") or []):
+        for _r in _rows:
+            _r["cls"] = (str(_r.get("cls", "")) + _num_size_cls(_r.get("v", ""))).strip()
+
+    html = Template(TEMPLATE.read_text(encoding="utf-8")).render(**ctx)
+    _bs = "_xlsxkpi" if args.page1_basis == "segment" else ""
+    stem = f"report_anon_{tag}{_bs}" if args.anon else f"report_{args.reg}_{tag}{_bs}"
+    out_html = outdir / f"{stem}.html"
+    out_html.write_text(html, encoding="utf-8")
+    out_pdf = outdir / f"{stem}.pdf"
+    out_pdf = html_to_pdf(out_html, out_pdf)
+
+    # 目录清洁：同 EV 版 —— 清理生成器自身的历史时间戳副本，较新的回退副本顶替过期规范名。
+    keep = {out_pdf.name} | ({verif_path.name} if verif_path is not None else set())
+    stale = re.compile(r"_(?:\d{10})\.(?:pdf|xlsx)$")
+    for p in list(outdir.glob("report*.pdf")) + list(outdir.glob("verification_*.xlsx")):
+        if p.name not in keep and stale.search(p.name):
+            canon = p.with_name(re.sub(r"_\d{10}(?=\.(?:pdf|xlsx)$)", "", p.name))
+            if canon.exists() and canon.name not in keep and p.stat().st_mtime > canon.stat().st_mtime:
+                try:
+                    os.replace(p, canon)
+                    print(f"  [clean] 规范名已过期，用较新的时间戳副本顶替: {canon.name}")
+                except OSError:
+                    print(f"  [clean] 规范名仍被占用，保留较新副本: {p.name}")
+                continue
+            try:
+                p.unlink()
+                print(f"  [clean] 删除旧时间戳副本: {p.name}")
+            except OSError:
+                print(f"  [clean] 旧副本被占用、暂留: {p.name}")
+
+    # ---- 适用性审计（柴油变体）----
+    print("\n" + "=" * 64)
+    print(f"  字段适用性审计 — {args.reg} {op_period} (DIESEL)")
+    print("=" * 64)
+    print("  [真实管线数据]")
+    _na = lambda v_: "—" if pd.isna(v_) else v_
+    for k, v_ in [("Active days", ndays), ("Driving legs", n_legs),
+                  ("Total distance km", round(tot_km)),
+                  ("Total fuel L", round(tot_fuel)),
+                  ("Mean fuel consumption L/100km", round(mean_fc, 2)),
+                  ("CO2e tank-to-wheel t", round(co2_t, 2)),
+                  ("Median GVM t", round(gvw_med, 1) if pd.notna(gvw_med) else gvw_med)]:
+        print(f"    ✓ {k:32s} {_na(v_)}")
+    print("  [N/A — 柴油对照车无此通道]")
+    for k in ["Charging sessions / SoC / AC-DC split (no battery)",
+              "Energy recuperated (no regen channel)",
+              "Well-to-tank CO2e share (tank-to-wheel factor only)"]:
+        print(f"    ✗ {k}")
+    print(f"\n  HTML: {out_html}\n  PDF : {out_pdf}")
+    if args.anon:
+        print("  匿名版：运营方/车牌已隐去；数字与命名版一致，核实请用命名版的核实工作簿。")
+    else:
+        print(f"  核实工作簿: {verif_path}（{n_audit} 项审计）")
+        print("  人工核实：打开核实工作簿，复核 FAIL 项、抽查 PASS 项、完成 CHECK MANUALLY 项"
+              "（含 raw 计数器行与逐段和的对照行），并填写 Verified by / Date / Notes 列存档。")
 
 
 if __name__ == "__main__":

@@ -97,6 +97,29 @@ mass. Page-1 "Median GVM" shows "—" (forced for the no-mass variant even if a 
 verification workbook (a mass-based audit) is **not** emitted for this variant (follow-up: add a
 distribution-stats audit).
 
+## Diesel-comparator variant — conclusions & page-1
+
+The metric is **"fuel consumption"** (L/100km, matching the figures), never "fuel economy"
+or mpg. Load points follow the standard rules (band > KDE; ± as usual) but are computed on
+the **trunk-haul subset** (average speed ≥ 50 km/h — over all trips the urban tail swamps
+the mass signal); the load-sensitivity line states that basis once: `Each extra tonne of
+load adds ~m L/100km (trunk-haul trips, average speed ≥ 50 km/h).` The fully-laden point
+projects to the **vehicle's own rated gross weight** (`full_laden_t` override, e.g. 40 t),
+worded "(N t, the rated gross weight)". One temperature line (same sign-aware pattern,
+"laden trunk-haul trips"), one **speed** line (`Average trip speed: fitted fuel consumption
+is ~X L/100km at 30 km/h and ~Y L/100km at 70 km/h.`).
+
+Page-1 Summary: (1) fleet-overview line (active days, km, ~km/day, litres, mean L/100km);
+(2) **CO₂ line** — state the arithmetic inline so the partner can reproduce it:
+`Tank-to-wheel CO₂ emissions over the period were ~X t CO₂e (total fuel × 2.58354 kg CO₂e
+per litre), i.e. ~Y kg CO₂e per km.` Never attribute the factor to a source unless
+confirmed — it is the operator-agreed briefing basis; (3) a **counter-basis line** when the
+raw basis is in use: totals are cumulative-counter differences (trial end minus trial
+start), so they include idling and any telematics outages (state the outage count and
+approximate km/L). No charging/regen lines — those channels do not exist; the
+data-availability note is not used for them (they are not applicable rather than
+unreported; see `references/field-applicability.md`).
+
 ## Cleaning — PAGE 2 ONLY (page 1 is unfiltered)
 
 > `compute()` returns **two** trip sets. `tr_all` = **every** driving leg → the **PAGE-1** operations

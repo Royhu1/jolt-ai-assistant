@@ -80,6 +80,12 @@ generate-pdf-report/
    42 t; below them a plain-English **Conclusions** block.
 5. **Template → PDF** — Jinja2 HTML at fixed A4 size, then headless Chrome prints it.
    `--anon` produces a registration-free, operator-masked variant alongside the named one.
+   **Variants (auto, no flag)**: no usable mass channel → the *distribution* variant
+   (EP/range histograms); vehicles.json `fuel_type == "DIESEL"` (e.g. YT21EFD/WJF) → the
+   *diesel-comparator* variant — Fuel Consumption (L/100km) analysis, page-1 totals from the
+   raw VDHR/LFC cumulative counters (trial end − trial start), a TANK-TO-WHEEL EMISSIONS
+   card (CO₂e = fuel × 2.58354 kg/L), and trunk-haul (≥ 50 km/h) mass/temperature figures —
+   see `static/core/layout-contract.md`.
 6. **Verify** — emit `verification_*.xlsx` (every briefing number recomputed via native Excel
    formulas, mismatches flagged FAIL) + a field-applicability audit; AI-side screenshot/PDF
    checks against the style baseline.

@@ -30,3 +30,13 @@ automatically ships a `verification_<REG>_<period>.xlsx` verification workbook �
 - Note: openpyxl writing Excel 2010+ new functions needs the `_xlfn.` prefix; the workbook
   uses compatible forms throughout (e.g. `PERCENTILE` rather than `PERCENTILE.INC`, same
   interpolation).
+
+**Diesel variant** (`build_diesel_verification_workbook`): sheets = `Trips` (all cleaned
+page-2 legs — distribution/speed figures), `TrunkTrips` (avg speed ≥ 50 km/h — the
+mass/temperature formulas run here, matching the charts), `AllTrips`, `Daily`
+(per-day distance + fuel). Raw cumulative-counter totals (VDHR distance / LFC fuel) are
+CHECK MANUALLY rows, each **paired with a driving-leg-sum cross-check row** — the raw
+total exceeding the leg sum by idle fuel + outage gaps is expected, not a failure. The
+CO₂e rows recompute `fuel × 2.58354 / 1000` (and per-km / per-day) with native Excel
+formulas referencing the audited fuel/distance rows, so the emission arithmetic is
+independently checked even though the fuel total itself is manual.

@@ -38,6 +38,23 @@ Retired schemes are marked explicitly — do not restore them.
   (≡ km-per-%SOC × 100) and the conclusions bullet says **"rated capacity"**, never
   "effective". Only with no capacity at all is the chart skipped (3-chart page). The GVM
   scatters, load markers and the 42 t projection are omitted.
+- **Diesel-comparator variant** (auto: vehicles.json `fuel_type == "DIESEL"`, e.g. YT21EFD;
+  since 2026-07-13): the metric becomes **Fuel Consumption (L/100km)** (axis `FC_MIN/FC_MAX` =
+  0–80). Page 1 keeps the dashboard structure with the charging card replaced by
+  **TANK-TO-WHEEL EMISSIONS** (CO₂e emitted / per km / per active day / emission factor
+  `CO2E_KG_PER_L_DIESEL` = 2.58354 kg CO₂e/L), the 4th summary-strip tile = Tank-to-Wheel
+  CO₂e, and the totals on the **raw cumulative-counter basis** (`_diesel_raw_kpi_totals`:
+  VDHR odometer + LFC fuel — trial end minus trial start, reset/quantisation-robust,
+  incl. idling and outage gaps). Page-2 grid: (1) **Fuel Consumption vs Gross Vehicle Mass
+  (trunk-haul)** — the mass + temperature figures use the trunk-haul subset (avg speed ≥
+  `TRUNK_SPEED_MIN_KMH` = 50 km/h; over all trips the urban tail swamps the mass signal),
+  load markers + dashed extension to the vehicle's own `full_laden_t` (specs override, 40 t
+  for YT21EFD — never project past the plated GCW); (2) **Fuel Consumption Distribution**
+  (all valid trips); (3) **Fuel Consumption vs Ambient Temperature** (trunk-haul narrow
+  laden window; title keeps the EV "(laden, lo–hi t)" pattern — the trunk basis lives in the
+  footnote); (4) **Fuel Consumption vs Average Trip Speed** (all valid trips, reciprocal fit
+  `fc = a + b/v`). The page-2 footnote defines trunk-haul + the cleaning bounds
+  (`FC_CLEAN_MIN/MAX` = 5–80 L/100km, `MIN_TRIP_KM` unchanged).
 - **Chart titles are HTML** (`.chart-cell__title`), **spelled out (no GVM/SoC abbreviations)**
   and **larger than the matplotlib axis labels**; a 2-line title height is reserved so every
   cell's plot box starts at the same y.

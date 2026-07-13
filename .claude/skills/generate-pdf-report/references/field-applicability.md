@@ -17,6 +17,17 @@ applicable — **never fabricated**.
   projection, "Median GVM" and the verification workbook are all N/A (shown as "—" / omitted), never
   fabricated.
 
+- **Diesel comparator (YT21EFD)**: charging sessions / SoC / AC-DC split / regen are **not
+  applicable** (no battery), not "unreported" — the diesel briefing simply has no such
+  fields (no "—" placeholders, no data-availability note for them). Real pipeline data:
+  distance + fuel (raw VDHR/LFC cumulative counters and the xlsx driving-leg sums),
+  fuel consumption, GVM, temperature, speed, route, and **tank-to-wheel CO₂e** (fuel ×
+  the agreed 2.58354 kg CO₂e/L factor — arithmetic, not measurement; state the factor
+  inline). Well-to-tank / well-to-wheel CO₂e remains N/A unless a factor is agreed. The
+  EV briefings' "CO₂ & fuel saved vs diesel" stays N/A *in the EV briefing itself*, but
+  this diesel briefing now supplies the baseline numbers a partner needs to make that
+  comparison offline.
+
 - **Unavailable → show "—" not 0**: when a pipeline field is in the schema but this vehicle
   has no valid value for the whole column (e.g. some vehicles do not report charging AC/DC
   kWh, or regen recovery), pass NaN via `_sum_or_na`, and the render-side `f()` shows "—"

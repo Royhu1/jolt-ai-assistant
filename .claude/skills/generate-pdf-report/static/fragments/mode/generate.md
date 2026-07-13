@@ -36,6 +36,17 @@ after every generation**.
   trips — e.g. YN75NMA, T88RNW) automatically get the **distribution variant** (see
   `static/core/layout-contract.md` / `references/commentary-style.md`) — no flag
   needed.
+- **Diesel-comparator variant (auto)**: a vehicle with vehicles.json `fuel_type == "DIESEL"`
+  (e.g. YT21EFD/WJF) gets the **diesel briefing** — same CLI, no flag. Metric = Fuel
+  Consumption (L/100km); page-1 totals come from the **raw_logger_v1 cumulative counters**
+  (`_diesel_raw_kpi_totals`: VDHR odometer + LFC fuel, "trial end minus trial start" —
+  reset- and quantisation-robust, includes idling + telematics-outage gaps; `--page1-basis
+  segment` forces the driving-leg sums as usual) plus a TANK-TO-WHEEL EMISSIONS card
+  (CO₂e = fuel × `CO2E_KG_PER_L_DIESEL` 2.58354 kg/L). The mass/temperature analyses run on
+  the **trunk-haul subset** (avg speed ≥ 50 km/h). Grid, axes and commentary rules:
+  `static/core/layout-contract.md` + `references/commentary-style.md`; the diesel
+  verification workbook pairs each raw-counter row with a driving-leg-sum cross-check row.
+  Per-vehicle quirks (YT21EFD's LFC reset, 40 t `full_laden_t`): `evaluations/`.
 - Data comes **only** from `excel_report_database/<version>/<REG>/jolt_report_*.xlsx`
   (prefer `_finetuned`). If there is **no exact-period** file, the generator automatically
   picks the most compact report whose `[start,end]` **covers the target period** and **clips

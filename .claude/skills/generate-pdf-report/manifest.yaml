@@ -1,5 +1,7 @@
 name: generate-pdf-report
-version: 2.0.1   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline
+version: 2.1.0   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline;
+                 # 2.1.0 (2026-07-13) = diesel-comparator variant (fuel_type DIESEL, e.g. YT21EFD:
+                 # L/100km analysis, raw VDHR/LFC counter totals, tank-to-wheel CO2e card)
 description: >
   Declarative manifest for the static/dynamic split (pattern adapted from
   nature-skills/nature-figure). SKILL.md uses this to decide which fragments
