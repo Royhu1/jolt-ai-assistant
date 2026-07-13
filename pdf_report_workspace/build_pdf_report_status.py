@@ -198,9 +198,25 @@ wb.save(XLSX)
 print("xlsx saved:", XLSX)
 
 # ───────────────────────── pptx (6 columns, Vehicle·Reg merged) ─────────────────────────
-SLIDE_GROUPS = [GROUPS[:6], GROUPS[6:]]  # 13 + 11 data rows
-TITLES = ["Partner PDF Reports — Coverage by Operator (1/2)",
-          "Partner PDF Reports — Coverage by Operator (2/2)"]
+# Deck slides show ACTIVE EV trials only (no diesel comparators, no planned rows),
+# split by each operator's trial mix (user 2026-07-10): pure BYO / BYO + Round-robin / pure RR.
+def classify(groups):
+    byo, mixed, rr = [], [], []
+    for op, oprows in groups:
+        active = [row for row in oprows if row[6] is True]
+        if not active:
+            continue
+        kinds = {row[3] for row in active}
+        entry = (op, active)
+        (byo if kinds == {"BYO"} else rr if kinds == {"Round-robin"} else mixed).append(entry)
+    return byo, mixed, rr
+
+
+_BYO_G, _MIX_G, _RR_G = classify(GROUPS)
+SLIDE_GROUPS = [_BYO_G, _MIX_G, _RR_G]
+TITLES = ["Partner PDF Reports — BYO Operators",
+          "Partner PDF Reports — BYO + Round-robin Operators",
+          "Partner PDF Reports — Round-robin Operators"]
 COL_W = [1.75, 3.75, 1.60, 1.70, 2.80, 1.10]  # sums to 12.70
 FONT, SZ = "Arial", 18
 
@@ -226,10 +242,19 @@ def set_cell(cell, runs, colour, fill, center=False, wrap=False):
         p.alignment = PP_ALIGN.CENTER
 
 
-for slide, groups, title in zip([prs.slides[1], prs.slides[2]], SLIDE_GROUPS, TITLES):
-    # deck shows ACTIVE trials only — drop planned rows (ok=None) and then-empty groups
-    groups = [(op, [row for row in oprows if row[6] is not None]) for op, oprows in groups]
-    groups = [(op, oprows) for op, oprows in groups if oprows]
+# three table slides between the title and closing slides — create the third if absent
+if len(prs.slides) == 4:
+    extra = prs.slides.add_slide(prs.slides[1].slide_layout)
+    for ph in list(extra.placeholders):
+        if ph.placeholder_format.idx != 0:
+            ph._element.getparent().remove(ph._element)
+    ids = prs.slides._sldIdLst
+    nodes = list(ids)
+    ids.remove(nodes[-1])
+    ids.insert(3, nodes[-1])
+TABLE_SLIDES = [prs.slides[1], prs.slides[2], prs.slides[3]]
+
+for slide, groups, title in zip(TABLE_SLIDES, SLIDE_GROUPS, TITLES):
     for sh in list(slide.shapes):
         if sh.has_table:
             sh._element.getparent().remove(sh._element)
@@ -248,7 +273,8 @@ for slide, groups, title in zip([prs.slides[1], prs.slides[2]], SLIDE_GROUPS, TI
         if len(oprows) == 1 and len(op) > 14:
             tall.add(r0)
         r0 += len(oprows)
-    height = 0.62 + 0.34 * len(rows) + 0.28 * len(tall)
+    row_h = 0.5 if len(rows) <= 6 else 0.42 if len(rows) <= 10 else 0.34
+    height = 0.62 + row_h * len(rows) + 0.28 * len(tall)
     tbl = slide.shapes.add_table(n_rows, 6, left, Inches(1.10), Inches(sum(COL_W)), Inches(height)).table
     tbl.first_row = False
     tbl.horz_banding = False
@@ -256,7 +282,7 @@ for slide, groups, title in zip([prs.slides[1], prs.slides[2]], SLIDE_GROUPS, TI
         tbl.columns[j].width = Inches(w)
     tbl.rows[0].height = Inches(0.62)
     for i in range(1, n_rows):
-        tbl.rows[i].height = Inches(0.62 if i in tall else 0.34)
+        tbl.rows[i].height = Inches(row_h + 0.28 if i in tall else row_h)
     for j, h in enumerate(PPT_HEADERS):
         set_cell(tbl.cell(0, j), [(h, True)], WHITE, PPT_ACCENTS[j], center=True, wrap=True)
 
