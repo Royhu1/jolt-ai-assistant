@@ -71,7 +71,7 @@ GROUPS = [
     ]),
     ("Welch's", [
         ("Renault E-Tech D Wide", "Renault D Wide", "T88RNW", "BYO", NEEDED, "2024-06-11 – 2026-07-03", True),
-        ("Renault Trucks D Wide Z.E.", "Renault D Wide ZE", "N88GNW", "BYO", NEEDED, "2024-10-11 – 2026-07-03", True),
+        ("Renault Trucks D Wide Z.E.", "Renault ZE", "N88GNW", "BYO", NEEDED, "2024-10-11 – 2026-07-03", True),
         ("Renault E-Tech T", "Renault E-Tech T", "TA70WTL", "BYO", NEEDED, "2025-05-03 – 2026-07-03", True),
         ("DAF XD Electric", "DAF XD", "LN25NKE", "Round-robin", NEEDED, "2026-01-14 – 2026-04-07", True),
         ("Scania P-series BEV", "Scania BEV", "EX74JXW", "Round-robin", NEEDED, "2026-02-26 – 2026-04-29", True),
@@ -90,7 +90,7 @@ GROUPS = [
 XL_FIXED = ["Operator", "Vehicle", "Reg", "Trial type", "Diesel comparator"]
 XL_ROUND_SUB = ["Trial period", "PDF generated", "PDF sent"]
 XL_ROUNDS = ["Round 1 (Up to 2026-07-10)", "Round 2"]
-PPT_HEADERS = ["Operator", "Vehicle", "Trial type", "Diesel comparator", "Trial period", "PDF report"]
+PPT_HEADERS = ["Operator", "Vehicle", "Trial type", "Diesel comparator", "Trial period", "PDF"]
 
 NAVY = RGBColor(0x1F, 0x49, 0x7D)
 ACCENTS = [RGBColor(0x4F, 0x81, 0xBD), RGBColor(0xC0, 0x50, 0x4D), RGBColor(0x9B, 0xBB, 0x59),
@@ -217,8 +217,14 @@ SLIDE_GROUPS = [_BYO_G, _MIX_G, _RR_G]
 TITLES = ["Partner PDF Reports — BYO Operators",
           "Partner PDF Reports — BYO + Round-robin Operators",
           "Partner PDF Reports — Round-robin Operators"]
-COL_W = [1.75, 3.75, 1.60, 1.70, 2.80, 1.10]  # sums to 12.70
-FONT, SZ = "Arial", 18
+# Per-slide layout: fewer rows -> bigger type + taller rows so pages don't sit half-empty
+# (user 2026-07-10). Column widths are per-slide, tuned to that page's widest strings.
+SLIDE_CFG = [
+    dict(sz=22, col_w=[1.60, 3.30, 1.30, 2.05, 3.45, 1.00], row_h=0.95, hdr_h=0.78),  # BYO: 5 rows
+    dict(sz=19, col_w=[1.70, 3.70, 1.60, 1.85, 3.25, 0.80], row_h=0.55, hdr_h=0.68),  # mixed: 9 rows
+    dict(sz=19, col_w=[1.70, 3.70, 1.60, 1.85, 3.25, 0.80], row_h=0.58, hdr_h=0.68),  # RR: 8 rows
+]
+FONT, SZ = "Arial", 18  # SZ is reassigned per slide from SLIDE_CFG
 
 prs = Presentation(PPTX)
 
@@ -254,7 +260,9 @@ if len(prs.slides) == 4:
     ids.insert(3, nodes[-1])
 TABLE_SLIDES = [prs.slides[1], prs.slides[2], prs.slides[3]]
 
-for slide, groups, title in zip(TABLE_SLIDES, SLIDE_GROUPS, TITLES):
+for slide, groups, title, cfg in zip(TABLE_SLIDES, SLIDE_GROUPS, TITLES, SLIDE_CFG):
+    SZ = cfg["sz"]
+    COL_W = cfg["col_w"]
     for sh in list(slide.shapes):
         if sh.has_table:
             sh._element.getparent().remove(sh._element)
@@ -273,16 +281,16 @@ for slide, groups, title in zip(TABLE_SLIDES, SLIDE_GROUPS, TITLES):
         if len(oprows) == 1 and len(op) > 14:
             tall.add(r0)
         r0 += len(oprows)
-    row_h = 0.5 if len(rows) <= 6 else 0.42 if len(rows) <= 10 else 0.34
-    height = 0.62 + row_h * len(rows) + 0.28 * len(tall)
+    row_h, hdr_h = cfg["row_h"], cfg["hdr_h"]
+    height = hdr_h + row_h * len(rows) + 0.25 * len(tall)
     tbl = slide.shapes.add_table(n_rows, 6, left, Inches(1.10), Inches(sum(COL_W)), Inches(height)).table
     tbl.first_row = False
     tbl.horz_banding = False
     for j, w in enumerate(COL_W):
         tbl.columns[j].width = Inches(w)
-    tbl.rows[0].height = Inches(0.62)
+    tbl.rows[0].height = Inches(hdr_h)
     for i in range(1, n_rows):
-        tbl.rows[i].height = Inches(row_h + 0.28 if i in tall else row_h)
+        tbl.rows[i].height = Inches(row_h + 0.25 if i in tall else row_h)
     for j, h in enumerate(PPT_HEADERS):
         set_cell(tbl.cell(0, j), [(h, True)], WHITE, PPT_ACCENTS[j], center=True, wrap=True)
 
