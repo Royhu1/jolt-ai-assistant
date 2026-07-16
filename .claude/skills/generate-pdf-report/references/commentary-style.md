@@ -103,23 +103,27 @@ distribution-stats audit).
 
 The metric is **"fuel consumption"** (L/100km, matching the figures), never "fuel economy"
 or mpg. Load points follow the standard rules (band > KDE) but are computed on the
-**trunk-haul subset** (average speed ≥ 50 km/h — over all trips the urban tail swamps the
-mass signal). Epistemic labels are mandatory: **each value states its basis** —
+**≥ 50 km/h speed subset** (over all trips the urban tail swamps the mass signal).
+**Never use the label "trunk-haul"** in partner-facing text (user review 2026-07-16: an
+operational designation we cannot substantiate) — the subset is always described by its
+bare criterion: "trips with average speed ≥ 50 km/h" / "(trips ≥ 50 km/h)" / "(lo–hi t,
+≥ 50 km/h subset)"; the code identifiers (`tr_trunk`, `TrunkTrips`) are internal only.
+Epistemic labels are mandatory: **each value states its basis** —
 `Unladen (~17 t): … (fitted trend).` / `Laden (~22 t): … (observed mean, ≥ 18 t).` /
 `Extrapolated to the N t reference GVM: ~… (observed data reach M t).` The N t value is a
 **reference mass** (`full_laden_t` = the configured weight class) — never call it "the
 rated gross weight" unless the plating is verified. **Associations, not causation**: the
 x-variable is GVM, not "load" — `Each additional tonne of GVM is associated with ~m
-L/100km higher fuel consumption (trunk-haul trips, ≥ 50 km/h).`; temperature: `Fuel
-consumption was ~X L/100km higher per 10 °C colder (lo–hi t trunk-haul subset).` — the
+L/100km higher fuel consumption (trips with average speed ≥ 50 km/h).`; temperature: `Fuel
+consumption was ~X L/100km higher per 10 °C colder (lo–hi t, ≥ 50 km/h subset).` — the
 temperature window is named by its **bare mass range** (not "laden": it is a 2-t density
 window and collides with the ~22 t laden reference + the page-1 all-legs median); the
 chart title matches ("(lo–hi t)"). Speed line: `Fitted fuel consumption: ~X L/100km at
-30 km/h average speed, ~Y L/100km at 70 km/h.` The page-2 footnote **must define ±**
-("one standard deviation: trip spread within the mass band for observed means; regression
-residual for fitted/extrapolated values") besides trunk-haul + the cleaning bounds.
-Page-1 timeline says **"legs/day"** (the count is the Driving Legs tile), never
-"trips/day".
+30 km/h average speed, ~Y L/100km at 70 km/h.` The page-2 footnote **must state the
+speed criterion of the mass/temperature figures and define ±** ("one standard deviation:
+trip spread within the mass band for observed means; regression residual for
+fitted/extrapolated values") besides the cleaning bounds. Page-1 timeline says
+**"legs/day"** (the count is the Driving Legs tile), never "trips/day".
 
 Page-1 Summary: (1) fleet-overview line (active days, km, ~km/day, litres, mean L/100km);
 (2) **GHG line** — "greenhouse-gas emissions … t CO₂e" (the factor covers CO₂/CH₄/N₂O —

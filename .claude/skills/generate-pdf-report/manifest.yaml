@@ -9,7 +9,10 @@ version: 2.2.0   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 =
                  # briefing (idling = fuel counter only; 40 t = extrapolated reference GVM;
                  # GVM-association not "load adds"; temp window named by bare mass range;
                  # legs/day; ± defined in footnote; GHG emissions in CO2e w/ UK Gov 2026
-                 # factor attribution) + tight diesel page-2 footer
+                 # factor attribution) + tight diesel page-2 footer;
+                 # 2.2.2 (2026-07-16) = "trunk-haul" label removed from partner-facing text
+                 # (unsubstantiated operational designation) — the mass/temperature subset
+                 # is described only by its speed criterion (avg speed >= 50 km/h)
 description: >
   Declarative manifest for the static/dynamic split (pattern adapted from
   nature-skills/nature-figure). SKILL.md uses this to decide which fragments

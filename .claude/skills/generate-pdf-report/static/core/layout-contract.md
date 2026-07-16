@@ -50,16 +50,20 @@ Retired schemes are marked explicitly — do not restore them.
   (ctx `stack_stats` → `.ops-bottom--stack`): both stat cards in one left column (108 mm,
   flex 1.7 : 1, `min-height:0` so the shares bind) + a **full-height route-map right column**
   (aspect ≈ the 740×1060 map PNG) — the EV 3-column row left the 3-row emissions card
-  half-empty and the map letterboxed small; EV briefings never set the flag. Page-2 grid: (1) **Fuel Consumption vs Gross Vehicle Mass
-  (trunk-haul)** — the mass + temperature figures use the trunk-haul subset (avg speed ≥
-  `TRUNK_SPEED_MIN_KMH` = 50 km/h; over all trips the urban tail swamps the mass signal),
+  half-empty and the map letterboxed small; EV briefings never set the flag. Page-2 grid:
+  (1) **Fuel Consumption vs Gross Vehicle Mass (trips ≥ 50 km/h)** — the mass + temperature
+  figures use the ≥ `TRUNK_SPEED_MIN_KMH` (50 km/h) average-speed subset (over all trips the
+  urban tail swamps the mass signal); **the label "trunk-haul" is banned in partner-facing
+  text** (user review 2026-07-16: an operational designation we cannot substantiate — the
+  subset is described only by its speed criterion; `tr_trunk`/`TrunkTrips` stay internal),
   load markers + dashed extension to the vehicle's own `full_laden_t` (specs override, 40 t
-  for YT21EFD — never project past the plated GCW); (2) **Fuel Consumption Distribution**
-  (all valid trips); (3) **Fuel Consumption vs Ambient Temperature** (trunk-haul narrow
-  laden window; title keeps the EV "(laden, lo–hi t)" pattern — the trunk basis lives in the
-  footnote); (4) **Fuel Consumption vs Average Trip Speed** (all valid trips, reciprocal fit
-  `fc = a + b/v`). The page-2 footnote defines trunk-haul + the cleaning bounds
-  (`FC_CLEAN_MIN/MAX` = 5–80 L/100km, `MIN_TRIP_KM` unchanged).
+  for YT21EFD — a REFERENCE mass from the configured weight class, never past it);
+  (2) **Fuel Consumption Distribution** (all valid trips); (3) **Fuel Consumption vs
+  Ambient Temperature** (speed subset within the narrow 2-t density window; title names the
+  bare mass range "(lo–hi t)" — not "laden"); (4) **Fuel Consumption vs Average Trip Speed**
+  (all valid trips, reciprocal fit `fc = a + b/v`). The page-2 footnote states the speed
+  criterion, the cleaning bounds (`FC_CLEAN_MIN/MAX` = 5–80 L/100km, `MIN_TRIP_KM`
+  unchanged) and the ± definition.
 - **Chart titles are HTML** (`.chart-cell__title`), **spelled out (no GVM/SoC abbreviations)**
   and **larger than the matplotlib axis labels**; a 2-line title height is reserved so every
   cell's plot box starts at the same y.

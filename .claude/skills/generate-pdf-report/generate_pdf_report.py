@@ -1862,7 +1862,7 @@ def build_diesel_verification_workbook(path, tr_all, tr, tr_trunk, v):
     _add("Page 1 · Emissions", "Emission factor (kg CO2e/L)", CO2E_KG_PER_L_DIESEL, "manual", None,
          "Tank-to-wheel factor agreed for the WJF diesel-comparator briefing (complete combustion, "
          "no well-to-tank share) — confirm with the operator before external delivery", "—")
-    _tk_note = (f"TRUNK-HAUL subset (TrunkTrips sheet: avg speed ≥ {TRUNK_SPEED_MIN_KMH:g} km/h, "
+    _tk_note = (f"SPEED SUBSET (TrunkTrips sheet: avg speed ≥ {TRUNK_SPEED_MIN_KMH:g} km/h, "
                 f"n={v.get('n_trunk', '?')}) — the mass/temperature charts and conclusions use it "
                 "so duty cycles are comparable. " if v.get("trunk_ok") else "")
     if v.get("has_mass", True):
@@ -2706,10 +2706,13 @@ def _emit_diesel_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mas
             f"Extrapolated to the {m_full:.0f} t reference GVM: ~{_pfc(fc_fl)}{_psd(fc_fl_sd)} "
             f"L/100km (observed data reach {_obs_max:.0f} t).")
         if pd.notna(gvm_slope):
+            # No "trunk-haul" label (user review 2026-07-16: an operational designation we
+            # cannot substantiate) — the subset is described by its bare speed criterion.
             conclusion_points.append(
                 f"Each additional tonne of GVM is associated with ~{gvm_slope:.2f} L/100km "
                 "higher fuel consumption"
-                + (f" (trunk-haul trips, ≥ {TRUNK_SPEED_MIN_KMH:.0f} km/h)." if trunk_ok else "."))
+                + (f" (trips with average speed ≥ {TRUNK_SPEED_MIN_KMH:.0f} km/h)."
+                   if trunk_ok else "."))
         if load_pts.get("temp_status") == "inconclusive" or pd.isna(t_per10):
             conclusion_points.append(
                 "Temperature: the temperature range observed in this period is too limited to "
@@ -2718,7 +2721,8 @@ def _emit_diesel_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mas
             conclusion_points.append(
                 f"Fuel consumption was ~{abs(t_per10):.1f} L/100km "
                 f"{'higher' if t_per10 < 0 else 'lower'} per 10 °C colder "
-                f"({laden_gmin:.0f}–{laden_gmax:.0f} t{' trunk-haul' if trunk_ok else ''} subset).")
+                f"({laden_gmin:.0f}–{laden_gmax:.0f} t"
+                + (f", ≥ {TRUNK_SPEED_MIN_KMH:.0f} km/h" if trunk_ok else "") + " subset).")
     if speed_fit is not None:
         sa, sb, _sr2, _sn = speed_fit
         fc30, fc70 = sa + sb / 30.0, sa + sb / 70.0
@@ -2783,11 +2787,12 @@ def _emit_diesel_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mas
             print(f"[verify] 原核实工作簿被占用，改写到：{verif_path.name}")
 
     filter_note = (
-        (f"Trunk-haul = average trip speed ≥ {TRUNK_SPEED_MIN_KMH:.0f} km/h (used by the mass and "
-         "temperature figures). " if trunk_ok else "")
+        # Neutral speed-criterion wording — no "trunk-haul" label (user review 2026-07-16).
+        (f"The mass and temperature figures use trips with average speed ≥ "
+         f"{TRUNK_SPEED_MIN_KMH:.0f} km/h. " if trunk_ok else "")
         + f"Figures exclude legs < {MIN_TRIP_KM:.0f} km or outside "
           f"{FC_CLEAN_MIN:.0f}–{FC_CLEAN_MAX:.0f} L/100km. "
-        # ± now defined (reviewer point, 2026-07-16) — one s.d., basis per value type.
+        # ± defined (reviewer point, 2026-07-16) — one s.d., basis per value type.
         + "± = one standard deviation: trip spread within the mass band for observed means; "
           "regression residual for fitted/extrapolated values."
     )
@@ -2808,7 +2813,7 @@ def _emit_diesel_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mas
     # bullet says "within the lo–hi t subset" to match.
     band_lbl = (f"{laden_gmin:.0f}–{laden_gmax:.0f} t"
                 if pd.notna(laden_gmin) and pd.notna(laden_gmax) else "laden")
-    _tk = " (trunk-haul)" if trunk_ok else ""
+    _tk = f" (trips ≥ {TRUNK_SPEED_MIN_KMH:.0f} km/h)" if trunk_ok else ""
     charts_grid = []
     if charts.get("gvm"):
         charts_grid.append(dict(title=f"Fuel Consumption vs Gross Vehicle Mass{_tk}",
