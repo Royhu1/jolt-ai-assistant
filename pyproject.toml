@@ -59,4 +59,7 @@ include = ["jolt_toolkit*"]
     "assets/uplot/*.js",
     "assets/uplot/*.css",
     "assets/uplot/*.txt",
+    # inspect_*.html viewer template (externalized from report_builder in v3.0.0;
+    # filled via str.format by report_generator.html_viewer).
+    "assets/*.html",
 ]
