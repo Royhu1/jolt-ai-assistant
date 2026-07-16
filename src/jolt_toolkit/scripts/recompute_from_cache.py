@@ -1,8 +1,14 @@
 """
-recompute_v227
-==============
+recompute_from_cache
+====================
 Fast, SRF-free regeneration of the fleet at a **post-segmentation release** from
 the cached artefacts of the previous version (``excel_report_database/<src>/<REG>/``).
+
+Provenance: moved in v3.0.0 from
+``report_generator/recompute_v227.py`` to ``scripts/recompute_from_cache.py`` (a
+reusable one-off migration tool, not part of the deployed report-generation path).
+The historical name ``recompute_v227`` is retained in the changelogs. Invoke via
+``python -m jolt_toolkit.scripts.recompute_from_cache --src-ver <old> --dst-ver <new>``.
 
 Despite the historical name, this is the **general** cached-recompute tool for any
 release whose changes are all post-segmentation; it is ``--src-ver`` / ``--dst-ver``

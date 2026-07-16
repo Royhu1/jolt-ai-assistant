@@ -79,11 +79,6 @@ _W_WIND_D = '7 wind direction'
 _CARDINALS = ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW')
 
 
-def _row_col_index(col_name: str) -> int:
-    """返回 col_name 在 row tuple 中的 0-based 索引（不含 Leg Number 列）。"""
-    return DIESEL_HEADERS.index(col_name) - 1
-
-
 def _build_logger_df(leg, cfg: dict) -> pd.DataFrame | None:
     """
     从一个 SRFLOGGER leg 拉取柴油 pipeline 需要的所有通道，合并到单个 DataFrame。

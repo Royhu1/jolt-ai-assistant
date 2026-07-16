@@ -1012,8 +1012,6 @@ class JOLTReportGenerator:
            增量多计 → EP 虚高，如 AV24LXJ 2024-06-24 07:45 EP 2.34）应由**专门的
            anchor-spillover 守卫**处理，而非全盘 SOC 反算。
         """
-        import numpy as np
-
         # v2.2.8 per-vehicle SOC-energy fallback control (None = MODE A only).
         fb_enabled = bool(soc_fallback and soc_fallback.get('enabled'))
         fb_min_dsoc = float((soc_fallback or {}).get('min_dsoc_pct',

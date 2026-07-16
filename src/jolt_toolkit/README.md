@@ -114,19 +114,14 @@ src/jolt_toolkit/
 │   ├── pedal_histogram.py         # accelerator/brake pedal histogram computation
 │   ├── data_fetcher.py            # SRF API data fetching
 │   ├── data_class.py              # ServerData data class
-│   ├── bootstrap.py               # initialisation helpers
 │   ├── assets/uplot/              # vendored offline uPlot JS/CSS (+ PROVENANCE) inlined into detail pages
-│   └── weather_fetcher/           # weather API client (cache, key rotation, fine-grained patching)
-│       ├── __init__.py
-│       ├── weather_fetcher.py     # OpenWeather REST calls
-│       ├── weather_cache.py       # JSON cache
-│       ├── weather_key_manager.py # multi-key rotation
+│   └── weather_fetcher/           # fine-grained weather patcher package
+│       ├── __init__.py            # exports FineGrainedWeatherPatcher
 │       └── fine_grained_patcher.py # v2.2.3: in-trip multi-sample fine-grained patching (see below)
-├── scripts/                       # internal maintenance scripts (separate from CLI entry points, not part of the public API)
+├── scripts/                       # one-off maintenance / migration scripts (not part of the deployed report path)
 │   ├── __init__.py
 │   ├── refresh_inspect_html.py    # batch-regenerate the inspect HTML viewer for existing xlsx
-│   ├── backfill_propulsion_energy.py # backfill the `Propulsion Energy (kWh)` column into legacy xlsx (v2.2.3)
-│   └── patch_ep_exclude_aux.py       # append the `EP_exclude_aux` column to existing xlsx (v2.2.4)
+│   └── recompute_from_cache.py    # SRF-free fleet recompute at a post-segmentation release (was recompute_v227.py; see below)
 ├── vehicle_params_identificator/  # sub-package 2: C_rr / C_dA parameter identification
 │   ├── __init__.py                # exports identify_crr_cda()
 │   ├── __main__.py                # python -m entry point
@@ -136,12 +131,11 @@ src/jolt_toolkit/
 │   ├── identification.py          # linear constraint + K-Means identification
 │   ├── run_identification.py      # CLI entry point
 │   └── test_identification.py     # synthetic-data unit tests
-├── analysis/                      # sub-package 3: shared analysis machinery promoted from data_analysis_workspace (2026-06-11)
-│   ├── __init__.py                # re-exports the public API of the three modules below
-│   ├── counters.py                # cumulative-counter interpolation at trip endpoints (build_interp / delta / to_utc + COL_* / MIN_DIST_KM)
-│   ├── stats.py                   # OLS / HC1-OLS / VIF / standardised-beta fit block / within-group demeaning
-│   └── physics.py                 # Arrhenius battery-efficiency model (eta_bat)
-└── deprecated/                    # deprecated code (per-make processor)
+└── analysis/                      # sub-package 3: shared analysis machinery promoted from data_analysis_workspace (2026-06-11)
+    ├── __init__.py                # re-exports the public API of the three modules below
+    ├── counters.py                # cumulative-counter interpolation at trip endpoints (build_interp / delta / to_utc + COL_* / MIN_DIST_KM)
+    ├── stats.py                   # OLS / HC1-OLS / VIF / standardised-beta fit block / within-group demeaning
+    └── physics.py                 # Arrhenius battery-efficiency model (eta_bat)
 ```
 
 **Public API**:
@@ -244,13 +238,10 @@ python -m jolt_toolkit.report_generator.rerender_inspect --version 2.2.5 --db-ro
 | `report_generator/weather_patch.py` | **Unified weather-patch entry point.** `patch_weather(target, *, mode="coarse", …)` + a `python -m jolt_toolkit.report_generator.weather_patch` CLI. The single place where the default strategy lives: **`mode="coarse"` (default)** → `WeatherPatcher`; **`mode="fine"` (explicit opt-in only, `--fine-grained`)** → `FineGrainedWeatherPatcher`. Default is coarse because fine-grained's per-GPS-point sampling (~17k calls/vehicle, ~220k fleet-wide) trips the OpenWeather subscription into HTTP 429; the origin/dest average is close enough for the standard path |
 | `report_generator/weather_fetcher/fine_grained_patcher.py` | **v2.2.3** `FineGrainedWeatherPatcher` — **fine-grained, explicit opt-in only** weather patching: in-trip raw_telematics GPS multi-sampling + 60 s down-sampling + sin/cos circular wind-direction averaging (fixes the old patcher's 359°/1° → 180° arithmetic-mean bug) + `(lat:.2f, lon:.2f, hour_bucket)` ~1 km × 1 h quantised cache key. Like the coarse patcher it patches **driving / trip rows ONLY** (`is_trip_leg`); charge + Stop rows are skipped (they need no weather and would waste quota). **Not the default** (high API volume → 429); reach it via `patch_weather(..., mode="fine")` |
 | `scripts/refresh_inspect_html.py` | internal maintenance script: scans `excel_report_database/<ver>/` to regenerate the inspect HTML viewer for existing xlsx (without re-running the SRF API) |
-| `scripts/backfill_propulsion_energy.py` | **v2.2.3** internal maintenance script: backfills the `Propulsion Energy (kWh)` column into legacy EV xlsx (line-interpolated differencing of RFMS snapshots) |
-| `scripts/patch_ep_exclude_aux.py` | **v2.2.4** post-hoc patch script: appends the `EP_exclude_aux` column = `(propulsion − recuperation) / distance` to existing EV xlsx. Preferentially reads the existing `Propulsion Energy` / `Recuperation Energy` columns in the xlsx, and falls back to recomputing from `raw_telematics/raw_*.csv` when missing/empty. base only, skips `*_finetuned.xlsx`, idempotent overwrite |
-| `report_generator/bootstrap.py` | helper initialisation (logging format, working directory location, etc.) |
+| `scripts/recompute_from_cache.py` | SRF-free fleet recompute at a **post-segmentation** release from the cached artefacts of the previous version (was `report_generator/recompute_v227.py`; moved to `scripts/` in v3.0.0). Run via `python -m jolt_toolkit.scripts.recompute_from_cache --src-ver <old> --dst-ver <new>` (see below) |
 | `report_generator/data_class.py` | `ServerData` data class |
 | `configs/` | `vehicles.json` (vehicle registry), `pipelines.json` (segmentation parameters), `plot_config.json` (plotting colours and vehicle/operation metadata) |
 | `vehicle_params_identificator/` | rolling-resistance / aerodynamic-drag parameter identification (C_rr, C_dA) |
-| `deprecated/` | deprecated per-make processors (volvo.py, scania.py, renault.py, mercedes.py) |
 
 ## Configuration files
 
@@ -327,8 +318,7 @@ total_electric_energy_used = electric_energy_propulsion + auxiliary − electric
 > uses `DIESEL_HEADERS` which does not contain this column. Charge / Stop rows write NaN.
 > **The position is chosen at the end of HEADERS**: the hard-coded column indices of LoggerPatcher / WeatherPatcher
 > (temp=38 / wind=41 / link=5 / mass=16 / kin=47 / propulsion=48) are all unaffected.
-> See `report_builder._ep_exclude_aux()`; for legacy reports, backfill with
-> `scripts/patch_ep_exclude_aux.py`.
+> See `report_builder._ep_exclude_aux()` (generated in-pipeline since v2.2.4).
 
 > **`Operator` (column added in v2.2.5, the last column of BOTH `HEADERS` (50th)
 > and `DIESEL_HEADERS` (26th))**: a single project operator CODE per leg (e.g.
@@ -683,7 +673,7 @@ After report generation, effective capacity undergoes a two-step correction (imp
 
 Both the window half-width (`CAP_WINDOW_HALF_DAYS = 15`) and the moving-speed threshold (`MOVING_SPEED_THRESHOLD_KMH = 1.0`) are module-level constants for tuning.
 
-**Version migration — `recompute_v227` (SRF-free cached recompute).** When a release changes only *post-segmentation* logic (e.g. the v2.2.7 MODE A gate + ΔSOC-weighted donors, or the v2.2.8 per-vehicle SOC-energy fallback), `python -m jolt_toolkit.report_generator.recompute_v227 --src-ver <old> --dst-ver <new>` regenerates the fleet **without re-pulling SRF**: it re-runs the real `run_segment_detection` → `_seg_to_row` → `_correct_effective_capacity` on the locally-cached per-FPS-leg `raw_telematics/raw_*.csv`, preserves weather/operator/links/mass/pedal-histograms verbatim from the src xlsx (by `start_time`), and carries the `raw_charger/` / `raw_logger*/` / `raw_telematics/` / `validation_figures/` dirs + `inspect_*.html` forward (OneDrive-tolerant, content-only copy with per-file failure isolation). It is LOG-ONLY (never persists to `vehicles.json`). **Vehicles that are copied verbatim instead of replayed** (`copy_verbatim`): **diesel** (WU70GLV / YT21EFD — no SOC/counter, unchanged across the release) and any vehicle with **`"prefer_logger_speed": true`** in `vehicles.json` (YN25RSY today) — its segmentation runs on SRF-Logger speed, which the replay does not reproduce (only telematics is cached), so a replay would diverge from canonical (YN25RSY: 37→33 trips, ~15 % start-time match) and the start-time overlay would lose weather; those reports are copied verbatim from the src version.
+**Version migration — `recompute_from_cache` (SRF-free cached recompute).** When a release changes only *post-segmentation* logic (e.g. the v2.2.7 MODE A gate + ΔSOC-weighted donors, or the v2.2.8 per-vehicle SOC-energy fallback), `python -m jolt_toolkit.scripts.recompute_from_cache --src-ver <old> --dst-ver <new>` regenerates the fleet **without re-pulling SRF**: it re-runs the real `run_segment_detection` → `_seg_to_row` → `_correct_effective_capacity` on the locally-cached per-FPS-leg `raw_telematics/raw_*.csv`, preserves weather/operator/links/mass/pedal-histograms verbatim from the src xlsx (by `start_time`), and carries the `raw_charger/` / `raw_logger*/` / `raw_telematics/` / `validation_figures/` dirs + `inspect_*.html` forward (OneDrive-tolerant, content-only copy with per-file failure isolation). It is LOG-ONLY (never persists to `vehicles.json`). **Vehicles that are copied verbatim instead of replayed** (`copy_verbatim`): **diesel** (WU70GLV / YT21EFD — no SOC/counter, unchanged across the release) and any vehicle with **`"prefer_logger_speed": true`** in `vehicles.json` (YN25RSY today) — its segmentation runs on SRF-Logger speed, which the replay does not reproduce (only telematics is cached), so a replay would diverge from canonical (YN25RSY: 37→33 trips, ~15 % start-time match) and the start-time overlay would lose weather; those reports are copied verbatim from the src version.
 
 > **Rejected alternative (v2.2.7, MODE B — not adopted).** A SOC-magnitude-scaled outlier threshold was evaluated as an alternative to the binary `energy_source` gate: replace the fixed ±1σ test with a per-leg `σ_i = sqrt(σ_true² + σ_soc²)` (where `σ_soc = C·0.5/|ΔSOC%|` is the integer-% quantisation noise of the implied capacity `C`, and `σ_true` is a robust spread from clean large-ΔSOC (≥10%) legs), flag `|C − μ| > 2·σ_i`, and recompute energy from `ΔSOC × capacity` for flagged legs **regardless of `energy_source`**. A full AV24LXJ/K/L comparison **rejected** it: it fires mostly at **moderate ΔSOC (median 8%, only ~⅓ at ≥10%)**, where SOC quantisation is still ±5–12%, and there it overwrites the **measured counter energy** (which is a faithful direct measurement — per-trip counter deltas match the reported energy, with zero resets, monotonic, and snapshots that tightly bracket most trips) with an **inferred** `ΔSOC × fleet-mean capacity` value. This homogenises real EP variation and manufactures implausible EPs (tens of legs > 2.0 kWh/km per vehicle; e.g. a textbook EP 1.00 → 1.51, and 1.23 → 0.81). Both modes fix the original spurious low band identically (small-ΔSOC band legs are never flagged under either), so the simpler binary gate (MODE A) is kept.
 >
@@ -1364,7 +1354,7 @@ data-collection monitor keep seeing the full charger history. `_generator._save_
 and the backfill CLI below both call this one helper, so they persist identically.
 
 **Backfill CLI.** Charger transactions that arrive in SRF after a report was generated
-(or reports rebuilt by `recompute_v227`, which preserves links verbatim) can be patched
+(or reports rebuilt by `recompute_from_cache`, which preserves links verbatim) can be patched
 in retroactively:
 
 ```bash

@@ -1,23 +1,14 @@
 """
 Weather data fetching module for JOLT Report.
 
-This module provides:
-- Weather data fetching from OpenWeather API
-- Multi-key management with automatic rotation
-- Local caching to reduce API calls
-- Weather data enrichment for LegRecord objects
+Exposes the fine-grained weather patcher used by the report pipeline. The coarse
+patcher lives in ``report_generator.weather_patcher``; the legacy standalone
+fetcher/cache/key-manager trio was removed in v3.0.0 (it was only reachable from
+the retired ``deprecated/`` per-make processors).
 """
 
-from .weather_fetcher import enrich_weather_data
-from .weather_key_manager import WeatherAPIKeyManager, get_weather_key_manager
-from .weather_cache import WeatherCache, get_weather_cache
 from .fine_grained_patcher import FineGrainedWeatherPatcher
 
 __all__ = [
-    'enrich_weather_data',
-    'WeatherAPIKeyManager',
-    'get_weather_key_manager',
-    'WeatherCache',
-    'get_weather_cache',
     'FineGrainedWeatherPatcher',
 ]
