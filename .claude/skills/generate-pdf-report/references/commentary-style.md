@@ -99,24 +99,39 @@ distribution-stats audit).
 
 ## Diesel-comparator variant — conclusions & page-1
 
+(Wording corrected per the 2026-07-16 external review — keep these rules on regeneration.)
+
 The metric is **"fuel consumption"** (L/100km, matching the figures), never "fuel economy"
-or mpg. Load points follow the standard rules (band > KDE; ± as usual) but are computed on
-the **trunk-haul subset** (average speed ≥ 50 km/h — over all trips the urban tail swamps
-the mass signal); the load-sensitivity line states that basis once: `Each extra tonne of
-load adds ~m L/100km (trunk-haul trips, average speed ≥ 50 km/h).` The fully-laden point
-projects to the **vehicle's own rated gross weight** (`full_laden_t` override, e.g. 40 t),
-worded "(N t, the rated gross weight)". One temperature line (same sign-aware pattern,
-"laden trunk-haul trips"), one **speed** line (`Average trip speed: fitted fuel consumption
-is ~X L/100km at 30 km/h and ~Y L/100km at 70 km/h.`).
+or mpg. Load points follow the standard rules (band > KDE) but are computed on the
+**trunk-haul subset** (average speed ≥ 50 km/h — over all trips the urban tail swamps the
+mass signal). Epistemic labels are mandatory: **each value states its basis** —
+`Unladen (~17 t): … (fitted trend).` / `Laden (~22 t): … (observed mean, ≥ 18 t).` /
+`Extrapolated to the N t reference GVM: ~… (observed data reach M t).` The N t value is a
+**reference mass** (`full_laden_t` = the configured weight class) — never call it "the
+rated gross weight" unless the plating is verified. **Associations, not causation**: the
+x-variable is GVM, not "load" — `Each additional tonne of GVM is associated with ~m
+L/100km higher fuel consumption (trunk-haul trips, ≥ 50 km/h).`; temperature: `Fuel
+consumption was ~X L/100km higher per 10 °C colder (lo–hi t trunk-haul subset).` — the
+temperature window is named by its **bare mass range** (not "laden": it is a 2-t density
+window and collides with the ~22 t laden reference + the page-1 all-legs median); the
+chart title matches ("(lo–hi t)"). Speed line: `Fitted fuel consumption: ~X L/100km at
+30 km/h average speed, ~Y L/100km at 70 km/h.` The page-2 footnote **must define ±**
+("one standard deviation: trip spread within the mass band for observed means; regression
+residual for fitted/extrapolated values") besides trunk-haul + the cleaning bounds.
+Page-1 timeline says **"legs/day"** (the count is the Driving Legs tile), never
+"trips/day".
 
 Page-1 Summary: (1) fleet-overview line (active days, km, ~km/day, litres, mean L/100km);
-(2) **CO₂ line** — state the arithmetic inline so the partner can reproduce it:
-`Tank-to-wheel CO₂ emissions over the period were ~X t CO₂e (total fuel × 2.58354 kg CO₂e
-per litre), i.e. ~Y kg CO₂e per km.` Never attribute the factor to a source unless
-confirmed — it is the operator-agreed briefing basis; (3) a **counter-basis line** when the
-raw basis is in use: totals are cumulative-counter differences (trial end minus trial
-start), so they include idling and any telematics outages (state the outage count and
-approximate km/L). No charging/regen lines — those channels do not exist; the
+(2) **GHG line** — "greenhouse-gas emissions … t CO₂e" (the factor covers CO₂/CH₄/N₂O —
+never "CO₂ emissions" with a CO₂e unit), arithmetic inline with the factor's provenance +
+year: `Tank-to-wheel greenhouse-gas emissions were ~X t CO₂e: total fuel × 2.58354 kg
+CO₂e/L — the UK Government 2026 factor (average biofuel blend), applied throughout.`
+(verified against the GOV.UK 2026 conversion-factor set; do NOT repeat the per-km figure —
+it is a card row on the same page); (3) a **counter-basis line** when the raw basis is in
+use — idling accrues on the FUEL counter only (the odometer does not advance at idle, so
+never write "totals include idling"): `Totals are cumulative-counter differences: the fuel
+total includes idling between trips, and both totals include the N telematics outages
+(~X km / ~Y L).` No charging/regen lines — those channels do not exist; the
 data-availability note is not used for them (they are not applicable rather than
 unreported; see `references/field-applicability.md`).
 

@@ -4,7 +4,12 @@ version: 2.2.0   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 =
                  # L/100km analysis, raw VDHR/LFC counter totals, tank-to-wheel CO2e card);
                  # 2.2.0 (2026-07-13) = --snapshot arg (regenerate in place inside a frozen
                  # output_by_<date> snapshot) + diesel page-1 stacked layout (full-height map,
-                 # no emission-factor row — user review)
+                 # no emission-factor row — user review);
+                 # 2.2.1 (2026-07-16) = external-review wording corrections on the diesel
+                 # briefing (idling = fuel counter only; 40 t = extrapolated reference GVM;
+                 # GVM-association not "load adds"; temp window named by bare mass range;
+                 # legs/day; ± defined in footnote; GHG emissions in CO2e w/ UK Gov 2026
+                 # factor attribution) + tight diesel page-2 footer
 description: >
   Declarative manifest for the static/dynamic split (pattern adapted from
   nature-skills/nature-figure). SKILL.md uses this to decide which fragments

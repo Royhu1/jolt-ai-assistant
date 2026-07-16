@@ -1886,10 +1886,12 @@ def build_diesel_verification_workbook(path, tr_all, tr, tr_trunk, v):
             _add("Page 2 · Conclusion", f"Laden FC, GVM >= {lm:g} t (L/100km)", v["fc_laden_pt"],
                  f'=AVERAGEIFS({tk_f},{tk_g},">={lm:g}")', 0.2,
                  _tk_note + "Mean FC of laden operation", "")
-        _add("Page 2 · Conclusion", f"Fully-laden FC @ {v['mass_full']:g} t (L/100km)", v["fc_full"],
+        _add("Page 2 · Conclusion", f"Extrapolated FC @ {v['mass_full']:g} t reference (L/100km)",
+             v["fc_full"],
              f"=SLOPE({tk_f},{tk_g})*{v['mass_full']:g}+INTERCEPT({tk_f},{tk_g})", 0.5,
-             _tk_note + "FC-vs-GVM linear fit at the vehicle's rated full-laden mass "
-             "(briefing_vehicle_specs.json full_laden_t override)", "—")
+             _tk_note + "FC-vs-GVM linear fit EXTRAPOLATED beyond the observed data to the "
+             f"{v['mass_full']:g} t reference GVM (briefing_vehicle_specs.json full_laden_t — the "
+             "vehicle's configured weight class, not a verified plating)", "—")
         _add("Page 2 · Conclusion", "Unladen reference mass (t)", v["mass_unladen"], "manual", None,
              "Unladen-band median GVM (or specs override) — cross-check against tractor + empty "
              "trailer tare", "Vehicle Mass (kg)/1000")
@@ -2686,49 +2688,64 @@ def _emit_diesel_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mas
             "This vehicle does not report gross vehicle mass, so the load dependence of fuel "
             "consumption cannot be assessed; the figures above characterise the observed spread.")
     else:
+        # Reviewer-corrected wording (2026-07-16): trend-derived values are labelled as
+        # such (the unladen point and the 40 t value come from the fitted line, only the
+        # laden point is a within-band observed mean); the 40 t value is an EXTRAPOLATION
+        # beyond the fitted data and 40 t is a REFERENCE mass (the vehicle's configured
+        # weight class — not a verified plating); mass/temperature relations are stated
+        # as associations within the analysed sample, not causal "adds/changes".
         if has_un and pd.notna(m_un):
             conclusion_points.append(
-                f"Unladen (~{m_un:.0f} t): fuel consumption {_pfc(fc_un)}{_psd(fc_un_sd)} L/100km.")
+                f"Unladen (~{m_un:.0f} t): fuel consumption {_pfc(fc_un)}{_psd(fc_un_sd)} L/100km "
+                f"(fitted trend).")
         conclusion_points.append(
-            f"Laden (~{m_la:.0f} t): fuel consumption {_pfc(fc_la)}{_psd(fc_la_sd)} L/100km.")
+            f"Laden (~{m_la:.0f} t): fuel consumption {_pfc(fc_la)}{_psd(fc_la_sd)} L/100km "
+            f"(observed mean, ≥ {load_pts.get('laden_min') or m_la:.0f} t).")
+        _obs_max = gvw_t[tr_trunk["ep"].notna()].max()
         conclusion_points.append(
-            f"Fully laden ({m_full:.0f} t, the rated gross weight): fuel consumption "
-            f"{_pfc(fc_fl)}{_psd(fc_fl_sd)} L/100km.")
+            f"Extrapolated to the {m_full:.0f} t reference GVM: ~{_pfc(fc_fl)}{_psd(fc_fl_sd)} "
+            f"L/100km (observed data reach {_obs_max:.0f} t).")
         if pd.notna(gvm_slope):
             conclusion_points.append(
-                f"Each extra tonne of load adds ~{gvm_slope:.2f} L/100km"
-                + (f" (trunk-haul trips, average speed ≥ {TRUNK_SPEED_MIN_KMH:.0f} km/h)."
-                   if trunk_ok else "."))
+                f"Each additional tonne of GVM is associated with ~{gvm_slope:.2f} L/100km "
+                "higher fuel consumption"
+                + (f" (trunk-haul trips, ≥ {TRUNK_SPEED_MIN_KMH:.0f} km/h)." if trunk_ok else "."))
         if load_pts.get("temp_status") == "inconclusive" or pd.isna(t_per10):
             conclusion_points.append(
                 "Temperature: the temperature range observed in this period is too limited to "
                 "characterise a reliable temperature effect on fuel consumption.")
         else:
             conclusion_points.append(
-                f"Temperature ({'laden trunk-haul trips' if trunk_ok else 'laden trips'}, "
-                f"{laden_gmin:.0f}–{laden_gmax:.0f} t): fuel consumption "
-                f"changes ~{abs(t_per10):.1f} L/100km per 10 °C "
-                f"{'colder' if t_per10 < 0 else 'warmer'}.")
+                f"Fuel consumption was ~{abs(t_per10):.1f} L/100km "
+                f"{'higher' if t_per10 < 0 else 'lower'} per 10 °C colder "
+                f"({laden_gmin:.0f}–{laden_gmax:.0f} t{' trunk-haul' if trunk_ok else ''} subset).")
     if speed_fit is not None:
         sa, sb, _sr2, _sn = speed_fit
         fc30, fc70 = sa + sb / 30.0, sa + sb / 70.0
         conclusion_points.append(
-            f"Average trip speed: fitted fuel consumption is ~{fc30:.0f} L/100km at 30 km/h and "
+            f"Fitted fuel consumption: ~{fc30:.0f} L/100km at 30 km/h average speed, "
             f"~{fc70:.0f} L/100km at 70 km/h.")
 
     # ---- Page-1 Summary (high-level; the load/temperature/speed detail stays on page 2) ----
+    # Reviewer-corrected wording (2026-07-16): (a) "greenhouse-gas emissions … t CO₂e", not
+    # "CO₂ emissions" (the factor covers CO₂/CH₄/N₂O), with the factor's provenance + year
+    # stated (UK Government 2026 GHG conversion factor, applied uniformly to the whole
+    # period); (b) idling accrues on the FUEL counter only — the odometer does not advance
+    # at idle, so the two totals must not share one "include idling" claim.
     summary_points = [
         f"Over {ndays} active days the vehicle covered {tot_km:,.0f} km (~{daily_avg_km:.0f} km/day), "
         f"using {tot_fuel:,.0f} litres of diesel at an average {mean_fc:.1f} L/100km.",
-        f"Tank-to-wheel CO₂ emissions over the period were ~{co2_t:,.1f} t CO₂e "
-        f"(total fuel × {CO2E_KG_PER_L_DIESEL} kg CO₂e per litre), i.e. ~{co2_per_km:.2f} kg CO₂e per km.",
+        # per-km figure NOT repeated here — it is a card row directly above on the same page.
+        f"Tank-to-wheel greenhouse-gas emissions were ~{co2_t:,.1f} t CO₂e: total fuel × "
+        f"{CO2E_KG_PER_L_DIESEL} kg CO₂e/L — the UK Government 2026 factor (average biofuel "
+        f"blend), applied throughout.",
     ]
     if dist_basis == "raw":
-        _gap_txt = (f", and {n_gaps} telematics outages (~{gap_km:,.0f} km / ~{gap_fuel:,.0f} L) "
-                    "not visible in the per-trip data" if n_gaps else "")
+        _gap_txt = (f", and both totals include the {n_gaps} telematics outages "
+                    f"(~{gap_km:,.0f} km / ~{gap_fuel:,.0f} L)" if n_gaps else "")
         summary_points.append(
-            "Distance and fuel totals are read from the vehicle's cumulative odometer and fuel "
-            f"counters (trial end minus trial start), so they include idling between trips{_gap_txt}.")
+            "Totals are cumulative-counter differences: the fuel total includes idling "
+            f"between trips{_gap_txt}.")
 
     # ---- verification workbook ----
     vals = dict(
@@ -2769,7 +2786,10 @@ def _emit_diesel_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mas
         (f"Trunk-haul = average trip speed ≥ {TRUNK_SPEED_MIN_KMH:.0f} km/h (used by the mass and "
          "temperature figures). " if trunk_ok else "")
         + f"Figures exclude legs < {MIN_TRIP_KM:.0f} km or outside "
-          f"{FC_CLEAN_MIN:.0f}–{FC_CLEAN_MAX:.0f} L/100km."
+          f"{FC_CLEAN_MIN:.0f}–{FC_CLEAN_MAX:.0f} L/100km. "
+        # ± now defined (reviewer point, 2026-07-16) — one s.d., basis per value type.
+        + "± = one standard deviation: trip spread within the mass band for observed means; "
+          "regression residual for fitted/extrapolated values."
     )
     if args.anon:
         operator_disp, reg_disp = "JOLT MEMBER", ""
@@ -2782,19 +2802,21 @@ def _emit_diesel_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mas
     def f(v_, d=0, suf=""):
         return "—" if pd.isna(v_) else f"{v_:,.{d}f}{suf}"
 
-    laden_lbl = (f"laden, {laden_gmin:.0f}–{laden_gmax:.0f} t"
-                 if pd.notna(laden_gmin) and pd.notna(laden_gmax) else "laden")
+    # Reviewer point (2026-07-16): the temperature subset is a 2-t density window INSIDE
+    # the laden cluster — calling it "laden" collided with the ~22 t laden reference point
+    # and the 20 t page-1 median. The title now names the bare mass range; the conclusions
+    # bullet says "within the lo–hi t subset" to match.
+    band_lbl = (f"{laden_gmin:.0f}–{laden_gmax:.0f} t"
+                if pd.notna(laden_gmin) and pd.notna(laden_gmax) else "laden")
     _tk = " (trunk-haul)" if trunk_ok else ""
     charts_grid = []
     if charts.get("gvm"):
         charts_grid.append(dict(title=f"Fuel Consumption vs Gross Vehicle Mass{_tk}",
                                 img=charts["gvm"]))
     charts_grid.append(dict(title="Fuel Consumption Distribution", img=charts["fc_dist"]))
-    # Title kept to the EV pattern "(laden, lo–hi t)" — the trunk-haul basis of this chart
-    # is stated in the page-2 footnote; adding it to the title overflows the 2-line block.
     charts_grid.append(dict(
         title=("Fuel Consumption vs Ambient Temperature (all trips)" if no_mass else
-               f"Fuel Consumption vs Ambient Temperature ({laden_lbl})"),
+               f"Fuel Consumption vs Ambient Temperature ({band_lbl})"),
         img=charts["temp"]))
     charts_grid.append(dict(title="Fuel Consumption vs Average Trip Speed", img=charts["speed"]))
 
@@ -2806,7 +2828,9 @@ def _emit_diesel_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mas
             dict(tag="DAY START", icon=ICON_TRUCK,
                  time=f"≈ {median_time(tr_all.groupby('date')['st'].min())}",
                  label="Median first departure"),
-            dict(tag="", icon=ICON_CLOCK, time=f"≈ {n_legs/ndays:.1f} trips/day",
+            # "legs/day", not "trips/day" — the count IS the Driving Legs tile's 1,736
+            # (reviewer point 2026-07-16: don't mix the two nouns for one metric).
+            dict(tag="", icon=ICON_CLOCK, time=f"≈ {n_legs/ndays:.1f} legs/day",
                  label=f"{daily_avg_km:.0f} km / day average"),
             dict(tag="DAY END", icon=ICON_TRUCK,
                  time=f"≈ {median_time(tr_all.groupby('date')['et'].max())}",

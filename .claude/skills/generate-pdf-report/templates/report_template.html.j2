@@ -170,6 +170,10 @@
   .analysis-conclusion em { color:#fff; font-style:normal; font-weight:800; }
   .analysis-footer { text-align:right; padding:5px var(--pad) 6mm; font-size:11px;
     font-style:italic; color:var(--muted); }
+  /* Diesel variant: its footnote (trunk-haul + cleaning + ± definition) wraps to two
+     lines — trim the footer's own bottom padding so the second line stays on the page
+     (the page's 7mm bottom padding still provides the print margin). EV pages keep 6mm. */
+  .analysis-footer--tight { padding-bottom:2mm; }
 </style>
 </head>
 <body>
@@ -261,7 +265,7 @@
     <ul>{% for b in conclusion_points %}<li>{{ b }}</li>{% endfor %}</ul>
   </section>
 
-  <div class="analysis-footer">{{ source_analysis }}</div>
+  <div class="analysis-footer{% if stack_stats %} analysis-footer--tight{% endif %}">{{ source_analysis }}</div>
 </section>
 
 </body>
