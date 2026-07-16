@@ -34,6 +34,7 @@ import logging
 import re
 from pathlib import Path
 
+from filelock import FileLock
 from openpyxl import load_workbook
 
 from jolt_toolkit.configs import get_config_path
@@ -155,29 +156,32 @@ def main(argv=None):
 
     db = Path(args.report_db)
     path = get_config_path('vehicles.json')
-    with open(path, encoding='utf-8') as f:
-        all_cfg = json.load(f)
+    # Guard the read-modify-write against a concurrent report-gen capacity
+    # write-back (same lock file as _persist_effective_capacity).
+    with FileLock(str(path) + '.lock'):
+        with open(path, encoding='utf-8') as f:
+            all_cfg = json.load(f)
 
-    summaries = []
-    for reg, cfg in all_cfg.items():
-        if str(cfg.get('fuel_type', '')).upper() == 'DIESEL':
-            print(f"[skip diesel] {reg}")
-            continue
-        rdir = db / reg
-        if not rdir.is_dir():
-            print(f"[no reports]  {reg}")
-            continue
-        s = backfill_vehicle(reg, rdir, cfg, args.min_donors)
-        summaries.append(s)
-        _print_summary(s, args.min_donors)
+        summaries = []
+        for reg, cfg in all_cfg.items():
+            if str(cfg.get('fuel_type', '')).upper() == 'DIESEL':
+                print(f"[skip diesel] {reg}")
+                continue
+            rdir = db / reg
+            if not rdir.is_dir():
+                print(f"[no reports]  {reg}")
+                continue
+            s = backfill_vehicle(reg, rdir, cfg, args.min_donors)
+            summaries.append(s)
+            _print_summary(s, args.min_donors)
 
-    if args.dry_run:
-        print("\n[dry-run] vehicles.json NOT written")
-    else:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(all_cfg, f, indent=2, ensure_ascii=False)
-            f.write('\n')
-        print(f"\nvehicles.json written: {path}")
+        if args.dry_run:
+            print("\n[dry-run] vehicles.json NOT written")
+        else:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(all_cfg, f, indent=2, ensure_ascii=False)
+                f.write('\n')
+            print(f"\nvehicles.json written: {path}")
     return summaries
 
 

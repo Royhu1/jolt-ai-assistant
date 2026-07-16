@@ -38,11 +38,20 @@ dev = [
     "mypy>=1.5.0",
 ]
 
+[project.scripts]
+jolt-report = "jolt_toolkit.report_generator.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["jolt_toolkit*"]
 
 [tool.setuptools.package-data]
+# Config JSONs (vehicles / pipelines / plot_config). Without this a wheel install
+# ships no config → VEHICLE_CONFIG == {} → every run fails. Override the location
+# at runtime with JOLT_CONFIG_DIR (writable, for the capacity ledger write-back).
+"jolt_toolkit.configs" = [
+    "*.json",
+]
 # Vendored offline uPlot assets inlined into the dashboard drill-down detail
 # pages (see report_generator/assets/uplot/PROVENANCE.txt). Shipped so non-editable
 # installs can still render detail pages without a network fetch.

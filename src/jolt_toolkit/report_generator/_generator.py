@@ -21,6 +21,7 @@ from srf_client import paging
 from tqdm import tqdm
 
 from jolt_toolkit import __version__
+from jolt_toolkit.report_generator.paths import get_cache_dir, get_srf_api_root
 from jolt_toolkit.report_generator.data_class import ServerData
 from jolt_toolkit.report_generator.data_fetcher import fetch_events
 from jolt_toolkit.report_generator.segment_algorithms import (
@@ -362,8 +363,8 @@ class JOLTReportGenerator:
         """
         self.srf_data = self._make_srf_data(
             api_key=os.environ.get("SRF_API_KEY"),
-            root="https://data.csrf.ac.uk/api/",
-            cache_dir="./cache",
+            root=get_srf_api_root(),
+            cache_dir=str(get_cache_dir()),
             verify=True,
         )
         self.report_output_folder = report_output_folder
@@ -592,7 +593,7 @@ class JOLTReportGenerator:
             try:
                 # ── 应用层缓存：按 leg URI 缓存原始遥测 CSV ──────────
                 leg_uri_hash = leg.uri.rstrip("/").rsplit("/", 1)[-1]
-                cache_path = Path("./cache/srf_raw") / f"{leg_uri_hash}.csv"
+                cache_path = get_cache_dir() / "srf_raw" / f"{leg_uri_hash}.csv"
 
                 if cache_path.exists():
                     df_leg = pd.read_csv(cache_path, dtype=str)
@@ -1309,26 +1310,30 @@ class JOLTReportGenerator:
             return
 
         import json
+        from filelock import FileLock
         from jolt_toolkit.configs import get_config_path
         path = get_config_path('vehicles.json')
-        with open(path, 'r', encoding='utf-8') as f:
-            all_cfg = json.load(f)
-        if reg not in all_cfg:
-            return
+        # Guard the read-modify-write so parallel report runs cannot clobber
+        # each other's capacity ledger entries (values/timing unchanged).
+        with FileLock(str(path) + '.lock'):
+            with open(path, 'r', encoding='utf-8') as f:
+                all_cfg = json.load(f)
+            if reg not in all_cfg:
+                return
 
-        entry = all_cfg[reg]
-        old_val = entry.get('effective_capacity_kwh')
-        quarterly = entry.get('effective_capacity_quarterly') or {}
-        quarterly[period_key] = {'kwh': round(float(eff_cap), 1), 'n': int(n_donors)}
+            entry = all_cfg[reg]
+            old_val = entry.get('effective_capacity_kwh')
+            quarterly = entry.get('effective_capacity_quarterly') or {}
+            quarterly[period_key] = {'kwh': round(float(eff_cap), 1), 'n': int(n_donors)}
 
-        wavg, n_rel, n_sparse = _recompute_weighted_capacity(quarterly)
-        entry['effective_capacity_quarterly'] = quarterly
-        if wavg is not None:
-            entry['effective_capacity_kwh'] = wavg
+            wavg, n_rel, n_sparse = _recompute_weighted_capacity(quarterly)
+            entry['effective_capacity_quarterly'] = quarterly
+            if wavg is not None:
+                entry['effective_capacity_kwh'] = wavg
 
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(all_cfg, f, indent=2, ensure_ascii=False)
-            f.write('\n')
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(all_cfg, f, indent=2, ensure_ascii=False)
+                f.write('\n')
         # 同步内存中的 VEHICLE_CONFIG
         VEHICLE_CONFIG.setdefault(reg, {})
         VEHICLE_CONFIG[reg]['effective_capacity_quarterly'] = quarterly

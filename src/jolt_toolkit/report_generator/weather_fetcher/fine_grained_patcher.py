@@ -57,6 +57,7 @@ from filelock import FileLock
 from openpyxl import load_workbook
 from tqdm import tqdm
 
+from jolt_toolkit.report_generator.paths import get_cache_dir
 from jolt_toolkit.report_generator.report_builder import (
     HEADERS,
     DIESEL_HEADERS,
@@ -423,7 +424,7 @@ class FineGrainedWeatherPatcher:
 
         cache_file = cache_file or os.environ.get(
             'WEATHER_CACHE_FILE_FINE',
-            './cache/weather/.weather_cache_fine.json',
+            str(get_cache_dir() / 'weather' / '.weather_cache_fine.json'),
         )
         self._cache = _WeatherCache(cache_file, precision=precision,
                                     time_bucket_s=time_bucket_s)

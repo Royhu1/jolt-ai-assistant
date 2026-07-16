@@ -85,12 +85,23 @@ import json as _json
 from jolt_toolkit.configs import get_config_path as _get_config_path
 
 def _load_json(name: str) -> dict:
-    """从 configs/ 目录加载 JSON 配置文件。"""
+    """Load a JSON config file from the active config directory.
+
+    Raises ``FileNotFoundError`` with an actionable message when the file is
+    missing (previously returned ``{}`` silently, which surfaced much later as
+    an empty ``VEHICLE_CONFIG`` and a cryptic 'vehicle not registered' error).
+    """
     path = _get_config_path(name)
-    if path.exists():
-        with open(path, 'r', encoding='utf-8') as f:
-            return _json.load(f)
-    return {}
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Config file '{name}' not found at {path}. If jolt_toolkit was "
+            f"installed as a wheel, ensure the configs are packaged "
+            f"(pyproject 'jolt_toolkit.configs' package-data), or set the "
+            f"JOLT_CONFIG_DIR environment variable to a directory containing "
+            f"vehicles.json / pipelines.json / plot_config.json."
+        )
+    with open(path, 'r', encoding='utf-8') as f:
+        return _json.load(f)
 
 VEHICLE_CONFIG: dict[str, dict[str, Any]] = _load_json('vehicles.json')
 PIPELINE_CONFIGS: dict[str, dict] = _load_json('pipelines.json')

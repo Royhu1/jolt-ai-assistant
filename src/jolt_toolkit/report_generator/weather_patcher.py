@@ -28,6 +28,7 @@ from filelock import FileLock
 from openpyxl import load_workbook
 from tqdm import tqdm
 
+from jolt_toolkit.report_generator.paths import get_cache_dir
 from jolt_toolkit.report_generator.report_builder import is_trip_leg
 
 logger = logging.getLogger(__name__)
@@ -230,7 +231,8 @@ class WeatherPatcher:
                  precision: int = 2, time_bucket_s: int = 3600,
                  max_workers: int = 30):
         cache_file = cache_file or os.environ.get(
-            'WEATHER_CACHE_FILE', './cache/.weather_cache.json')
+            'WEATHER_CACHE_FILE',
+            str(get_cache_dir() / '.weather_cache.json'))
         self._cache = _WeatherCache(cache_file, precision, time_bucket_s)
         self._keys = _KeyManager()
         self._lock = threading.Lock()

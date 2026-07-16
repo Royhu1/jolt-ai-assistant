@@ -27,6 +27,7 @@ from openpyxl.styles import Font
 
 import pandas as pd
 
+from jolt_toolkit.report_generator.paths import get_cache_dir, get_srf_api_root
 from jolt_toolkit.report_generator.segment_algorithms import VEHICLE_CONFIG
 from jolt_toolkit.report_generator.report_builder import (
     HEADERS,
@@ -223,7 +224,9 @@ class ChargerPatcher:
         cache_dir:   SRF API 缓存目录
     """
 
-    def __init__(self, srf_data=None, cache_dir: str = "./cache"):
+    def __init__(self, srf_data=None, cache_dir: str | None = None):
+        if cache_dir is None:
+            cache_dir = str(get_cache_dir())
         if srf_data is not None:
             self._srf_data = srf_data
         else:
@@ -238,7 +241,7 @@ class ChargerPatcher:
                 cache = SeparateBodyFileCache(srf_cache_path)
             self._srf_data = srf_client.SRFData(
                 api_key=api_key, cache=cache,
-                root="https://data.csrf.ac.uk/api/", verify=True,
+                root=get_srf_api_root(), verify=True,
             )
 
     # ── 公开接口 ──────────────────────────────────────────────────────────

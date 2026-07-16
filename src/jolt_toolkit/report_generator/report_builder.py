@@ -27,6 +27,7 @@ from srf_client import filter as srf_filter
 from geopy import Point as GeoPoint
 from geopy.distance import Distance, geodesic
 
+from jolt_toolkit.report_generator.paths import get_cache_dir
 from jolt_toolkit.report_generator.segment_algorithms import (
     run_segment_detection,
     SOC_COL,
@@ -1042,11 +1043,10 @@ def _point_str(lat, lon) -> str | None:
 # Postcode reverse geocoding
 # =============================================================================
 
-_POSTCODE_CACHE_PATH = (
-    Path(__file__).resolve().parent.parent.parent.parent
-    / "cache"
-    / "postcode_cache.json"
-)
+# Anchored on the cache root (``JOLT_CACHE_DIR`` or ``./cache``) instead of the
+# module file: identical to ``<repo>/cache/postcode_cache.json`` when run from the
+# repository root, but now honours the cache-dir override for a platform deploy.
+_POSTCODE_CACHE_PATH = get_cache_dir() / "postcode_cache.json"
 
 
 def _load_postcode_cache() -> dict:
