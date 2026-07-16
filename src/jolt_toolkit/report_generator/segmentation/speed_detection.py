@@ -17,7 +17,7 @@ from .constants import (
 )
 
 # =============================================================================
-# 基于速度的放电行程分段
+# Speed-based discharge trip segmentation
 # =============================================================================
 def _extend_trip_endpoint_to_zero(
     times_ns: np.ndarray,
@@ -27,19 +27,19 @@ def _extend_trip_endpoint_to_zero(
     max_extend_ns: int,
 ) -> int:
     """
-    将 trip 端点向外扩展到最近的 v == 0 样本（用于 zero_speed anchor 模式）。
+    Extend a trip endpoint outward to the nearest v == 0 sample (for the zero_speed anchor mode).
 
-    参数
-    ----
-    times_ns    : 全 leg 时间戳 (datetime64[ns] view as int64)
-    spd_arr     : 全 leg 速度数组（NaN 已填 0；与 times_ns 同长）
-    idx0        : 当前端点索引（first/last moving sample 在 df 中的位置）
-    direction   : 'backward'（trip 起点向前扩）或 'forward'（trip 终点向后扩）
-    max_extend_ns : 最大外扩窗口（纳秒）；超出则放弃外扩，回退到 idx0
+    Parameters
+    ----------
+    times_ns    : full-leg timestamps (datetime64[ns] view as int64)
+    spd_arr     : full-leg speed array (NaN already filled with 0; same length as times_ns)
+    idx0        : current endpoint index (position of the first/last moving sample in df)
+    direction   : 'backward' (extend the trip start earlier) or 'forward' (extend the trip end later)
+    max_extend_ns : maximum extension window (nanoseconds); beyond this, give up the extension and fall back to idx0
 
-    返回
-    ----
-    扩展后的端点索引；若窗口内未找到 v == 0 样本则返回 idx0（fallback 行为）。
+    Returns
+    -------
+    The extended endpoint index; returns idx0 if no v == 0 sample is found within the window (fallback behaviour).
     """
     n = len(times_ns)
     t0 = times_ns[idx0]
@@ -48,19 +48,19 @@ def _extend_trip_endpoint_to_zero(
         while j > 0:
             j -= 1
             if (t0 - times_ns[j]) > max_extend_ns:
-                return idx0  # 超出窗口，回退
+                return idx0  # beyond the window, fall back
             if spd_arr[j] == 0:
                 return j
-        return idx0  # 到 leg 起点仍未遇到 v==0
+        return idx0  # reached the leg start without hitting v==0
     else:  # 'forward'
         j = idx0
         while j < n - 1:
             j += 1
             if (times_ns[j] - t0) > max_extend_ns:
-                return idx0  # 超出窗口，回退
+                return idx0  # beyond the window, fall back
             if spd_arr[j] == 0:
                 return j
-        return idx0  # 到 leg 终点仍未遇到 v==0
+        return idx0  # reached the leg end without hitting v==0
 
 
 def find_speed_trips(
@@ -73,32 +73,37 @@ def find_speed_trips(
     max_extend_minutes: float = 5.0,
 ) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
     """
-    基于车速检测行程起止时间。
+    Detect trip start/end times from vehicle speed.
 
-    参数
-    ----
-    df_raw              : 原始遥测 DataFrame（需含 TIME_COL 和 speed_col 列）
-    speed_col           : 速度列名（km/h）
-    speed_threshold_kmh : 速度高于此值视为行驶中
-    min_stop_duration_min : 连续零速超过此时长（分钟）才视为行程结束；
-                            更短的零速间隔会被桥接（如红灯、短暂停车）
-    min_trip_duration_min : 行程持续时间低于此值（分钟）则丢弃（噪声）
-    trip_endpoint_anchor : trip 端点锚定策略：
-        - 'zero_speed'（默认，v2.2.5 起）：split + merge + 过滤后，把端点外扩到
-                                  最近的 v == 0 样本（不超过 max_extend_minutes 分钟）。
-                                  目的：让 trip 窗口完整覆盖低频遥测心跳上的
-                                  零速尾巴，避免起止时刻落在 76 km/h 等瞬态点。
-                                  现为全车队标准。
-        - 'first_motion'（opt-out / legacy）：端点 = trip 内首/末个
-                                  v > speed_threshold_kmh 样本（v2.2.3 之前的唯一行为，
-                                  保留作向后兼容 / per-pipeline override）。
-    max_extend_minutes  : zero_speed 模式下端点外扩的最大窗口（分钟）；超出则
-                          静默回退到 first_motion 端点。仅当 anchor==zero_speed 时生效。
+    Parameters
+    ----------
+    df_raw              : raw telemetry DataFrame (must contain the TIME_COL and speed_col columns)
+    speed_col           : speed column name (km/h)
+    speed_threshold_kmh : speed above this value counts as moving
+    min_stop_duration_min : a trip ends only when continuous zero speed exceeds this duration (minutes);
+                            shorter zero-speed intervals are bridged (e.g. red lights, brief stops)
+    min_trip_duration_min : discard trips shorter than this duration (minutes) as noise
+    trip_endpoint_anchor : trip endpoint anchoring strategy:
+        - 'zero_speed' (default, from v2.2.5): after split + merge + filtering,
+                                  extend the endpoints outward to the nearest
+                                  v == 0 sample (within max_extend_minutes minutes).
+                                  Purpose: let the trip window fully cover the
+                                  zero-speed tails on low-frequency telemetry
+                                  heartbeats, avoiding start/end times landing on
+                                  transient points such as 76 km/h. Now the
+                                  fleet-wide standard.
+        - 'first_motion' (opt-out / legacy): endpoints = the first/last
+                                  v > speed_threshold_kmh sample within the trip
+                                  (the sole behaviour before v2.2.3, kept for
+                                  backward compatibility / per-pipeline override).
+    max_extend_minutes  : maximum window (minutes) for extending the endpoints in
+                          zero_speed mode; beyond this, silently fall back to the
+                          first_motion endpoints. Only in effect when anchor==zero_speed.
 
-    返回
-    ----
-    [(trip_start, trip_end), ...] — 按时间排序的行程时间窗口列表。
-    若速度列不存在或全部无效，返回空列表。
+    Returns
+    -------
+    [(trip_start, trip_end), ...] — a time-sorted list of trip time windows.
+    Returns an empty list if the speed column is absent or entirely invalid.
     """
     if TIME_COL not in df_raw.columns:
         return []
@@ -111,19 +116,19 @@ def find_speed_trips(
     if df.empty:
         return []
 
-    # 速度：NaN → 0
+    # Speed: NaN → 0
     df['_spd'] = pd.to_numeric(df[speed_col], errors='coerce').fillna(0.0)
 
-    # 若速度列全部为 0 则无行程
+    # No trips if the speed column is all 0
     if (df['_spd'] <= speed_threshold_kmh).all():
         return []
 
-    # 标记行驶状态
+    # Mark the moving state
     df['_moving'] = df['_spd'] > speed_threshold_kmh
     times = df[TIME_COL].values.astype('datetime64[ns]')
     moving = df['_moving'].values
 
-    # 找到连续行驶块
+    # Find contiguous moving blocks
     raw_trips: list[tuple[int, int]] = []  # (first_moving_idx, last_moving_idx)
     i = 0
     n = len(df)
@@ -139,19 +144,19 @@ def find_speed_trips(
     if not raw_trips:
         return []
 
-    # 桥接：若两个行驶块之间的零速间隔 < min_stop_duration_min，则合并
+    # Bridge: merge two moving blocks if the zero-speed gap between them < min_stop_duration_min
     min_stop_ns = int(min_stop_duration_min * 60 * 1_000_000_000)
     merged_trips: list[tuple[int, int]] = [raw_trips[0]]
     for trip_s, trip_e in raw_trips[1:]:
         prev_e = merged_trips[-1][1]
         gap_ns = int(times[trip_s] - times[prev_e])
         if gap_ns <= min_stop_ns:
-            # 桥接：扩展前一行程到当前行程结束
+            # Bridge: extend the previous trip to the current trip's end
             merged_trips[-1] = (merged_trips[-1][0], trip_e)
         else:
             merged_trips.append((trip_s, trip_e))
 
-    # 过滤短行程
+    # Filter out short trips
     min_trip_ns = int(min_trip_duration_min * 60 * 1_000_000_000)
     spd_arr = df['_spd'].values
     max_extend_ns = int(max_extend_minutes * 60 * 1_000_000_000)
@@ -159,13 +164,13 @@ def find_speed_trips(
 
     result: list[tuple[pd.Timestamp, pd.Timestamp]] = []
     for trip_s, trip_e in merged_trips:
-        # 行程长度过滤基于原始 first_motion 端点（与 v2.2.2 行为一致）
+        # Trip-length filter is based on the original first_motion endpoints (consistent with v2.2.2 behaviour)
         if int(times[trip_e] - times[trip_s]) < min_trip_ns:
             continue
 
         s_idx, e_idx = trip_s, trip_e
         if use_zero_anchor:
-            # 端点向外扩到最近的 v==0 样本，超出 max_extend_ns 则回退
+            # Extend the endpoints outward to the nearest v==0 sample, falling back beyond max_extend_ns
             times_ns_int = times.view('i8')
             s_idx = _extend_trip_endpoint_to_zero(
                 times_ns_int, spd_arr, trip_s, 'backward', max_extend_ns,
@@ -197,26 +202,27 @@ def find_discharge_segments_by_speed(
     max_extend_minutes: float = 5.0,
 ) -> list[dict]:
     """
-    基于车速的放电行程分段：用速度检测行程边界，SOC/能量用于计算指标。
+    Speed-based discharge trip segmentation: detect trip boundaries from speed, use SOC/energy to compute metrics.
 
-    输出 schema 与 find_discharge_segments_by_soc() 完全一致（v2 统一 schema），
-    保证下游 report_builder / merge_discharge_by_mass 等逻辑无需修改。
+    The output schema is identical to find_discharge_segments_by_soc() (v2 unified
+    schema), so downstream logic (report_builder / merge_discharge_by_mass, etc.)
+    needs no modification.
 
-    与 SOC-based 放电分段的区别：
-    - 行程边界由速度信号定义（更精确），而非 SOC 下降趋势
-    - 使用更宽松的 min_soc_drop（默认 1.0 vs 5.0）和 min_energy_kwh（1.0 vs 2.0）
-    - 能量源级联逻辑完全相同：total_energy → moving_energy → soc_estimate
+    Differences from SOC-based discharge segmentation:
+    - Trip boundaries are defined by the speed signal (more precise) rather than the SOC decline trend
+    - Uses looser min_soc_drop (default 1.0 vs 5.0) and min_energy_kwh (1.0 vs 2.0)
+    - The energy-source cascade logic is identical: total_energy → moving_energy → soc_estimate
 
-    参数
-    ----
-    参见 find_speed_trips() 和 find_discharge_segments_by_soc() 的参数说明。
+    Parameters
+    ----------
+    See the parameter descriptions in find_speed_trips() and find_discharge_segments_by_soc().
 
-    返回
-    ----
-    list[dict] — 与 find_discharge_segments_by_soc() 相同的分段字典列表。
-    若速度列缺失或全零（无行程），返回空列表（调用方可 fallback 到 SOC-based）。
+    Returns
+    -------
+    list[dict] — the same list of segment dicts as find_discharge_segments_by_soc().
+    Returns an empty list if the speed column is missing or all-zero (no trips) (the caller may fall back to SOC-based).
     """
-    # 1. 获取速度定义的行程时间窗口（可接受外部预计算的 trips）
+    # 1. Obtain the speed-defined trip time windows (externally precomputed trips are accepted)
     if trips is None:
         trips = find_speed_trips(
             df_raw,
@@ -230,7 +236,7 @@ def find_discharge_segments_by_speed(
     if not trips:
         return []
 
-    # 2. 准备数据列
+    # 2. Prepare the data columns
     if SOC_COL not in df_raw.columns or TIME_COL not in df_raw.columns:
         return []
 
@@ -261,7 +267,7 @@ def find_discharge_segments_by_speed(
             df[_c] = pd.to_numeric(df[_c], errors='coerce')
             df.loc[df[_c] == 0, _c] = np.nan
 
-    # 速度列（用于 zero_speed anchor 模式下计算 v>0 子区间累计时长）
+    # Speed column (used to compute the cumulative v>0 sub-interval duration in zero_speed anchor mode)
     if speed_col in df.columns:
         df['_spd'] = pd.to_numeric(df[speed_col], errors='coerce').fillna(0.0)
     else:
@@ -269,7 +275,7 @@ def find_discharge_segments_by_speed(
 
     times_np = df[TIME_COL].values.astype('datetime64[ns]')
 
-    # Total energy 基准（用于 anchor 相对值）
+    # Total-energy baseline (used for the anchor relative values)
     tot_base_wh = 0.0
     if has_total:
         _tot_valid = df.loc[df['_tot'].notna(), '_tot']
@@ -283,7 +289,7 @@ def find_discharge_segments_by_speed(
             mov_base_wh = float(_mov_valid.iloc[0])
 
     def _nearest_before(col_name: str, t_np):
-        """在时间 t_np 之前（含）找到最近的有效值。"""
+        """Find the nearest valid value at or before time t_np."""
         mask = df[col_name].notna() & (times_np <= t_np)
         idx = df.index[mask]
         if len(idx) == 0:
@@ -292,7 +298,7 @@ def find_discharge_segments_by_speed(
         return float(df.loc[i, col_name]), pd.Timestamp(times_np[i])
 
     def _nearest_after(col_name: str, t_np):
-        """在时间 t_np 之后（含）找到最近的有效值。"""
+        """Find the nearest valid value at or after time t_np."""
         mask = df[col_name].notna() & (times_np >= t_np)
         idx = df.index[mask]
         if len(idx) == 0:
@@ -300,44 +306,44 @@ def find_discharge_segments_by_speed(
         i = idx[0]
         return float(df.loc[i, col_name]), pd.Timestamp(times_np[i])
 
-    # 3. 对每个行程计算分段指标
+    # 3. Compute segment metrics for each trip
     segments: list[dict] = []
     for trip_start, trip_end in trips:
         t_s = trip_start.to_numpy().astype('datetime64[ns]')
         t_e = trip_end.to_numpy().astype('datetime64[ns]')
 
-        # SOC：行程窗口内第一个和最后一个有效读数
+        # SOC: first and last valid reading within the trip window
         win_mask = (times_np >= t_s) & (times_np <= t_e)
         win_soc = df.loc[win_mask & df['_soc'].notna(), '_soc']
         if len(win_soc) < 1:
-            # 窗口内无 SOC → 尝试窗口边界附近的 SOC
+            # No SOC within the window → try SOC near the window boundaries
             soc_s, _ = _nearest_before('_soc', t_s)
             soc_e, _ = _nearest_after('_soc', t_e)
         else:
             soc_s = float(win_soc.iloc[0])
             soc_e = float(win_soc.iloc[-1])
 
-        # SOC 变化量
+        # SOC change
         has_soc = not (np.isnan(soc_s) or np.isnan(soc_e))
         if has_soc:
-            delta_soc_signed = soc_e - soc_s      # 负值 = 放电
-            delta_soc_abs    = soc_s - soc_e       # 正值 = 下降幅度
+            delta_soc_signed = soc_e - soc_s      # negative = discharge
+            delta_soc_abs    = soc_s - soc_e       # positive = drop magnitude
         else:
             delta_soc_signed = 0.0
             delta_soc_abs    = 0.0
 
-        # SOC 变化量过滤：剔除 SOC 下降不足的行程
+        # SOC-change filter: drop trips with insufficient SOC decline
         if has_soc and delta_soc_abs < min_soc_drop:
             continue
 
-        # ── delta_energy_kwh：能量源级联 ──────────────────────────────
-        # 速度分段中行程已由速度确认，优先用能量计数器（精度高于 SOC）。
+        # ── delta_energy_kwh: energy-source cascade ────────────────────
+        # In speed segmentation the trip is already confirmed by speed, so prefer the energy counters (higher precision than SOC).
         delta_energy_kwh = None
         energy_source    = None
         anchor_s_time = anchor_e_time = None
         anchor_s_rel = anchor_e_rel = float('nan')
 
-        # 1. Total energy col（首选）
+        # 1. Total energy col (preferred)
         if has_total:
             e_s, t_es = _nearest_before('_tot', t_s)
             e_e, t_ee = _nearest_after('_tot', t_e)
@@ -351,7 +357,7 @@ def find_discharge_segments_by_speed(
                     anchor_s_rel     = round((e_s - tot_base_wh) / 1000.0, 4)
                     anchor_e_rel     = round((e_e - tot_base_wh) / 1000.0, 4)
 
-        # 2. Moving energy col（备选）
+        # 2. Moving energy col (fallback)
         if delta_energy_kwh is None and has_moving:
             e_s, t_es = _nearest_before('_mov', t_s)
             e_e, t_ee = _nearest_after('_mov', t_e)
@@ -365,7 +371,7 @@ def find_discharge_segments_by_speed(
                     anchor_s_rel     = round((e_s - mov_base_wh) / 1000.0, 4)
                     anchor_e_rel     = round((e_e - mov_base_wh) / 1000.0, 4)
 
-        # 3. SOC estimate（兜底）— 仅在 SOC 有实际下降时使用
+        # 3. SOC estimate (last resort) — used only when SOC has an actual decline
         if delta_energy_kwh is None and nominal_kwh is not None and delta_soc_abs > 0:
             delta_energy_kwh = (delta_soc_signed / 100.0) * nominal_kwh
             energy_source    = 'soc_estimate'
@@ -379,7 +385,7 @@ def find_discharge_segments_by_speed(
         if abs(delta_energy_kwh) < min_energy_kwh or delta_energy_kwh >= 0:
             continue
 
-        # Effective capacity：仅在 SOC 有实际下降时可计算
+        # Effective capacity: computable only when SOC has an actual decline
         if delta_soc_abs > 0:
             eff_cap = abs(delta_energy_kwh) / (delta_soc_abs / 100.0)
             if cap_lo is not None and cap_hi is not None:
@@ -388,7 +394,7 @@ def find_discharge_segments_by_speed(
         else:
             eff_cap = None
 
-        # delta_moving_kwh（独立于主能量源）
+        # delta_moving_kwh (independent of the primary energy source)
         delta_moving = None
         if has_moving:
             e_ms, _ = _nearest_before('_mov', t_s)
@@ -398,7 +404,7 @@ def find_discharge_segments_by_speed(
                 if _dm > 0:
                     delta_moving = round(_dm, 3)
 
-        # 里程
+        # Distance
         odo_s, _ = _nearest_before('_odo', t_s)
         odo_e, _ = _nearest_after('_odo', t_e)
 
@@ -415,16 +421,17 @@ def find_discharge_segments_by_speed(
         else:
             lat_s = lon_s = lat_e = lon_e = None
 
-        # ── motion_duration_s（v>0 子区间累计时长，仅 zero_speed anchor 模式）
-        # 仅当 trip_endpoint_anchor='zero_speed' 时写入；下游 _seg_to_row 用此值
-        # 代替端点差作 avg_speed 分母，避免零速尾巴稀释速度。
+        # ── motion_duration_s (cumulative duration of v>0 sub-intervals, zero_speed anchor mode only)
+        # Written only when trip_endpoint_anchor='zero_speed'; downstream _seg_to_row
+        # uses this value instead of the endpoint difference as the avg_speed
+        # denominator, avoiding the zero-speed tails diluting the speed.
         motion_duration_s = None
         if trip_endpoint_anchor == 'zero_speed':
             win_idx = np.where(win_mask)[0]
             if len(win_idx) >= 2:
                 spd_win = df['_spd'].values[win_idx]
                 tns_win = times_np[win_idx].view('i8')
-                # 用前向差分：dt[i] = t[i+1] - t[i]，若 spd[i] > threshold 计入
+                # Forward difference: dt[i] = t[i+1] - t[i], counted if spd[i] > threshold
                 dt_ns = tns_win[1:] - tns_win[:-1]
                 moving_mask = spd_win[:-1] > speed_threshold_kmh
                 motion_duration_s = float(dt_ns[moving_mask].sum()) / 1e9

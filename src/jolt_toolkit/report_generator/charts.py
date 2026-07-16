@@ -80,7 +80,7 @@ from jolt_toolkit.report_generator.columns import (
 # "filter" in place, so the generator and patcher both write the filtered
 # (x, y) pairs to a hidden ``GraphsData`` block and point the scatter series AND
 # the linear trendline at that clean block — keeping the fit consistent with the
-# paper口径 (fit computed on clean data only).
+# paper's convention (fit computed on clean data only).
 
 # Shared chart aesthetic for every Graphs chart, EV and diesel alike. Keeping a
 # single source of truth here means the xlsxwriter generator and the openpyxl
@@ -262,7 +262,7 @@ def _chart_subtitle(pts) -> str:
 # EV charts. Only Energy-Performance-vs-{Mass, Temperature, Speed} are kept; the
 # former Battery-Power-vs-Energy-Change and SOC-Change-vs-Energy-Change pairs were
 # dropped (v2.2.4 visual pass) so EV and diesel report the same three-panel
-# "{performance metric} vs {Mass / Temp / Speed}" set, matching the paper口径.
+# "{performance metric} vs {Mass / Temp / Speed}" set, matching the paper's convention.
 CHART_SPECS_EV: tuple[dict, ...] = (
     {
         "x_hdr": "Vehicle Mass (kg)",

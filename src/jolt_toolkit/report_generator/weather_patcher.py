@@ -1,12 +1,13 @@
 """
 weather_patcher.py
 ==================
-独立的天气数据补全工具。
+Standalone weather data backfill tool.
 
-读取已生成的 Excel 报告，通过 OpenWeather API 获取历史天气数据，
-补全报告中缺失的天气列（温度、气压、湿度、风速、风向）。
+Reads a generated Excel report, fetches historical weather data via the
+OpenWeather API, and backfills the report's missing weather columns
+(temperature, pressure, humidity, wind speed, wind direction).
 
-用法：
+Usage:
     from jolt_toolkit.report_generator.weather_patcher import WeatherPatcher
     patcher = WeatherPatcher()
     patcher.patch_folder("excel_report_database/1.0.0/KY24LHT/")
@@ -36,7 +37,7 @@ from jolt_toolkit.report_generator.weather_fetcher.openweather import (
 
 logger = logging.getLogger(__name__)
 
-# ── Excel 列索引 (1-based, openpyxl 约定) ────────────────────────────────
+# ── Excel column indices (1-based, openpyxl convention) ─────────────────
 _COL_LEG_TYPE   = 2
 _COL_START_TIME = 6
 _COL_ORIGIN     = 7
@@ -69,10 +70,10 @@ assert _COL_WIND_DIR == HEADERS.index("Average Wind Direction") + 1
 assert _COL_WEATHER_TYPE == HEADERS.index("Weather Type") + 1
 
 
-# ── 工具函数 ──────────────────────────────────────────────────────────────
+# ── Utility functions ─────────────────────────────────────────────────────
 
 def _parse_point(point_str) -> tuple[float | None, float | None]:
-    """解析 'Point(lat lon)' 格式的坐标字符串。"""
+    """Parse a coordinate string in 'Point(lat lon)' format."""
     if not point_str or not isinstance(point_str, str):
         return None, None
     m = re.match(r'Point\(([+-]?\d+\.?\d*)\s+([+-]?\d+\.?\d*)\)', point_str)
@@ -82,14 +83,14 @@ def _parse_point(point_str) -> tuple[float | None, float | None]:
 
 
 def _deg_to_cardinal(deg: float) -> str:
-    """角度 → 8 方位风向。"""
+    """Degrees → 8-point compass wind direction."""
     directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
     idx = round(deg / 45) % 8
     return directions[idx]
 
 
 def _cell_needs_patch(cell) -> bool:
-    """判断单元格是否需要补全天气数据（空值或 =NA() 公式）。"""
+    """Return whether a cell needs weather data backfilled (empty value or the =NA() formula)."""
     v = cell.value
     if v is None:
         return True
@@ -99,12 +100,12 @@ def _cell_needs_patch(cell) -> bool:
 
 
 def _to_unix_utc(dt_val) -> int | None:
-    """将 openpyxl 读取的日期时间值转为 UTC unix 时间戳。"""
+    """Convert a datetime value read by openpyxl to a UTC unix timestamp."""
     if dt_val is None:
         return None
     try:
         if isinstance(dt_val, datetime):
-            # openpyxl 读取的 datetime 通常是 naive，报告中标注为 UTC
+            # A datetime read by openpyxl is usually naive; the report labels it UTC
             if dt_val.tzinfo is None:
                 dt_val = dt_val.replace(tzinfo=timezone.utc)
             return int(dt_val.timestamp())
@@ -125,34 +126,38 @@ def _is_ev_layout(ws) -> bool:
     return header == list(HEADERS)
 
 
-# ── API 密钥管理 + 天气缓存 ────────────────────────────────────────────────
+# ── API key management + weather cache ─────────────────────────────────────
 # _KeyManager / _WeatherCache now live in weather_fetcher.openweather (shared
 # with FineGrainedWeatherPatcher). The coarse cache writes no metadata block on
 # init (metadata=None), preserving cache/.weather_cache.json's prior format.
 
 
-# ── 主类 ─────────────────────────────────────────────────────────────────
+# ── Main class ────────────────────────────────────────────────────────────
 
 class WeatherPatcher:
     """
-    天气数据补全工具。
+    Weather data backfill tool.
 
-    读取已生成的 xlsx 报告文件，通过 OpenWeather timemachine API
-    获取出发地和目的地的历史天气数据，取平均值写入报告。
+    Reads a generated xlsx report file, fetches the origin's and destination's
+    historical weather data via the OpenWeather timemachine API, and writes the
+    average into the report.
 
-    仅补全 **行驶 / trip 行**（``is_trip_leg`` 判定）：充电段与 Stop 行不需要
-    天气，且查询它们只会白白消耗 OpenWeather 配额，因此在收集坐标之前就被跳过
-    （根本不进入唯一位置集合）。
+    Backfills **driving / trip rows only** (judged by ``is_trip_leg``): charge
+    segments and Stop rows do not need weather, and querying them would only waste
+    OpenWeather quota, so any non-trip row is skipped before its coordinates are
+    ever collected (never enters the unique-location set at all).
 
     Args:
-        cache_file:    缓存文件路径（默认 ./cache/.weather_cache.json）
-        precision:     坐标缓存精度（小数位数，默认 2，约 1 km 网格）。配合
-                       ``time_bucket_s`` 让邻近 / 同小时的点共享缓存 key，大幅
-                       提高跨日 / 跨车 backfill 的命中率（与 FineGrainedWeatherPatcher
-                       的 cache key 一致）。
-        time_bucket_s: 时间桶大小（秒，默认 3600，按小时聚合，因 OpenWeather
-                       timemachine 历史数据本身是小时粒度）。
-        max_workers:   并发请求数（默认 30）
+        cache_file:    cache file path (default ./cache/.weather_cache.json)
+        precision:     coordinate cache precision (decimal places, default 2, ~1 km
+                       grid). Together with ``time_bucket_s`` it lets nearby /
+                       same-hour points share a cache key, greatly improving the hit
+                       rate of cross-day / cross-vehicle backfill (the same cache key
+                       as FineGrainedWeatherPatcher).
+        time_bucket_s: time-bucket size (seconds, default 3600, aggregated by hour,
+                       because the OpenWeather timemachine historical data is itself
+                       at hourly granularity).
+        max_workers:   number of concurrent requests (default 30)
     """
 
     def __init__(self, cache_file: str | Path | None = None,
@@ -165,18 +170,19 @@ class WeatherPatcher:
         self._keys = KeyManager("WeatherPatcher")
         self._fetcher = WeatherFetcher(self._keys, max_workers)
 
-    # ── 公开接口 ──────────────────────────────────────────────────────────
+    # ── Public interface ──────────────────────────────────────────────────
 
     def patch_file(self, xlsx_path: str | Path) -> int:
         """
-        补全单个 xlsx 报告的天气数据。
+        Backfill a single xlsx report's weather data.
 
-        读取 Report 工作表中 **行驶 / trip 行** 的坐标和时间（充电 / Stop 行被
-        跳过，见类 docstring），查询 OpenWeather API，将温度/气压/湿度/风速/风向
-        写入对应列。
+        Reads the coordinates and times of the **driving / trip rows** in the
+        Report worksheet (charge / Stop rows are skipped, see the class docstring),
+        queries the OpenWeather API, and writes temperature/pressure/humidity/wind
+        speed/wind direction into the corresponding columns.
 
         Returns:
-            补全的行数。
+            The number of rows backfilled.
         """
         xlsx_path = Path(xlsx_path)
         if not xlsx_path.exists():
@@ -202,11 +208,11 @@ class WeatherPatcher:
             wb.close()
             return 0
 
-        # 1. 收集需要补全的行
+        # 1. Collect the rows needing backfill
         tasks = []  # (row_idx, o_lat, o_lon, o_dt, d_lat, d_lon, d_dt)
-        total_rows = ws.max_row - 1  # 减去标题行
-        for row_idx in tqdm(range(2, ws.max_row + 1), desc="扫描天气行",
-                            total=total_rows, leave=False):  # 跳过标题行
+        total_rows = ws.max_row - 1  # minus the header row
+        for row_idx in tqdm(range(2, ws.max_row + 1), desc="Scanning weather rows",
+                            total=total_rows, leave=False):  # skip the header row
             # Weather is backfilled on driving / trip rows ONLY. Charge and Stop
             # rows do not need weather, and querying them would only waste
             # OpenWeather quota, so skip any non-trip row before its coordinates
@@ -239,28 +245,28 @@ class WeatherPatcher:
 
         logger.info(f"  {len(tasks)} rows need weather data")
 
-        # 2. 收集所有唯一 (lat, lon, dt) 位置
+        # 2. Collect all unique (lat, lon, dt) locations
         loc_set: set[tuple] = set()
         for _, o_lat, o_lon, o_dt, d_lat, d_lon, d_dt in tasks:
             loc_set.add((o_lat, o_lon, o_dt))
             loc_set.add((d_lat, d_lon, d_dt))
         all_locs = list(loc_set)
 
-        # 3. 查缓存
+        # 3. Look up the cache
         weather_map, missing = self._cache.get_batch(all_locs)
         logger.info(f"  {len(all_locs)} unique locations: "
                     f"{len(weather_map)} cached, {len(missing)} need API")
 
-        # 4. 从 API 获取缺失数据
+        # 4. Fetch the missing data from the API
         if missing:
             fetched = self._fetcher.fetch_batch(
-                missing, desc="获取天气 API", warn_on_failure=True)
+                missing, desc="Fetching weather API", warn_on_failure=True)
             weather_map.update(fetched)
             if fetched:
                 self._cache.put_batch(fetched)
                 logger.info(f"  Fetched and cached {len(fetched)} new locations")
 
-        # 5. 写入 Excel
+        # 5. Write into Excel
         patched = 0
         for row_idx, o_lat, o_lon, o_dt, d_lat, d_lon, d_dt in tasks:
             o_w = weather_map.get((o_lat, o_lon, o_dt))
@@ -274,7 +280,7 @@ class WeatherPatcher:
             avg_wind  = round((o_w[3] + d_w[3]) / 2, 1)
             avg_dir   = (o_w[4] + d_w[4]) / 2
             cardinal  = _deg_to_cardinal(avg_dir)
-            # 起点天气类型（兼容旧版 5 元素缓存）
+            # Origin's weather type (compatible with the old 5-element cache)
             weather_type = o_w[5] if len(o_w) > 5 else None
 
             ws.cell(row_idx, _COL_TEMP).value          = avg_temp
@@ -301,10 +307,10 @@ class WeatherPatcher:
 
     def patch_folder(self, folder_path: str | Path) -> dict[str, int]:
         """
-        补全指定文件夹下所有 jolt_report_*.xlsx 报告的天气数据。
+        Backfill the weather data of all jolt_report_*.xlsx reports under a folder.
 
         Returns:
-            {文件名: 补全行数} 字典。
+            A {file name: number of rows backfilled} dict.
         """
         folder = Path(folder_path)
         if not folder.is_dir():
@@ -318,6 +324,6 @@ class WeatherPatcher:
 
         logger.info(f"Found {len(xlsx_files)} report(s) in {folder}")
         results = {}
-        for fp in tqdm(xlsx_files, desc="天气 patch 文件"):
+        for fp in tqdm(xlsx_files, desc="Weather patch files"):
             results[fp.name] = self.patch_file(fp)
         return results

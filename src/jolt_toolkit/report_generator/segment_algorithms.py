@@ -1,28 +1,28 @@
 """
 segment_algorithms.py
 =====================
-充电分段（Volvo / Renault）和放电分段（Scania）的统一检测算法，
-并可选生成逐腿验证图。
+Unified detection algorithm for charge segments (Volvo / Renault) and discharge
+segments (Scania), with optional per-leg validation figures.
 
-统一输出 schema（v2）
--------------------
-两种模式均输出以下关键字段：
+Unified output schema (v2)
+--------------------------
+Both modes output the following key fields:
 
-  delta_soc_pct      : 正值 = 充电（SOC 上升）；负值 = 放电（SOC 下降）。
-  delta_energy_kwh   : 正值 = 充电（能量流入电池）；负值 = 放电（能量流出）。
-                       充电来源：AC+DC 累计差值；
-                       放电首选：total_electric_energy_used_plugged_in_included；
-                       备选：electric_energy_wheelbased_speed_over_zero；
-                       兜底：SOC × nominal_kwh 估算。
-  energy_source      : 'ac_dc'         — 充电，来自 AC+DC 列
-                       'total_energy'  — 放电，来自 total_electric_energy_used_* 列
-                       'moving_energy' — 放电，来自 wheelbased_speed_over_zero 列
-                       'soc_estimate'  — 无可用能量列，由 SOC × nominal_kwh 估算
-  delta_moving_kwh   : electric_energy_wheelbased_speed_over_zero 累计差值（kWh，>= 0）；
-                       数据不可用时为 None。
+  delta_soc_pct      : positive = charging (SOC rising); negative = discharging (SOC falling).
+  delta_energy_kwh   : positive = charging (energy into the battery); negative = discharging (energy out).
+                       Charging source: cumulative AC+DC difference;
+                       discharge preferred: total_electric_energy_used_plugged_in_included;
+                       fallback: electric_energy_wheelbased_speed_over_zero;
+                       last resort: SOC × nominal_kwh estimate.
+  energy_source      : 'ac_dc'         — charging, from the AC+DC columns
+                       'total_energy'  — discharging, from the total_electric_energy_used_* column
+                       'moving_energy' — discharging, from the wheelbased_speed_over_zero column
+                       'soc_estimate'  — no energy column available, estimated from SOC × nominal_kwh
+  delta_moving_kwh   : cumulative electric_energy_wheelbased_speed_over_zero difference (kWh, >= 0);
+                       None when the data is unavailable.
 
-公开函数
---------
+Public functions
+----------------
 find_charge_segments_by_soc(df_raw, ...)
 find_discharge_segments_by_soc(df_raw, ...)
 find_speed_trips(df_raw, ...)
@@ -33,15 +33,17 @@ merge_discharge_by_mass(discharge_segs, df_raw, ...)
 run_segment_detection(df_raw, reg, suffix, out_dir,
                       generate_validation_fig=True, ...)
 
-常量
-----
+Constants
+---------
 TIME_COL, SOC_COL, AC_COL, DC_COL, MOVING_COL, ODO_COL, TOTAL_ENERGY_COL
 
 VEHICLE_CONFIG
-    各车辆的 SRF 注册名、分段模式、标称容量、厂商型号及能量列名映射。
+    Per-vehicle SRF registration name, segmentation mode, nominal capacity,
+    manufacturer model and energy-column-name mapping.
 
 _ANCHOR_PRIVATE_KEYS
-    segment dict 中仅供绘图使用的临时字段名集合，保存 CSV 前需过滤。
+    Set of temporary field names in the segment dict used only for plotting;
+    must be filtered out before saving to CSV.
 """
 # =============================================================================
 # Backward-compatibility facade (v3.0.0)

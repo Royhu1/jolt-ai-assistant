@@ -191,7 +191,7 @@ def _write_graphs_sheet(workbook, rows: list[tuple], headers: tuple) -> None:
     # charts reference cell ranges and cannot filter in place, the cleaned
     # (x, y) pairs for each chart are written to a hidden ``GraphsData`` sheet;
     # both the scatter series and its linear trendline point at that clean
-    # block (fit on filtered data only, matching the paper口径).
+    # block (fit on filtered data only, matching the paper's convention).
     graphs_ws = workbook.add_worksheet("Graphs")
     data_ws = workbook.add_worksheet("GraphsData")
     data_ws.hide()
@@ -438,18 +438,19 @@ def _write_excel_report(
     headers: tuple = HEADERS,
 ) -> None:
     """
-    将报告行写入 Excel，格式与老版 JOLT 一致：
-      - 绿色背景：行程（Trip）
-      - 红色背景：充电（Charge）
-      - 白色背景：停车（Stop）
-      - 时间戳格式：yyyy-mm-dd hh:mm:ss
-      - 时长格式：[hh]:mm:ss（以小数天存储）
-      - 超链接：蓝色下划线
-      - 第三张工作表：字段说明
+    Write the report rows to Excel, matching the legacy JOLT formatting:
+      - green background:  Trip
+      - red background:    Charge
+      - white background:  Stop
+      - timestamp format:  yyyy-mm-dd hh:mm:ss
+      - duration format:   [hh]:mm:ss (stored as a fraction of a day)
+      - hyperlinks:        blue underline
+      - third worksheet:   field definitions
 
-    ``headers`` 控制使用哪套列布局：电动车传 ``HEADERS``（默认），柴油车传
-    ``DIESEL_HEADERS``。两套 headers 的第一列都是 'Leg Number'，后续字段与 row
-    tuple 的顺序一一对应。
+    ``headers`` controls which column layout is used: pass ``HEADERS`` for EVs
+    (the default) and ``DIESEL_HEADERS`` for diesel vehicles. The first column of
+    both header sets is 'Leg Number'; the remaining fields map one-to-one to the
+    order of the row tuple.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     workbook = xlsxwriter.Workbook(str(out_path), {"nan_inf_to_errors": True})

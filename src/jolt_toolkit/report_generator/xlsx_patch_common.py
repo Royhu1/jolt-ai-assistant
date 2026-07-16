@@ -27,7 +27,7 @@ from jolt_toolkit.report_generator.paths import get_cache_dir, get_srf_api_root
 
 
 def _parse_report_filename(path: Path) -> tuple[str, str, str] | None:
-    """从报告文件名解析 (reg, date_start, date_end)。"""
+    """Parse (reg, date_start, date_end) from a report file name."""
     m = re.match(r'jolt_report_(\w+)_(\d{8})_(\d{8})\.xlsx$', path.name)
     if not m:
         return None
@@ -35,13 +35,13 @@ def _parse_report_filename(path: Path) -> tuple[str, str, str] | None:
 
 
 def _cell_is_empty(cell) -> bool:
-    """判断单元格是否为空。"""
+    """Return whether a cell is empty."""
     v = cell.value
     return v is None or (isinstance(v, str) and v.strip() == '')
 
 
 def _to_timestamp(dt_val):
-    """将 openpyxl 读取的日期时间值转为 pd.Timestamp (UTC)。"""
+    """Convert a datetime value read by openpyxl to a pd.Timestamp (UTC)."""
     import pandas as pd
     if dt_val is None:
         return None

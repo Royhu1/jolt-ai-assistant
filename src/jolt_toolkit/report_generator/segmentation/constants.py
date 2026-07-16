@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-# ── 原始遥测列名常量（默认值；VEHICLE_CONFIG 可按车型覆盖）─────────────────────
+# ── Raw-telemetry column-name constants (defaults; VEHICLE_CONFIG may override per vehicle) ──
 TIME_COL         = 'eventDatetime'
 SOC_COL          = 'electricBatteryLevelPercent'
 AC_COL           = 'battery_pack_ac_watthours'
@@ -24,21 +24,23 @@ TOTAL_ENERGY_COL = 'total_electric_energy_used_plugged_in_included'
 MASS_COL         = 'gross_combination_vehicle_weight'
 RECUP_COL        = 'electric_energy_recuperation_watthours'
 
-# ── 质量聚类参数默认值 ──────────────────────────────────────────────────────────
-MIN_CLUSTER_GAP_KG   = 2000.0   # 聚类间最小质量差（kg）：两个聚类平均值差 < 此值则合并
-TRACTOR_ONLY_MAX_KG  = 13000.0  # cluster 0 均值低于此值时判定为 tractor-only，忽略其质量
-# v2.2.4: J1939 gross-combination-weight 在静止时（装卸货瞬态 / 默认广播）不可靠，
-# 会污染质量聚类。聚类均值只用「行驶中」(speed > 此阈值, km/h) 的读数计算；与各
-# pipeline 的 speed_threshold_kmh 约定（默认 1.0）对齐。NaN speed 视为非行驶。
+# ── Mass-clustering default parameters ──────────────────────────────────────────
+MIN_CLUSTER_GAP_KG   = 2000.0   # Minimum mass gap between clusters (kg): merge two clusters when their means differ by less than this
+TRACTOR_ONLY_MAX_KG  = 13000.0  # When cluster 0's mean is below this value it is treated as tractor-only and its mass is ignored
+# v2.2.4: the J1939 gross-combination-weight is unreliable while stationary
+# (load/unload transients / default broadcast) and would contaminate the mass
+# clustering. Cluster means are computed only from "moving" readings (speed >
+# this threshold, km/h), aligned with each pipeline's speed_threshold_kmh
+# convention (default 1.0). A NaN speed is treated as not moving.
 MOVING_SPEED_THRESHOLD_KMH = 1.0
 
-# segment dict 中的临时锚点字段（不写入 CSV）
+# Temporary anchor fields in the segment dict (not written to CSV)
 _ANCHOR_PRIVATE_KEYS: frozenset = frozenset({
     '_anchor_start_time', '_anchor_end_time',
     '_anchor_start_rel_kwh', '_anchor_end_rel_kwh',
 })
 
-# ── 配置加载（从 JSON 文件）─────────────────────────────────────────────────
+# ── Config loading (from JSON files) ─────────────────────────────────────────
 import json as _json
 from jolt_toolkit.configs import get_config_path as _get_config_path
 

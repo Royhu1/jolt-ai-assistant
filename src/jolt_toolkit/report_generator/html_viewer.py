@@ -28,16 +28,18 @@ _INSPECT_TEMPLATE = (
 
 
 def _compute_active_dates_from_xlsx(xlsx_path: Path) -> set[str]:
-    """读取 xlsx 的 ``Report`` sheet，返回有 trip 或 charge 活动的日期集合。
+    """Read the ``Report`` sheet of the xlsx and return the set of dates with trip or charge activity.
 
-    Stop 行（`Leg Type == 'Stop'`）和空行被排除；其它任何 leg type
-    （`In Transit / Round Trip / Outbound / Return / In House / AC Charge /
-    DC Charge / Mix Charge / estimated Charge` 等）都视为活动。
+    Stop rows (`Leg Type == 'Stop'`) and blank rows are excluded; any other leg
+    type (`In Transit / Round Trip / Outbound / Return / In House / AC Charge /
+    DC Charge / Mix Charge / estimated Charge`, etc.) counts as activity.
 
-    返回值是 ``{'YYYY-MM-DD', ...}`` 字符串集合，与 figure 文件名里的
-    日期前缀（``validation_<REG>_<DATE>_<idx>.png``）保持同样格式以便比对。
-    读取失败或 xlsx 不存在时返回空 set —— viewer 会回退到全部条目都被视为
-    "active"，保持向后兼容。
+    The return value is a ``{'YYYY-MM-DD', ...}`` string set, kept in the same
+    format as the date prefix in the figure file names
+    (``validation_<REG>_<DATE>_<idx>.png``) so they can be compared. Returns an
+    empty set on read failure or when the xlsx does not exist — the viewer then
+    falls back to treating every entry as "active", preserving backward
+    compatibility.
     """
     try:
         from openpyxl import load_workbook
@@ -54,7 +56,7 @@ def _compute_active_dates_from_xlsx(xlsx_path: Path) -> set[str]:
         header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
         if not header_row:
             return set()
-        # 用 header 名字定位 Leg Type / Start Time 列，避免硬编码 EV/Diesel 偏移
+        # Locate the Leg Type / Start Time columns by header name, avoiding a hard-coded EV/Diesel offset
         col_leg_type = None
         col_start = None
         for idx, name in enumerate(header_row):
@@ -77,7 +79,7 @@ def _compute_active_dates_from_xlsx(xlsx_path: Path) -> set[str]:
             start = row[col_start]
             if start is None:
                 continue
-            # Start Time 可能是 datetime 对象或 ISO 字符串
+            # Start Time may be a datetime object or an ISO string
             if hasattr(start, "strftime"):
                 date_str = start.strftime("%Y-%m-%d")
             else:
@@ -159,10 +161,11 @@ def _write_html_viewer(
     if not all_figs:
         return
 
-    # 仅保留日期在 period_start ~ period_end 范围内的验证图。
-    # 日期 token 后用 ``[._]`` 兼容两种命名：新的一日一图 ``validation_<reg>_<date>.png``
-    # （日期后直接是扩展名 ``.``）与历史 / finetuned 的 per-leg
-    # ``validation_<reg>_<date>_<NNNN>.png``（日期后是 ``_``）。
+    # Keep only the validation figures whose date lies in period_start ~ period_end.
+    # The ``[._]`` after the date token accommodates both naming schemes: the new
+    # one-figure-per-day ``validation_<reg>_<date>.png`` (extension ``.`` directly
+    # after the date) and the historical / finetuned per-leg
+    # ``validation_<reg>_<date>_<NNNN>.png`` (``_`` after the date).
     _date_re = re.compile(
         r"validation_" + re.escape(reg) + r"_(\d{4}-\d{2}-\d{2})[._]"
     )
@@ -178,7 +181,7 @@ def _write_html_viewer(
     if not figs:
         return
 
-    # 读 xlsx 求当周期内有 trip/charge 活动的日期集合，用于侧栏红字 + 过滤
+    # Read the xlsx to find the set of dates with trip/charge activity in the period, used for the sidebar red text + filtering
     active_dates = _compute_active_dates_from_xlsx(out_dir / report_name)
     is_active = [d in active_dates for d in fig_dates]
 

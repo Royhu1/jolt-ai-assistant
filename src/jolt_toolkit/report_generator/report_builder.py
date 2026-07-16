@@ -1,11 +1,12 @@
 """
 report_builder.py
 ==================
-将 segment_algorithms 输出的充放电分段字典转换为 Excel 报告行，
-并写入格式化 Excel 文件 + 可选 HTML 验证图查看器。
+Convert the charge/discharge segment dictionaries produced by
+segment_algorithms into Excel report rows, and write a formatted Excel file plus
+an optional HTML validation-figure viewer.
 
-从 segment_dev 的原始实现迁移而来，
-作为 jolt_toolkit.report_generator 包的内部模块使用。
+Migrated from the original segment_dev implementation and used as an internal
+module of the jolt_toolkit.report_generator package.
 
 --------------------------------------------------------------------------------
 v3.0.0 facade note (English)

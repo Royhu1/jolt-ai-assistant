@@ -15,9 +15,6 @@ are re-exposed there (``JOLTReportGenerator._correct_effective_capacity`` /
 ``_persist_effective_capacity``) by ``_generator`` so existing call sites keep
 working (:mod:`jolt_toolkit.scripts.recompute_from_cache`,
 :mod:`jolt_toolkit.report_generator.capacity_backfill`).
-
-Chinese comments/docstrings are preserved verbatim from the v2.2.8 source; the
-whole-core English translation is Phase 4 of the v3.0.0 refactor.
 """
 
 import logging
@@ -28,11 +25,14 @@ import pandas as pd
 from jolt_toolkit.report_generator.report_builder import HEADERS
 from jolt_toolkit.report_generator.segment_algorithms import VEHICLE_CONFIG
 
-# ── row-tuple 列索引（从 HEADERS 动态派生，排除首列 Leg Number）─────────────
-# 这些常量仅用于电车分支的 effective-capacity 后处理，柴油车用独立的 DIESEL_HEADERS
-# 不经过此路径。
+logger = logging.getLogger(__name__)
+
+# ── row-tuple column indices (derived dynamically from HEADERS, excluding the leading Leg Number column) ──
+# These constants are used only by the EV branch's effective-capacity
+# post-processing; diesel vehicles use the separate DIESEL_HEADERS and do not go
+# through this path.
 def _row_idx(header_name: str) -> int:
-    """返回 header_name 在 row tuple 中的 0-based 索引（不含 Leg Number 列）。"""
+    """Return the 0-based index of header_name in the row tuple (excluding the Leg Number column)."""
     return HEADERS.index(header_name) - 1
 
 
@@ -59,27 +59,37 @@ _IDX_EP_EXCL_AUX = _row_idx('EP_exclude_aux')
 _IDX_START      = _row_idx('Start Time (UTC)')
 
 # ── v2.2.4: time-local (~1-month) effective-capacity window ──────────────────
-# soc_estimate 段的容量改由「该行 Start Time ±CAP_WINDOW_HALF_DAYS 天」窗口内的
-# 非 soc_estimate effective capacity 推算，以反映电池老化与季节温度漂移（长/全
-# 量程报告尤甚，如 EX74JXY 2025-04→2026-02）。窗口内仍保持「充电段优先于放电段」。
-# 窗口若无 donor 则逐步加倍半宽，最终退化为全周期均值（等价旧的全局行为），再退化
-# 为 fallback_kwh。短报告（≤3 个月）由于周期跨度小，窗口很快覆盖全周期，行为与旧版
-# 几乎一致。改这个常量即可整体调节窗宽。
-CAP_WINDOW_HALF_DAYS = 15   # 半窗宽（天）；总窗口 ≈ 1 个月
+# A soc_estimate segment's capacity is instead inferred from the non-soc_estimate
+# effective capacities within a window of "that row's Start Time ±CAP_WINDOW_HALF_DAYS
+# days", to reflect battery ageing and seasonal temperature drift (especially in
+# long / full-range reports, e.g. EX74JXY 2025-04→2026-02). Within the window,
+# "charge segments take priority over discharge segments" is still kept. If the
+# window has no donor, the half-width is progressively doubled, eventually
+# degrading to the whole-period mean (equivalent to the old global behaviour),
+# then to fallback_kwh. Short reports (≤3 months) have a small period span so the
+# window soon covers the whole period, with behaviour almost identical to the old
+# version. Adjusting this constant tunes the window width overall.
+CAP_WINDOW_HALF_DAYS = 15   # half window width (days); total window ≈ 1 month
 _DAY_NS = 86_400 * 1_000_000_000
 
 
-# ── v2.2.6+: 季度（报告周期）级 effective-capacity 加权平均 schema ────────────
-# vehicles.json 的 ``effective_capacity_kwh`` 不再被「最后一次生成的那个周期均值」
-# 覆盖（旧实现 = 容量漂移 / 丢失退化轨迹）。改为对 ``effective_capacity_quarterly``
-# （``{period_key: {kwh, n}}``，period_key = 报告周期串 ``YYYYMMDD_YYYYMMDD``，与
-# 季度报告 1:1）里所有「可靠」季度按 donor 数加权平均：Σ(kwh·n)/Σn。
-# 一个季度若 donor 数 ``n < MIN_DONORS`` 视为不可靠（样本太少，单个异常容量读数即
-# 可显著拉偏季度均值，标准误 ≈ σ/√n）：不计入加权平均，其存储 ``kwh`` 回退为该平均
-# 值（``n`` 照存以便识别）。保留 ``effective_capacity_kwh`` 键名 = PDF 续航 /
-# dashboard / SOC 估算种子等所有读者零改动地自动拿到稳定平均。
-# 阈值取 5：活跃电车一个季度通常有数十次 measured 充/放电 donor，远超 5；< 5 干净
-# 地标记「真正稀疏」的部分窗口（如 CMZ6260 的 ~6 周补窗）或几乎没跑的车。
+# ── v2.2.6+: quarterly (report-period) level effective-capacity weighted-average schema ──
+# vehicles.json's ``effective_capacity_kwh`` is no longer overwritten by "the
+# period mean of the last generation" (the old implementation = capacity drift /
+# losing the degradation trajectory). Instead, take the donor-count weighted
+# average over all "reliable" quarters in ``effective_capacity_quarterly``
+# (``{period_key: {kwh, n}}``, period_key = the report-period string
+# ``YYYYMMDD_YYYYMMDD``, 1:1 with the quarterly report): Σ(kwh·n)/Σn.
+# A quarter whose donor count ``n < MIN_DONORS`` is treated as unreliable (too few
+# samples: a single anomalous capacity reading can noticeably skew the quarter
+# mean, standard error ≈ σ/√n): it is excluded from the weighted average and its
+# stored ``kwh`` falls back to that average value (``n`` is still stored for
+# identification). Keeping the ``effective_capacity_kwh`` key = all readers (PDF
+# range / dashboard / SOC-estimate seed, etc.) automatically get the stable
+# average with zero changes. The threshold is 5: an active EV usually has dozens
+# of measured charge/discharge donors per quarter, far above 5; < 5 cleanly marks
+# "genuinely sparse" partial windows (e.g. CMZ6260's ~6-week fill window) or
+# barely-driven vehicles.
 MIN_DONORS = 5
 
 
@@ -137,7 +147,7 @@ def _resolve_soc_fallback(cfg) -> dict | None:
 
 
 def _cap_is_valid(v) -> bool:
-    """容量 / SOC 值是否为有效数字（非 None / 非 NaN）。"""
+    """Whether a capacity / SOC value is a valid number (not None / not NaN)."""
     if v is None:
         return False
     try:
@@ -184,27 +194,34 @@ def _soc_weighted_cap(caps, weights):
 
 
 def _period_capacity_from_rows(rows, idx_cap, idx_soc, idx_esrc):
-    """复刻 ``_correct_effective_capacity`` 的 donor-based ``avg_eff_cap`` 定义：
-    从非 ``soc_estimate`` 段（measured charge / discharge leg）按「充电优先」取
-    effective capacity，donor 集内用 **ΔSOC 加权均值**（组合比估计
-    ``100·Σ|ΔE|/Σ|ΔSOC|``，见 :func:`_soc_weighted_cap`）而非普通均值——普通均值在
-    donor 池含小 ΔSOC 段时上偏（整数 % 量化 + Jensen）。返回
-    ``(kwh|None, n_donors, source)``，source ∈ {'charge', 'discharge', 'fallback'}。
-    ``n_donors`` 仍为 donor **计数**（供跨季度 donor 数加权平均，语义不变）。
+    """Replicate ``_correct_effective_capacity``'s donor-based ``avg_eff_cap``
+    definition: take the effective capacity from non-``soc_estimate`` segments
+    (measured charge / discharge legs) with "charge preferred", using within the
+    donor set a **ΔSOC-weighted mean** (the combined-ratio estimate
+    ``100·Σ|ΔE|/Σ|ΔSOC|``, see :func:`_soc_weighted_cap`) rather than a plain mean —
+    a plain mean is biased upward when the donor pool contains small-ΔSOC segments
+    (integer-% quantisation + Jensen). Returns ``(kwh|None, n_donors, source)``,
+    source ∈ {'charge', 'discharge', 'fallback'}. ``n_donors`` is still the donor
+    **count** (for the cross-quarter donor-count weighted average, semantics unchanged).
 
-    与 ``_persist_effective_capacity`` / backfill 共用同一口径：``rows`` 既可为报告
-    row-tuple（传 ``_IDX_CAP`` / ``_IDX_SOC_CHANGE`` / ``_IDX_ESOURCE``），也可为从
-    xlsx 读出的 ``(cap, soc, src)`` 三元组（传 0, 1, 2），保证 live 与 backfill 一致。
+    Shares the same convention as ``_persist_effective_capacity`` / backfill:
+    ``rows`` may be either report row-tuples (pass ``_IDX_CAP`` /
+    ``_IDX_SOC_CHANGE`` / ``_IDX_ESOURCE``) or ``(cap, soc, src)`` triples read from
+    the xlsx (pass 0, 1, 2), keeping live and backfill consistent.
 
-    donor 必须满足：``Energy Source`` 是真实的 measured 字符串（``isinstance str`` 且
-    ∉ {'soc_estimate', 'soc_fallback'} —— 两者都是 SOC 推得的能量、非测量 donor）、
-    ``cap`` 为正的有效数字、且 ``SOC Change`` 为可用的非零数值
-    （作为加权权重；缺 ΔSOC 的段无法加权，故排除）。measured-leg 判据在 live 路径下对
-    真实 measured leg 恒成立（其 energy_source 总是字符串），故对 live donor 集零影响；
-    但在 backfill 读最终 xlsx 时它**排除掉 Stop 行**——Stop 行的 ``Energy Source`` /
-    ``Battery Capacity`` 是 ``=NA()`` 公式，openpyxl ``data_only=True`` 会把 ``=NA()``
-    读成整数 ``0``，否则会被误当成 cap=0 的 donor 污染均值。``cap > 0`` 是额外保险
-    （effective capacity 物理上必为正；真实 donor 恒 > 0，故同样不影响 live 数值）。
+    A donor must satisfy: ``Energy Source`` is a genuine measured string
+    (``isinstance str`` and ∉ {'soc_estimate', 'soc_fallback'} — both are
+    SOC-derived energy, not measured donors), ``cap`` is a positive valid number,
+    and ``SOC Change`` is a usable non-zero value (used as the weighting weight; a
+    segment lacking ΔSOC cannot be weighted, so it is excluded). The measured-leg
+    criterion always holds on the live path for a genuine measured leg (its
+    energy_source is always a string), so it has zero effect on the live donor set;
+    but when backfill reads the final xlsx it **excludes Stop rows** — a Stop row's
+    ``Energy Source`` / ``Battery Capacity`` are ``=NA()`` formulas, which openpyxl
+    ``data_only=True`` reads as the integer ``0`` and which would otherwise be
+    mistaken for a cap=0 donor polluting the mean. ``cap > 0`` is extra insurance
+    (effective capacity is physically always positive; a real donor is always > 0,
+    so it likewise does not affect the live values).
     """
     charge, discharge = [], []   # list[(cap, |ΔSOC|)]
     for row in rows:
@@ -230,13 +247,16 @@ def _period_capacity_from_rows(rows, idx_cap, idx_soc, idx_esrc):
 
 
 def _recompute_weighted_capacity(quarterly: dict, min_donors: int = MIN_DONORS):
-    """给定 ``{period_key: {kwh, n}}``，对**可靠**季度（``n >= min_donors``）按 donor
-    数加权平均：Σ(kwh·n)/Σn。就地把稀疏季度（``n < min_donors``）的存储 ``kwh`` 回填
-    为该平均值（``n`` 不动）。返回 ``(weighted_avg|None, n_reliable, n_sparse)``。
+    """Given ``{period_key: {kwh, n}}``, take the donor-count weighted average over
+    the **reliable** quarters (``n >= min_donors``): Σ(kwh·n)/Σn. In place, backfill
+    the stored ``kwh`` of sparse quarters (``n < min_donors``) with that average
+    value (``n`` unchanged). Returns ``(weighted_avg|None, n_reliable, n_sparse)``.
 
-    退化：若没有任何可靠季度但存在 donor 季度（``0 < n < min_donors``），改用全部
-    donor 季度做同样的加权平均，保证 ``effective_capacity_kwh`` 仍写得出（PDF 续航不
-    落空）。完全没有 donor 季度 → 返回 ``(None, 0, 0)``，调用方不动既有标量。
+    Degradation: if there is no reliable quarter but there are donor quarters
+    (``0 < n < min_donors``), use all donor quarters for the same weighted average,
+    ensuring ``effective_capacity_kwh`` can still be written (the PDF range does not
+    go blank). No donor quarter at all → return ``(None, 0, 0)`` and the caller
+    leaves the existing scalar unchanged.
     """
     reliable = [(v['kwh'], v['n']) for v in quarterly.values()
                 if v.get('kwh') is not None and v.get('n', 0) >= min_donors]
@@ -248,7 +268,7 @@ def _recompute_weighted_capacity(quarterly: dict, min_donors: int = MIN_DONORS):
         return None, 0, n_sparse
     total_n = sum(n for _, n in pool)
     wavg = round(sum(k * n for k, n in pool) / total_n, 1)
-    # 稀疏季度的存储 kwh 回退为加权平均（n 保留以便判定）
+    # A sparse quarter's stored kwh falls back to the weighted average (n kept for identification)
     for v in quarterly.values():
         if v.get('n', 0) < min_donors:
             v['kwh'] = wavg
@@ -262,83 +282,82 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
                                  fallback_kwh, idx_eperf_kin=None,
                                  idx_start=None, soc_fallback=None):
     """
-    后处理：修正 effective battery capacity 并反算相关字段。
+    Post-processing: correct the effective battery capacity and re-derive the related fields.
 
-    返回 (rows, effective_cap, cap_source)：
-    - effective_cap: 整个报告周期的最终 effective capacity 均值 (kWh)，
-      供 ``_persist_effective_capacity`` 写回 vehicles.json（语义不变）。
+    Returns (rows, effective_cap, cap_source):
+    - effective_cap: the final effective-capacity mean (kWh) over the whole report
+      period, for ``_persist_effective_capacity`` to write back to vehicles.json
+      (semantics unchanged).
     - cap_source: 'charge' | 'discharge' | 'fallback'
 
-    time-local (~1-month) 容量（v2.2.4）
-    --------------------------------------
-    每个 soc_estimate 段的替换容量改由「该段 Start Time ±``CAP_WINDOW_HALF_DAYS``
-    天」窗口内的非 soc_estimate effective capacity 推算，窗口内仍保持
-    「充电段优先于放电段」。这样长报告里的电池老化 / 季节温度漂移就不会被一个
-    全周期均值抹平。``idx_start`` 是 row tuple 中 'Start Time (UTC)' 列的索引
-    （值为 ``pd.Timestamp``）；为 ``None`` 时退回旧的全周期单一均值行为。
+    Time-local (~1-month) capacity
+    ------------------------------
+    Each soc_estimate segment's replacement capacity is inferred from the
+    non-soc_estimate effective capacities within a window of "that segment's Start
+    Time ±``CAP_WINDOW_HALF_DAYS`` days", keeping "charge segments preferred over
+    discharge segments" within the window. This way, battery ageing / seasonal
+    temperature drift in long reports is not flattened by a single whole-period
+    mean. ``idx_start`` is the index of the 'Start Time (UTC)' column in the row
+    tuple (value is a ``pd.Timestamp``); when ``None`` it reverts to the old
+    single whole-period mean behaviour.
 
-    优雅降级（逐级）：
-    1. ±CAP_WINDOW_HALF_DAYS 天窗口内的 donor（充电优先，再放电）。
-    2. 窗口无 donor → 逐步加倍半宽，直到找到 donor 或窗口覆盖整个周期
-       （覆盖整个周期即等价于旧的全局均值行为）。
-    3. 整个周期都没有 donor（或该行缺时间戳）→ 全局均值。
-    4. 全局也没有 donor → ``fallback_kwh``。
+    Graceful degradation (in order):
+    1. Donors within the ±CAP_WINDOW_HALF_DAYS-day window (charge first, then discharge).
+    2. No donor in the window → progressively double the half-width until a donor
+       is found or the window covers the whole period (covering the whole period is
+       equivalent to the old global-mean behaviour).
+    3. No donor in the whole period (or the row lacks a timestamp) → global mean.
+    4. No donor globally either → ``fallback_kwh``.
 
-    步骤 1：按上述时间局部逻辑替代每个 soc_estimate 段的容量值并反算 energy。
-    步骤 2：用**全局 ±1σ** 检测异常 effective capacity，替换值同样取「inlier
-            donor 的时间局部窗口均值」，避免把错误季节的偏差重新注入。
-            **energy 反算按 ``energy_source`` 门控**：只有 soc_estimate 段
-            （energy 本就由 SOC × capacity 推得）才重算 energy / EP / corrected
-            / kinetics；counter-sourced 段（``energy_source`` ∈ {total_energy,
-            moving_energy}）**默认**（MODE A）只修正 capacity 列本身，其 energy /
-            EP / corrected / kinetics 一律保留计数器原值 —— 异常的 IMPLIED
-            capacity 通常源于分母 ΔSOC 的整数 % 量化不可靠（短程/小 ΔSOC 被低估），
-            而非计数器 energy 有误，用 SOC 反算会把整数 % 的低估注入短程 leg 形成伪
-            低 EP 带。
+    Donor capacities are aggregated with the ΔSOC-weighted (combined-ratio)
+    estimator (see :func:`_soc_weighted_cap` / :func:`_period_capacity_from_rows`),
+    not a plain mean.
 
-    逐车 SOC-energy fallback（v2.2.8，opt-in，见 ``soc_fallback`` 参数）
-    ----------------------------------------------------------------
-    少数车（如 YK73WFN / EV73SAL / N88GNW / T88RNW / TA70WTL / CMZ6260 /
-    KY24LHT）的 Total-Energy-Used 计数器**锚点陈旧/突发**（首尾快照远离 trip
-    边界），造成成对的欠/过归因：一条 leg 因锚点冻结读成 ≈0 kWh，紧接的 leg 吞掉
-    全部积压，IMPLIED capacity 达车队中位数 2–3 倍、EP 2.5–5 kWh/km。这是**计数
-    器锚点失效**而非 ΔSOC 失效——这些车的 SOC 通道密采可靠。对**开启 fallback 的
-    车**，步骤 2 的 counter-sourced 异常行改走**双门控 SOC 反算**：仅当
-    ``|ΔSOC| ≥ min_dsoc_pct``（把整数 % 量化误差限制在 ≤ ~±5 %）**且**
-    ``|原 IMPLIED cap − 替换 cap| / 替换 cap ≥ min_dev`` 时，才用
-    ``ΔSOC/100 × 替换 cap`` 反算 energy（符号随 ΔSOC，放电为负）、把 Energy Source
-    置为 ``'soc_fallback'`` 并按 soc_estimate 段的方式重算 EP / Battery Power /
-    corrected / kinetics；否则退回 MODE A（仅修 capacity 列、保留计数器 energy）。
-    双门控保证干预外科手术式精准：只有当计数器**既是 ±1σ 异常又有可信的大 ΔSOC**
-    时才反算，普通短程/小 ΔSOC leg（SOC 量化主导、计数器更可信）保留计数器值。
-    ``soc_fallback=None`` 时（默认、未开启的车）行为与旧版 MODE A 完全一致。
+    Step 1: replace each soc_estimate segment's capacity by the time-local logic
+            above and re-derive its energy.
+    Step 2: detect anomalous effective capacity with a **global ±1σ** gate; the
+            replacement is again the "inlier donor time-local window mean", to
+            avoid re-injecting a wrong-season deviation. **The energy re-derivation
+            is gated by ``energy_source``**: only soc_estimate segments (whose
+            energy is itself derived from SOC × capacity) recompute
+            energy / EP / corrected / kinetics; counter-sourced segments
+            (``energy_source`` ∈ {total_energy, moving_energy}) **by default**
+            (MODE A) correct only the capacity column itself and keep the counter's
+            original energy / EP / corrected / kinetics — an anomalous IMPLIED
+            capacity usually comes from the unreliable integer-% quantisation of
+            the denominator ΔSOC (short / small-ΔSOC underestimated), not from a
+            wrong counter energy, and re-deriving from SOC would inject the
+            integer-% underestimate into short legs, forming a spurious low-EP band.
 
-    已评估并否决的替代方案（MODE B，v2.2.7 A/B 对比，不采用）
-    --------------------------------------------------------------
-    曾评估一个「随 ΔSOC 缩放的异常阈值」方案：把固定 ±1σ 换成逐 leg 的
-    σ_i = sqrt(σ_true² + σ_soc²)（σ_soc = C·0.5/|ΔSOC%| 为量化噪声，σ_true 由
-    干净大 ΔSOC(≥10%) 段稳健估计），|C−μ| > 2σ_i 判异常，且异常行**无论
-    energy_source** 都用 SOC 反算。**否决**：AV24LXJ/K/L 全量对比显示它主要在
-    **中等 ΔSOC（中位 8%，仅约 1/3 ≥10%）**触发——此处 SOC 量化仍达 ±5–12%——
-    用「ΔSOC×车队平均容量」这个**推断值**覆盖了原始计数器的**实测能量**
-    （逐 trip 计数器增量与报告 E 吻合、零 reset、基本单调，且首尾快照多紧贴 trip
-    边界，是可信的直接能量测量），把真实 EP 变异同质化、单车造出几十条不合理
-    EP（>2.0 kWh/km，例如把教科书级 EP 1.00 改写成 1.51、1.23 改写成 0.81）。两法
-    对原始伪低带的修复完全一致（小 ΔSOC 段两法都不触发、保留计数器）。故 MODE A
-    对全体车队保持默认。**v2.2.8 的逐车 fallback（上）正是 MODE B 被否决之处的外科
-    版**：它不是「无论 energy_source 都盲目 SOC 反算」，而是叠加了「大 ΔSOC + 大偏差」
-    双门控、且**只对显式开启的车**生效——AV24LXJ/K/L 正因为上面这段实测计数器可信
-    的结论**不开启**（vehicles.json 无 ``soc_energy_fallback``），故其数值路径与
-    v2.2.7 逐字节一致。
+    Per-vehicle SOC-energy fallback (v2.2.8, opt-in, see the ``soc_fallback`` parameter)
+    -----------------------------------------------------------------------------------
+    On a few vehicles the Total-Energy-Used counter anchors are stale / bursty
+    (endpoint snapshots far from the trip boundary), causing paired
+    under/over-attribution: one leg reads ≈0 kWh because the anchor is frozen while
+    the next leg swallows the whole backlog, giving an IMPLIED capacity 2–3× the
+    fleet median and EP 2.5–5 kWh/km. This is a counter-anchor failure, not a ΔSOC
+    failure — these vehicles' SOC channel is densely sampled and reliable. For
+    vehicles that opt in, step 2's counter-sourced outlier rows instead take a
+    **dual-gated SOC re-derivation**: only when
+    ``|ΔSOC| ≥ min_dsoc_pct`` (bounding the integer-% quantisation error to ≤ ~±5 %)
+    AND ``|original IMPLIED cap − replacement cap| / replacement cap ≥ min_dev`` is
+    the energy re-derived from ``ΔSOC/100 × replacement cap`` (sign follows ΔSOC,
+    discharge negative), the Energy Source set to ``'soc_fallback'`` and the
+    EP / Battery Power / corrected / kinetics recomputed as for a soc_estimate
+    segment; otherwise it reverts to MODE A (correct only the capacity column, keep
+    the counter energy). The dual gate keeps the intervention surgical: it only
+    fires when the counter is BOTH a ±1σ outlier AND has a trustworthy large ΔSOC,
+    so ordinary short / small-ΔSOC legs (where SOC quantisation dominates and the
+    counter is more trustworthy) keep their counter value. With
+    ``soc_fallback=None`` (the default, non-opted-in vehicles) the behaviour is
+    identical to the old MODE A.
 
-    待查（FUTURE，勿在此处理）
-    --------------------------
-    1. 差异集里计数器 energy **系统性低于** SOC 推断（约 248 升 vs 65 降），
-       可能是 SOC 表在短/中程 trip 上的非线性；值得单独排查，但不应由「盲目
-       SOC 替换」来掩盖。
-    2. 少数「陈旧快照」导致的 anchor spillover（首快照早于 trip 起点很久 → 计数器
-       增量多计 → EP 虚高，如 AV24LXJ 2024-06-24 07:45 EP 2.34）应由**专门的
-       anchor-spillover 守卫**处理，而非全盘 SOC 反算。
+    Vehicles are opted in via ``soc_energy_fallback`` in vehicles.json. Vehicles
+    with user-verified trustworthy high-rate counters (AV24LXJ/K/L) are
+    deliberately NOT opted in, so their numeric path stays byte-identical to
+    v2.2.7. (The rejected "±1σ scaled by ΔSOC" MODE B alternative and the deferred
+    systematic-counter-bias / anchor-spillover investigations live in the git
+    history / changelogs / pending_issues.)
     """
     # v2.2.8 per-vehicle SOC-energy fallback control (None = MODE A only).
     fb_enabled = bool(soc_fallback and soc_fallback.get('enabled'))
@@ -377,7 +396,7 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
         return abs(float(original_cap) - repl) / repl >= fb_min_dev
 
     def _recalc_eperf_corrected(row):
-        """energy 修改后重算海拔修正和动能修正能量效率。"""
+        """Recompute the elevation-corrected and kinetics-corrected energy performance after energy is changed."""
         e = row[idx_energy]
         d = row[idx_dist]
         h = row[idx_elev]
@@ -397,9 +416,9 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
         if ke_per_d is not None and idx_eperf_kin is not None:
             row[idx_eperf_kin] = round(row[idx_eperf_corr] - ke_per_d, 4)
 
-    # ── 时间戳与窗口准备 ───────────────────────────────────────────
+    # ── Timestamp and window preparation ───────────────────────────────────
     def _naive_ns(v):
-        """row 的 Start Time → tz-naive ns 整数；不可解析则 None。"""
+        """A row's Start Time → tz-naive ns integer; None if unparseable."""
         if v is None:
             return None
         try:
@@ -410,10 +429,10 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
             return None
         if ts.tzinfo is not None:
             ts = ts.tz_convert(None)
-        # pd.Timestamp.value 对标量恒为 ns，无需 .as_unit
+        # pd.Timestamp.value is always ns for a scalar, no .as_unit needed
         return int(ts.value)
 
-    # 每个 row 的起始时间（ns）；idx_start 为 None 时全部 None → 退回全局行为
+    # Start time (ns) of each row; when idx_start is None they are all None → revert to global behaviour
     if idx_start is not None:
         row_ns = [_naive_ns(row[idx_start]) for row in rows]
     else:
@@ -421,14 +440,16 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
     valid_ns = [n for n in row_ns if n is not None]
     period_span_days = ((max(valid_ns) - min(valid_ns)) / _DAY_NS
                         if len(valid_ns) >= 2 else 0.0)
-    # 加倍半宽的上限：覆盖整个周期即等价旧全局行为
+    # Upper bound for doubling the half-width: covering the whole period is equivalent to the old global behaviour
     max_half_days = max(float(CAP_WINDOW_HALF_DAYS), period_span_days)
 
     def _window_mean(donors, t_ns, base_half_days):
-        """donors: list[(ns, cap, w)]，w = |ΔSOC|。在 ±base_half 天窗口内取
-        **ΔSOC 加权均值**（组合比估计 Σ(cap·w)/Σw，见 :func:`_soc_weighted_cap`），
-        无 donor 则逐步加倍半宽直至找到或覆盖整个周期。返回
-        (mean|None, n_used, half_used)；窗口内 Σw==0 时降级为普通均值。"""
+        """donors: list[(ns, cap, w)], w = |ΔSOC|. Take the **ΔSOC-weighted mean**
+        within the ±base_half-day window (the combined-ratio estimate Σ(cap·w)/Σw,
+        see :func:`_soc_weighted_cap`); if there is no donor, progressively double
+        the half-width until one is found or the whole period is covered. Returns
+        (mean|None, n_used, half_used); degrades to a plain mean when Σw==0 in the
+        window."""
         if not donors or t_ns is None:
             return None, 0, base_half_days
         arr_ns = np.array([d[0] for d in donors], dtype=np.int64)
@@ -454,13 +475,14 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
                 return None, 0, half
             half = min(half * 2.0, max_half_days)
 
-    # ── 步骤 1：time-local effective capacity 替换 soc_estimate 段 ────
-    # 充电段: SOC 上升 (soc > 0)；放电段: SOC 下降 (soc < 0)
-    # donor 携带 |ΔSOC| 作为组合比权重（充/放电容量在段内用 ΔSOC 加权均值，
-    # 消除小 ΔSOC 段的整数 % 量化上偏；见 _soc_weighted_cap）。
+    # ── Step 1: time-local effective capacity replaces soc_estimate segments ────
+    # Charge segment: SOC rising (soc > 0); discharge segment: SOC falling (soc < 0)
+    # Donors carry |ΔSOC| as the combined-ratio weight (charge/discharge capacities
+    # use a ΔSOC-weighted mean within the set, removing the integer-% quantisation
+    # upward bias of small-ΔSOC segments; see _soc_weighted_cap).
     charge_donors = []      # list[(ns, cap, w)] ; w = |ΔSOC|
     discharge_donors = []
-    charge_caps = []        # list[(cap, w)]  全周期（不要求有时间戳）
+    charge_caps = []        # list[(cap, w)]  whole period (does not require a timestamp)
     discharge_caps = []
     for row, n in zip(rows, row_ns):
         cap = row[idx_cap]
@@ -481,9 +503,11 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
                 if n is not None:
                     discharge_donors.append((n, cap, w))
 
-    # 全周期 ΔSOC 加权均值（充电优先），用于退化与最终持久化语义（口径不变）。
-    # 用不依赖时间戳的 *_caps，确保即使 idx_start=None（旧调用）也能给出
-    # 正确的全局 charge/discharge 加权均值而非误落到 fallback。
+    # Whole-period ΔSOC-weighted mean (charge preferred), used for degradation and
+    # the final persistence semantics (convention unchanged). Uses the
+    # timestamp-independent *_caps so that even with idx_start=None (old calls) it
+    # gives the correct global charge/discharge weighted mean rather than wrongly
+    # falling through to fallback.
     if charge_caps:
         caps, ws = zip(*charge_caps)
         avg_eff_cap = _soc_weighted_cap(caps, ws)
@@ -497,7 +521,7 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
         cap_source = 'fallback'
 
     def _local_cap_for(t_ns):
-        """充电优先的时间局部 effective capacity。返回 (cap|None, src, half)。"""
+        """Charge-preferred time-local effective capacity. Returns (cap|None, src, half)."""
         m, _, half = _window_mean(charge_donors, t_ns, CAP_WINDOW_HALF_DAYS)
         if m is not None:
             return m, 'charge', half
@@ -512,7 +536,7 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
         if row[idx_esrc] == 'soc_estimate' and _cap_is_valid(row[idx_soc]):
             cap, _src, half = _local_cap_for(t_ns)
             if cap is None:
-                # 该行缺时间戳或全周期无 donor → 全局均值（或 fallback_kwh）
+                # The row lacks a timestamp or the whole period has no donor → global mean (or fallback_kwh)
                 cap = avg_eff_cap
                 if cap_source == 'fallback':
                     n_fallback += 1
@@ -526,24 +550,27 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
             row[idx_cap] = round(cap, 2)
             _apply_soc_energy(row, row[idx_soc], cap)
 
-    logging.info(
-        "步骤 1 (time-local ±%d天, 周期跨度=%.0f天): soc_estimate 替换 — "
-        "局部=%d, 扩窗=%d(最大半宽 %.0f天), 全局回退=%d, fallback=%d; "
-        "donor(充电=%d, 放电=%d), 全局均值=%.1f kWh(来源=%s)",
+    logger.info(
+        "Step 1 (time-local ±%d days, period span=%.0f days): soc_estimate replacement — "
+        "local=%d, widened=%d(max half-width %.0f days), global fallback=%d, fallback=%d; "
+        "donor(charge=%d, discharge=%d), global mean=%.1f kWh(source=%s)",
         CAP_WINDOW_HALF_DAYS, period_span_days, n_local, n_widened,
         widened_half_max, n_global, n_fallback,
         len(charge_donors), len(discharge_donors), avg_eff_cap, cap_source)
 
-    # ── 步骤 2：全局 ±1σ 检测 + 时间局部 inlier 均值替换 ─────────────
+    # ── Step 2: global ±1σ detection + time-local inlier mean replacement ────
     all_caps = [row[idx_cap] for row in rows if _cap_is_valid(row[idx_cap])]
     if len(all_caps) >= 3:
         cap_mean = float(np.mean(all_caps))
         cap_std  = float(np.std(all_caps))
         lo = cap_mean - cap_std
         hi = cap_mean + cap_std
-        # inlier donors（±1σ 内）连同时间戳 + |ΔSOC| 权重，供异常行做时间局部
-        # 替换。替换均值同样用 ΔSOC 加权（组合比估计），避免小 ΔSOC 段的量化上偏
-        # 重新注入替换值。缺 ΔSOC 的行权重记 0（自然排除出加权和）。
+        # inlier donors (within ±1σ) together with the timestamp + |ΔSOC| weight,
+        # for the anomalous rows to do a time-local replacement. The replacement
+        # mean also uses ΔSOC weighting (the combined-ratio estimate), avoiding the
+        # small-ΔSOC quantisation upward bias being re-injected into the
+        # replacement value. Rows lacking ΔSOC are weighted 0 (naturally excluded
+        # from the weighted sum).
         # (soc_fallback rows are SOC-derived, not measured caps — exclude them
         # as inlier donors. On fresh generation none exist at this point, so
         # this is a defensive no-op; it matters only for replay of already-
@@ -564,8 +591,8 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
         for row, t_ns in zip(rows, row_ns):
             cap = row[idx_cap]
             if _cap_is_valid(cap) and (cap < lo or cap > hi):
-                # 原始 IMPLIED capacity（capacity 列被替换 **之前** 的值），用于
-                # SOC-fallback 的偏差门控判断。
+                # Original IMPLIED capacity (the value **before** the capacity
+                # column is replaced), used for the SOC-fallback deviation gate.
                 original_cap = cap
                 repl, _, _ = _window_mean(inlier_donors, t_ns,
                                           CAP_WINDOW_HALF_DAYS)
@@ -573,38 +600,45 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
                     n_repl_local += 1
                 else:
                     repl = inlier_global_mean
-                # 始终修正 capacity 列本身：既让展示合理，也让本周期最终
-                # 持久化的均值不被异常 IMPLIED capacity 污染（持久化语义不变）。
+                # Always correct the capacity column itself: this both makes the
+                # display sensible and keeps the period's final persisted mean from
+                # being polluted by the anomalous IMPLIED capacity (persistence
+                # semantics unchanged).
                 row[idx_cap] = round(repl, 2)
-                # energy 反算**仅**适用于 soc_estimate 段（无可靠能量计数器，
-                # 其 energy 本就由 SOC × capacity 推得）。对 counter-sourced 段
-                # （energy_source ∈ {total_energy, moving_energy}），异常的
-                # IMPLIED capacity 说明分母 ΔSOC 不可靠（整数 % 量化，短程/小
-                # ΔSOC 被低估），而非计数器 energy 有误 —— **默认（MODE A）**必须
-                # 保留计数器给出的 energy / EP / corrected / kinetics，绝不能用
-                # SOC 反算覆盖（否则短程 leg 会得到虚低 EP，形成伪低带）。
+                # Energy re-derivation applies **only** to soc_estimate segments (no
+                # reliable energy counter, their energy is itself derived from
+                # SOC × capacity). For counter-sourced segments (energy_source ∈
+                # {total_energy, moving_energy}), an anomalous IMPLIED capacity means
+                # the denominator ΔSOC is unreliable (integer-% quantisation,
+                # short/small-ΔSOC underestimated), not that the counter energy is
+                # wrong — **by default (MODE A)** the counter's energy / EP /
+                # corrected / kinetics must be kept and never overwritten by a SOC
+                # re-derivation (otherwise short legs would get a spuriously low EP,
+                # forming a false low band).
                 if row[idx_esrc] == 'soc_estimate':
                     soc_chg = row[idx_soc]
                     if _cap_is_valid(soc_chg) and soc_chg != 0:
                         _apply_soc_energy(row, soc_chg, repl)
                 elif fb_enabled and _fallback_applies(row, original_cap, repl):
-                    # v2.2.8 逐车 SOC-energy fallback：counter-sourced 异常行，
-                    # 但 ΔSOC 大到量化误差可控、且 IMPLIED cap 严重偏离 —— 判定
-                    # 为计数器锚点陈旧，用 SOC 反算取代不可信的计数器 energy。
+                    # v2.2.8 per-vehicle SOC-energy fallback: a counter-sourced
+                    # anomalous row, but with ΔSOC large enough that the
+                    # quantisation error is controllable AND the IMPLIED cap
+                    # severely deviating — judged to be a stale counter anchor, so
+                    # re-derive from SOC to replace the untrustworthy counter energy.
                     _apply_soc_energy(row, row[idx_soc], repl)
                     row[idx_esrc] = 'soc_fallback'
                     n_soc_fallback += 1
                 else:
                     n_energy_kept += 1
                 corrected += 1
-        logging.info(
-            "步骤 2 (全局 ±1σ 检测 + time-local 替换): 修正 %d 行异常 effective "
-            "capacity (其中 %d 行用局部窗口均值; counter-sourced: %d 行 SOC "
-            "fallback 反算(soc_fallback), %d 行仅修容量列保留计数器 energy; "
-            "全局均值=%.1f, σ=%.1f, 范围=[%.1f, %.1f], inlier donor=%d)",
+        logger.info(
+            "Step 2 (global ±1σ detection + time-local replacement): corrected %d rows of anomalous effective "
+            "capacity (of which %d rows used a local window mean; counter-sourced: %d rows SOC "
+            "fallback re-derivation(soc_fallback), %d rows corrected the capacity column only and kept the counter energy; "
+            "global mean=%.1f, σ=%.1f, range=[%.1f, %.1f], inlier donor=%d)",
             corrected, n_repl_local, n_soc_fallback, n_energy_kept,
             cap_mean, cap_std, lo, hi, len(inlier_donors))
-        # 步骤 2 后的全周期均值作为最终持久化的 effective capacity（语义不变）
+        # The whole-period mean after step 2 is the final persisted effective capacity (semantics unchanged)
         final_caps = [row[idx_cap] for row in rows if _cap_is_valid(row[idx_cap])]
         if final_caps:
             avg_eff_cap = float(np.mean(final_caps))
@@ -613,24 +647,27 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
 
 
 def _persist_effective_capacity(reg, eff_cap, n_donors, source, period_key):
-    """将本报告周期的 effective capacity 合入 vehicles.json（v2.2.6+ merge）。
+    """Merge this report period's effective capacity into vehicles.json (v2.2.6+ merge).
 
-    新 schema：
-    - ``effective_capacity_quarterly``: ``{period_key: {kwh, n}}``，period_key =
-      报告周期串 ``YYYYMMDD_YYYYMMDD``，与季度报告 1:1。本期写
-      ``{kwh: round(eff_cap, 1), n: n_donors}``。
-    - ``effective_capacity_kwh``: 对所有可靠季度（``n >= MIN_DONORS``）按 donor
-      数加权平均（Σ(kwh·n)/Σn）。稀疏季度（``n < MIN_DONORS``）不计入，其存储
-      ``kwh`` 由 :func:`_recompute_weighted_capacity` 回填为该平均。保留键名使
-      PDF 续航 / dashboard / SOC 种子零改动地拿到稳定平均。
+    New schema:
+    - ``effective_capacity_quarterly``: ``{period_key: {kwh, n}}``, period_key =
+      the report-period string ``YYYYMMDD_YYYYMMDD``, 1:1 with the quarterly report.
+      This period writes ``{kwh: round(eff_cap, 1), n: n_donors}``.
+    - ``effective_capacity_kwh``: the donor-count weighted average
+      (Σ(kwh·n)/Σn) over all reliable quarters (``n >= MIN_DONORS``). Sparse
+      quarters (``n < MIN_DONORS``) are not counted, and their stored ``kwh`` is
+      backfilled by :func:`_recompute_weighted_capacity` to that average. Keeping
+      the key name lets the PDF range / dashboard / SOC seed get the stable average
+      with zero changes.
 
-    仅当 source 为 'charge' / 'discharge'（来自遥测 donor）时写入；
-    source='fallback'（无 donor，如纯 soc_estimate 的 SOC-only Mercedes）不写、
-    不动既有标量。这同时修掉了旧实现「单周期均值覆盖」导致的容量漂移 bug。
+    Written only when source is 'charge' / 'discharge' (from telematics donors);
+    source='fallback' (no donor, e.g. the pure-soc_estimate SOC-only Mercedes) does
+    not write and does not touch the existing scalar. This also fixes the capacity
+    drift bug caused by the old implementation's "single-period mean overwrite".
     """
     if source == 'fallback' or eff_cap is None:
-        logging.info("effective capacity 来源为 fallback（无 donor），"
-                     "不更新 vehicles.json: %s %s", reg, period_key)
+        logger.info("effective capacity source is fallback (no donor), "
+                    "not updating vehicles.json: %s %s", reg, period_key)
         return
 
     import json
@@ -658,14 +695,14 @@ def _persist_effective_capacity(reg, eff_cap, n_donors, source, period_key):
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(all_cfg, f, indent=2, ensure_ascii=False)
             f.write('\n')
-    # 同步内存中的 VEHICLE_CONFIG
+    # Sync the in-memory VEHICLE_CONFIG
     VEHICLE_CONFIG.setdefault(reg, {})
     VEHICLE_CONFIG[reg]['effective_capacity_quarterly'] = quarterly
     if wavg is not None:
         VEHICLE_CONFIG[reg]['effective_capacity_kwh'] = wavg
-    logging.info(
-        "effective_capacity 已更新: %s  %.1f → %.1f kWh "
-        "(本期 %s: kwh=%.1f n=%d 来源=%s; 可靠季度=%d, 稀疏=%d)",
+    logger.info(
+        "effective_capacity updated: %s  %.1f → %.1f kWh "
+        "(this period %s: kwh=%.1f n=%d source=%s; reliable quarters=%d, sparse=%d)",
         reg, old_val or 0, wavg if wavg is not None else (old_val or 0),
         period_key, round(float(eff_cap), 1), int(n_donors), source,
         n_rel, n_sparse)

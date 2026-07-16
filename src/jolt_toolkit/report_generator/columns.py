@@ -17,7 +17,7 @@ import re
 import numpy as np
 
 
-# ── Excel 报告列头（电动车；与老版 JOLT LegRecord 字段顺序完全一致）─────────
+# ── Excel report column headers (EV; identical field order to the legacy JOLT LegRecord) ──
 HEADERS = (
     "Leg Number",
     "Leg Type",
@@ -64,38 +64,48 @@ HEADERS = (
     "Weather Type",
     "Histogram of Accelerator Pedal Position",
     "Histogram of Decelerator Pedal Position",
-    # 新版额外列
+    # Additional columns (newer versions)
     "Energy Source",
     "Energy Performance Kinetics Corrected (kWh/km)",
-    # v2.2.3 新增：trip 时段内的电机驱动总能量（kWh），来自 telematics
-    # `electric_energy_propulsion` 累计计数器（Wh）按时间窗插值差分。
-    # 与 'Energy Change (kWh)' 区别：propulsion **不扣** 再生制动回收，只统计
-    # 正向驱动；常用于反算 η_BM。仅 EV；柴油车走 DIESEL_HEADERS 不含此列。
+    # Added in v2.2.3: total motor propulsion energy over the trip (kWh), from the
+    # telematics `electric_energy_propulsion` cumulative counter (Wh), differenced
+    # by time-window interpolation. Difference from 'Energy Change (kWh)':
+    # propulsion does **not** deduct regenerative-braking recovery — it counts only
+    # forward drive; commonly used to back-calculate η_BM. EV only; diesel goes
+    # through DIESEL_HEADERS and does not carry this column.
     "Propulsion Energy (kWh)",
-    # v2.2.4 新增：去掉辅助/驻车负载（HVAC、低压系统等）后的净牵引能耗效率
-    # (kWh/km)。定义见 data_analysis_workspace/energy_balance_check/report.md：
+    # Added in v2.2.4: net traction energy performance (kWh/km) after removing the
+    # auxiliary / parked loads (HVAC, low-voltage systems, etc.). Definition in
+    # data_analysis_workspace/energy_balance_check/report.md:
     #   EP_exclude_aux = (propulsion − recuperation) / distance = EP − auxiliary/distance
-    # 等价推导：SRF 恒等式 total = propulsion + auxiliary − recuperation，放电
-    # trip 的 EP = |Energy Change| / dist ≈ total / dist，故
-    #   EP − aux/dist = (total − aux)/dist = (propulsion − recuperation)/dist。
-    # 直接用 propulsion 与 recuperation 两个 trip 级量，不依赖 aux 的解算。
-    # 仅当三个计数器（propulsion / recuperation）该 trip 都非空时可算，否则 NaN
-    # —— 这天然把 EX74JXW / EX74JXY / YN25RSY / YN75NMA（计数器 NaN/缺失）置空。
-    # 加在 HEADERS **末尾**：LoggerPatcher / WeatherPatcher 的硬编码列索引
-    # （temp=38 / wind=41 / link=5 / mass=16 / kin=47）均 ≤ 47，不受影响。
-    # 柴油车走 DIESEL_HEADERS 不含此列。
+    # Equivalent derivation: the SRF identity total = propulsion + auxiliary −
+    # recuperation, and a discharge trip's EP = |Energy Change| / dist ≈ total /
+    # dist, hence
+    #   EP − aux/dist = (total − aux)/dist = (propulsion − recuperation)/dist.
+    # Uses the two trip-level quantities propulsion and recuperation directly,
+    # without solving for aux.
+    # Computable only when the counters (propulsion / recuperation) are both
+    # non-empty for the trip, otherwise NaN — this naturally blanks
+    # EX74JXW / EX74JXY / YN25RSY / YN75NMA (counters NaN/missing).
+    # Appended at the **end** of HEADERS: LoggerPatcher / WeatherPatcher's
+    # hard-coded column indices (temp=38 / wind=41 / link=5 / mass=16 / kin=47)
+    # are all ≤ 47 and unaffected. Diesel goes through DIESEL_HEADERS and does not
+    # carry this column.
     "EP_exclude_aux",
-    # v2.2.5 新增：单车单 leg 的运营商代码（project operator CODE）。来源级联见
-    # report_generator/operators.py（SRF 为主：round-robin 取 leg.trip.trial.
-    # description，专属车取 vehicle.organisation.name；vehicles.json 为兜底）。
-    # 加在 HEADERS **末尾**，不移动任何既有列索引（LoggerPatcher / WeatherPatcher
-    # 的硬编码列索引、_generator 的 _IDX_* 均 ≤ 48，不受影响）。
+    # Added in v2.2.5: the per-vehicle, per-leg project operator CODE. The source
+    # cascade is in report_generator/operators.py (SRF preferred: round-robin
+    # takes leg.trip.trial.description, dedicated vehicles take
+    # vehicle.organisation.name; vehicles.json is the fallback).
+    # Appended at the **end** of HEADERS, moving no existing column index
+    # (LoggerPatcher / WeatherPatcher's hard-coded indices and _generator's
+    # _IDX_* are all ≤ 48 and unaffected).
     "Operator",
 )
 
-# ── 柴油车专用列头（v2.2.2 扩展：不再复用电车 HEADERS）────────────────────
-# 只保留对柴油有物理意义的字段：不出现 SOC、AC/DC 充电能量、Battery Capacity、
-# Energy Performance (kWh/km) 等与电量相关的列。燃油消耗用 L 和 L/100km 表达。
+# ── Diesel-only column headers (extended in v2.2.2: no longer reuses the EV HEADERS) ──
+# Keeps only fields with physical meaning for diesel: no SOC, AC/DC charge energy,
+# Battery Capacity, Energy Performance (kWh/km) or other electricity-related
+# columns. Fuel consumption is expressed in L and L/100km.
 DIESEL_HEADERS = (
     "Leg Number",
     "Leg Type",
@@ -122,8 +132,9 @@ DIESEL_HEADERS = (
     "Average Wind Direction",
     "Weather Type",
     "Energy Source",
-    # v2.2.5 新增：运营商代码，柴油车与电车列集对齐。加在 **末尾**（diesel row
-    # 末尾追加，长度断言 len(row) == len(DIESEL_HEADERS) - 1 自动跟随）。
+    # Added in v2.2.5: operator code, aligning the diesel column set with the EV
+    # one. Appended at the **end** (the diesel row appends it at the end, and the
+    # length assertion len(row) == len(DIESEL_HEADERS) - 1 follows automatically).
     "Operator",
 )
 
@@ -163,13 +174,17 @@ def is_trip_leg(leg_type) -> bool:
 
 
 _WEIGHT_COL = "gross_combination_vehicle_weight"
-# v2.2.4: 电车遥测速度列（km/h）。per-leg 质量均值/CV 优先只用行驶中样本，
-# 排除静止时不可靠的 GCVW 广播；列缺失时退回旧的全部 (> 0) 样本行为。
+# v2.2.4: EV telematics speed column (km/h). The per-leg mass mean/CV preferably
+# uses moving samples only, excluding the unreliable GCVW broadcast while
+# stationary; falls back to the old all-(> 0)-samples behaviour when the column
+# is missing.
 _SPEED_COL = "wheel_based_speed"
 _RECUP_COL = "electric_energy_recuperation_watthours"
-# v2.2.3: 累计电机驱动能量计数器（Wh，since vehicle inception）。trip 起止时间通过
-# 线性插值在最近的 RFMS 快照之间得到 Δ，再除以 1000 转 kWh，写入新的
-# `Propulsion Energy (kWh)` 列。柴油车没有此列。
+# v2.2.3: cumulative motor propulsion energy counter (Wh, since vehicle
+# inception). The trip start/end times obtain Δ by linear interpolation between
+# the nearest RFMS snapshots, then divide by 1000 to convert to kWh and write it
+# into the new `Propulsion Energy (kWh)` column. Diesel vehicles do not have this
+# column.
 _PROPULSION_COL = "electric_energy_propulsion"
 
 

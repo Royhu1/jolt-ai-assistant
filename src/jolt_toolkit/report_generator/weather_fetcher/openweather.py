@@ -46,7 +46,7 @@ TIMEMACHINE_URL = "https://api.openweathermap.org/data/3.0/onecall/timemachine"
 
 
 class KeyManager:
-    """多密钥轮转管理器（从 OPENWEATHER_API_KEYS 环境变量加载）。
+    """Multi-key rotation manager (loaded from the OPENWEATHER_API_KEYS environment variable).
 
     ``label`` is the caller name used in the load / missing-key log lines
     (e.g. ``"WeatherPatcher"`` / ``"FineGrainedWeatherPatcher"``) so each
@@ -87,7 +87,7 @@ class KeyManager:
 
 
 class WeatherCache:
-    """JSON 文件缓存（filelock 线程安全）。
+    """JSON file cache (thread-safe via filelock).
 
     Cache-key quantisation: the coordinate is rounded to ``precision`` decimal
     places (~1 km grid at 2) and the timestamp floored to a ``time_bucket_s``
@@ -126,7 +126,7 @@ class WeatherCache:
         return f"{lat:.{self._precision}f},{lon:.{self._precision}f},{dt_bucket}"
 
     def get_batch(self, locations: list[tuple]) -> tuple[dict, list]:
-        """返回 (hit_map, miss_list)。hit_map: {loc: weather_tuple}。"""
+        """Return (hit_map, miss_list). hit_map: {loc: weather_tuple}."""
         with FileLock(self._lock_path, timeout=10):
             with open(self._path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -142,7 +142,7 @@ class WeatherCache:
         return hit_map, misses
 
     def put_batch(self, results: dict):
-        """results: {(lat, lon, dt): (temp, press, humid, wind_s, wind_d, weather_type)}。"""
+        """results: {(lat, lon, dt): (temp, press, humid, wind_s, wind_d, weather_type)}."""
         with FileLock(self._lock_path, timeout=10):
             with open(self._path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -187,7 +187,7 @@ class WeatherFetcher:
         self.failures = 0
 
     def fetch_single(self, loc: tuple) -> tuple[tuple, tuple | None]:
-        """获取单个位置的天气数据（线程安全）。"""
+        """Fetch weather data for a single location (thread-safe)."""
         lat, lon, dt = loc
         with self._lock:
             api_key = self._keys.get_key()
@@ -217,7 +217,7 @@ class WeatherFetcher:
                 self._keys.increment(api_key)
                 self.api_calls += 1
 
-            # 提取天气类型（如 Clear, Clouds, Rain 等）
+            # Extract the weather type (e.g. Clear, Clouds, Rain)
             weather_type = None
             if 'weather' in w and w['weather']:
                 weather_type = w['weather'][0].get('main')
@@ -228,7 +228,7 @@ class WeatherFetcher:
                 w['humidity'],                  # %
                 w['wind_speed'],                # m/s
                 w['wind_deg'],                  # degrees
-                weather_type,                   # 天气类型
+                weather_type,                   # weather type
             )
         except Exception as e:
             logger.debug(f"  API error for ({lat:.4f}, {lon:.4f}): {e}")
@@ -238,7 +238,7 @@ class WeatherFetcher:
 
     def fetch_batch(self, locations: list[tuple], *, desc: str,
                     warn_on_failure: bool) -> dict:
-        """并发获取多个位置的天气数据。"""
+        """Fetch weather data for multiple locations concurrently."""
         results: dict = {}
         logger.info(f"  Fetching {len(locations)} locations "
                     f"({self._max_workers} workers)...")

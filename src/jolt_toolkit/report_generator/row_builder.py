@@ -47,12 +47,12 @@ from jolt_toolkit.report_generator.columns import (
 
 
 # =============================================================================
-# URL 构建工具
+# URL-building utilities
 # =============================================================================
 
 
 def _ts_iso(t) -> str:
-    """将 pd.Timestamp 或 datetime 转换为 ISO 字符串（保留时区）。"""
+    """Convert a pd.Timestamp or datetime to an ISO string (preserving the time zone)."""
     ts = pd.Timestamp(t)
     if ts.tzinfo is None:
         ts = ts.tz_localize("UTC")
@@ -60,7 +60,7 @@ def _ts_iso(t) -> str:
 
 
 def _build_telematics_url(leg_uri: str, t_start, t_end) -> str | None:
-    """构建遥测可视化 URL。"""
+    """Build the telematics visualisation URL."""
     if not leg_uri:
         return None
     query = urlencode(
@@ -76,7 +76,7 @@ def _build_telematics_url(leg_uri: str, t_start, t_end) -> str | None:
 
 
 def _build_charger_url(charger_uri: str, t_start, t_end) -> str | None:
-    """构建充电桩可视化 URL。"""
+    """Build the charger visualisation URL."""
     if not charger_uri:
         return None
     query = urlencode(
@@ -90,7 +90,7 @@ def _build_charger_url(charger_uri: str, t_start, t_end) -> str | None:
 
 
 def _build_logger_url(logger_uri: str, t_start, t_end) -> str | None:
-    """构建 SRF Logger 可视化 URL。"""
+    """Build the SRF Logger visualisation URL."""
     if not logger_uri:
         return None
     query = urlencode(
@@ -105,10 +105,10 @@ def _build_logger_url(logger_uri: str, t_start, t_end) -> str | None:
 
 def _find_overlap(windows: list, t_start, t_end, tol_min: float = 5) -> str | None:
     """
-    在时间窗口列表中查找与 [t_start, t_end] 重叠的第一个条目。
+    Find the first entry in the window list overlapping [t_start, t_end].
 
     windows: list of (start, end, uri)
-    返回 URI 或 None。
+    Returns the URI or None.
     """
     tol = pd.Timedelta(minutes=tol_min)
     t_s = pd.Timestamp(t_start)
@@ -136,17 +136,17 @@ def _find_overlap(windows: list, t_start, t_end, tol_min: float = 5) -> str | No
 
 
 # =============================================================================
-# 遥测数据辅助函数
+# Telemetry-data helper functions
 # =============================================================================
 
 
 def _to_utc_series(df: pd.DataFrame) -> pd.Series:
-    """将 TIME_COL 列转为 UTC tz-aware datetime Series。"""
+    """Convert the TIME_COL column to a UTC tz-aware datetime Series."""
     return pd.to_datetime(df[TIME_COL], errors="coerce", utc=True)
 
 
 def _seg_mask(df: pd.DataFrame, t_start, t_end) -> pd.Series:
-    """返回落在 [t_start, t_end] 窗口内的行掩码。"""
+    """Return a row mask for rows within the [t_start, t_end] window."""
     ts = _to_utc_series(df)
     t_s = pd.Timestamp(t_start)
     t_e = pd.Timestamp(t_end)
@@ -165,28 +165,33 @@ def _get_vehicle_mass(
     speed_threshold_kmh: float = MOVING_SPEED_THRESHOLD_KMH,
     method: str = "mean",
 ) -> tuple[float, float]:
-    """返回 (mass_kg, cv) 或 (nan, nan)。
+    """Return (mass_kg, cv) or (nan, nan).
 
-    v2.2.4: 优先只用**行驶中** (speed > ``speed_threshold_kmh``) 的质量样本计算
-    leg 均值/CV —— 静止时的 J1939 GCVW 广播（装卸货瞬态 / 默认值）不可靠。
-    当窗口内有 ≥2 个行驶样本时用行驶样本；否则回退到旧行为（窗口内全部 > 0 样本）。
-    若速度列缺失，行为与旧版完全一致。
+    v2.2.4: prefer computing the leg mean/CV from **moving** (speed >
+    ``speed_threshold_kmh``) mass samples only — the J1939 GCVW broadcast while
+    stationary (load/unload transients / default values) is unreliable. When there
+    are ≥2 moving samples in the window, use the moving samples; otherwise revert
+    to the old behaviour (all > 0 samples in the window). If the speed column is
+    missing, the behaviour is identical to the old version.
 
-    v2.2.6: 过滤口径不变，但末段聚合改由 ``_agg_mass`` 按 ``method`` 完成
-    （``mean`` / ``median`` / ``iqr_median`` / ``mad_mean`` / ``mad_tw_mean`` …），
-    供异常重量尖峰的稳健估计。默认 ``mean`` 与旧实现逐值一致（``sel.mean()`` /
-    ``std/mean``）。``mad_tw_mean`` 额外需要与 ``sel`` 对齐的时间轴，故仅在该方法
-    下从 ``TIME_COL`` 构造时间戳传入；其余方法路径逐值不变。
+    v2.2.6: the filter convention is unchanged, but the final aggregation is now
+    done by ``_agg_mass`` according to ``method`` (``mean`` / ``median`` /
+    ``iqr_median`` / ``mad_mean`` / ``mad_tw_mean`` …), for a robust estimate
+    against anomalous weight spikes. The default ``mean`` is value-identical to the
+    old implementation (``sel.mean()`` / ``std/mean``). ``mad_tw_mean``
+    additionally needs a time axis aligned to ``sel``, so a timestamp is
+    constructed from ``TIME_COL`` and passed in only under that method; every other
+    method's path is value-identical.
     """
     if _WEIGHT_COL not in df.columns:
         return nan, nan
     mask = _seg_mask(df, t_start, t_end)
     vals = pd.to_numeric(df.loc[mask, _WEIGHT_COL], errors="coerce")
-    # 过滤 J1939 default 0 值（静止时 broadcast 默认值，非真实读数）
-    # 参考 diesel_pipeline.py line ~549 对 CVW 同样使用 m > 0 过滤
+    # Filter out J1939 default 0 values (default broadcast while stationary, not a real reading)
+    # cf. diesel_pipeline.py line ~549 which also uses m > 0 filtering for CVW
     valid = vals.notna() & (vals > 0)
 
-    # 优先行驶中样本（speed > 阈值，NaN speed 视为非行驶）
+    # Prefer moving samples (speed > threshold, a NaN speed is treated as not moving)
     if speed_col in df.columns:
         spd = pd.to_numeric(df.loc[mask, speed_col], errors="coerce")
         moving = valid & spd.notna() & (spd > speed_threshold_kmh)
@@ -203,7 +208,7 @@ def _get_vehicle_mass(
 
 
 def _get_recuperation(df: pd.DataFrame, t_start, t_end) -> float:
-    """返回区间内电制动回收能量（kWh）。累计计数器，取 max - min。"""
+    """Return the regenerative-braking recovery energy (kWh) in the interval. Cumulative counter, take max - min."""
     if _RECUP_COL not in df.columns:
         return nan
     mask = _seg_mask(df, t_start, t_end)
@@ -216,40 +221,42 @@ def _get_recuperation(df: pd.DataFrame, t_start, t_end) -> float:
 def _propulsion_at(
     t_target: pd.Timestamp, times: np.ndarray, values: np.ndarray
 ) -> float:
-    """在 `electric_energy_propulsion` 累计计数器序列上对 t_target 做线性插值。
+    """Linearly interpolate at t_target on the `electric_energy_propulsion` cumulative-counter series.
 
-    times: 1D ns 时间戳数组（已排序）
-    values: 同长度的累计 propulsion 值 (Wh)
-    返回 t_target 处的插值 propulsion (Wh)；t_target 落在样本范围之外时取最近端点。
+    times: 1D ns timestamp array (already sorted)
+    values: cumulative propulsion values (Wh) of the same length
+    Returns the interpolated propulsion (Wh) at t_target; takes the nearest endpoint when t_target is outside the sample range.
     """
     t_ns = np.int64(pd.Timestamp(t_target).value)
     if t_ns <= times[0]:
         return float(values[0])
     if t_ns >= times[-1]:
         return float(values[-1])
-    # np.interp 对单调递增 x 做线性插值
+    # np.interp does linear interpolation on a monotonically-increasing x
     return float(np.interp(t_ns, times, values))
 
 
 def _get_propulsion_energy(df: pd.DataFrame, t_start, t_end) -> float:
-    """计算一个 trip 时间窗 [t_start, t_end] 内的 propulsion 增量 (kWh)。
+    """Compute the propulsion increment (kWh) within a trip time window [t_start, t_end].
 
-    数据源：raw telematics 的 `electric_energy_propulsion` 列（Wh，累计计数器，
-    单调递增）。RFMS 快照稀疏（~15 分钟一条），所以一个 trip 内可能只有 2–20 个
-    采样点，需要在窗口边界做线性插值。
+    Data source: the raw telematics `electric_energy_propulsion` column (Wh,
+    cumulative counter, monotonically increasing). RFMS snapshots are sparse (~one
+    every 15 minutes), so a trip may only have 2–20 sample points, needing linear
+    interpolation at the window boundaries.
 
-    算法：
-    1. 提取整 leg 的 (timestamp, propulsion) 序列，去重 + 排序。
-    2. 优先：[t_start, t_end] 严格包含在样本范围内 → 在两端各做一次插值 → Δ
-    3. fallback：t_start 在范围内但 t_end 在范围外（或反之）→ 取窗口内首/末
-       样本的差，即 partial-coverage 估计。
-    4. 都不可用（窗口在样本范围外或样本 < 2）→ NaN。
+    Algorithm:
+    1. Extract the whole leg's (timestamp, propulsion) series, dedup + sort.
+    2. Preferred: [t_start, t_end] is strictly contained within the sample range → interpolate once at each end → Δ
+    3. Fallback: t_start is within range but t_end is out of range (or vice versa)
+       → take the difference of the first/last samples within the window, i.e. a
+       partial-coverage estimate.
+    4. Neither available (window outside the sample range or samples < 2) → NaN.
 
-    返回 Δ propulsion (kWh)；列缺失或样本不足时返回 NaN。
+    Returns Δ propulsion (kWh); returns NaN when the column is missing or samples are insufficient.
     """
     if _PROPULSION_COL not in df.columns:
         return nan
-    # 准备样本序列
+    # Prepare the sample series
     ts = _to_utc_series(df)
     vals = pd.to_numeric(df[_PROPULSION_COL], errors="coerce")
     keep = (~ts.isna()) & (~vals.isna())
@@ -259,13 +266,14 @@ def _get_propulsion_energy(df: pd.DataFrame, t_start, t_end) -> float:
     sub = sub.sort_values("t")
     if len(sub) < 1:
         return nan
-    # Pandas 2.x 的 pd.to_datetime 会根据输入精度推断 dtype 单位（如 'datetime64[us, UTC]'），
-    # 此时 .asi8 / .astype('int64') 返回 microseconds 而不是 nanoseconds，与
-    # pd.Timestamp.value（恒为 ns）单位不匹配会导致比较全错。强制 .as_unit('ns')。
+    # Pandas 2.x's pd.to_datetime infers the dtype unit from the input precision
+    # (e.g. 'datetime64[us, UTC]'), in which case .asi8 / .astype('int64') returns
+    # microseconds not nanoseconds, and this unit mismatch with pd.Timestamp.value
+    # (always ns) would make every comparison wrong. Force .as_unit('ns').
     times = pd.DatetimeIndex(sub["t"]).as_unit("ns").asi8
     values = sub["v"].values
 
-    # 规范化窗口边界为 UTC tz-aware
+    # Normalise the window boundaries to UTC tz-aware
     t_s = pd.Timestamp(t_start)
     t_e = pd.Timestamp(t_end)
     if t_s.tzinfo is None:
@@ -277,16 +285,16 @@ def _get_propulsion_energy(df: pd.DataFrame, t_start, t_end) -> float:
 
     s_min, s_max = times[0], times[-1]
 
-    # ── 优先：bracketed 插值（窗口完全在样本范围内）────────────
+    # ── Preferred: bracketed interpolation (window fully within the sample range) ──
     if t_s_ns >= s_min and t_e_ns <= s_max:
         v_s = _propulsion_at(t_s, times, values)
         v_e = _propulsion_at(t_e, times, values)
         delta_wh = v_e - v_s
-        if delta_wh < 0:  # 累计计数器理论上单调递增，负值视为噪声
+        if delta_wh < 0:  # a cumulative counter is theoretically monotonic increasing, treat a negative as noise
             return nan
         return round(delta_wh / 1000.0, 3)
 
-    # ── fallback：窗口内首/末样本的差（partial coverage）────────
+    # ── Fallback: difference of the first/last samples within the window (partial coverage) ──
     in_window = (times >= t_s_ns) & (times <= t_e_ns)
     if in_window.sum() >= 2:
         idx = np.where(in_window)[0]
@@ -295,23 +303,24 @@ def _get_propulsion_energy(df: pd.DataFrame, t_start, t_end) -> float:
             return nan
         return round(delta_wh / 1000.0, 3)
 
-    # ── 完全没有可用样本 ─────────────────────────────────────
+    # ── No usable samples at all ─────────────────────────────
     return nan
 
 
 def _ep_exclude_aux(
     propulsion_kwh: float, recuperation_kwh: float, distance_km: float
 ) -> float:
-    """净牵引（去辅助负载）能耗效率 (kWh/km)。
+    """Net traction (auxiliary-load-excluded) energy performance (kWh/km).
 
-    定义见 ``data_analysis_workspace/energy_balance_check/report.md``：
+    Definition in ``data_analysis_workspace/energy_balance_check/report.md``:
 
         EP_exclude_aux = (propulsion − recuperation) / distance
 
-    即每公里的牵引能量扣除再生回收后、再剔除 HVAC/驻车等辅助负载的净值。
-    propulsion / recuperation 任一为 NaN（计数器缺失或全空），或 distance ≤ 0
-    时返回 NaN —— 因此只有同时报告 propulsion + recuperation 两个计数器的车
-    才会得到有效值，与 report.md 的可算车队一致。
+    i.e. per-km traction energy net of regenerative recovery, then with the HVAC /
+    parking and other auxiliary loads removed. Returns NaN when propulsion /
+    recuperation is NaN (counter missing or entirely empty), or distance ≤ 0 —
+    hence only vehicles reporting both the propulsion + recuperation counters get a
+    valid value, consistent with report.md's computable fleet.
     """
     if any(
         v is None or np.isnan(v)
@@ -326,7 +335,7 @@ def _ep_exclude_aux(
 def _get_elevation_diff(
     df: pd.DataFrame, t_start, t_end, altitude_col: str | None = None
 ) -> float:
-    """返回区间内的海拔差（米）：末尾高度 - 起始高度。"""
+    """Return the elevation difference (metres) in the interval: end altitude - start altitude."""
     if altitude_col is None or altitude_col not in df.columns:
         return nan
     mask = _seg_mask(df, t_start, t_end)
@@ -343,10 +352,10 @@ def _corrected_energy_perf(
     energy_kwh: float, distance_km: float, elevation_m: float, mass_kg: float
 ) -> float:
     """
-    海拔修正后的能量效率 (kWh/km)。
+    Elevation-corrected energy performance (kWh/km).
 
-    公式：E_gravity = m * g * Δh / 3,600,000 (kWh)
-    上坡 (Δh > 0) 时扣除重力做功，下坡 (Δh < 0) 时加上回收。
+    Formula: E_gravity = m * g * Δh / 3,600,000 (kWh)
+    Uphill (Δh > 0) deducts the gravitational work, downhill (Δh < 0) adds the recovery.
     corrected = (|delta_energy| - E_gravity) / distance
     """
     if any(np.isnan(v) for v in (energy_kwh, distance_km, elevation_m, mass_kg)):
@@ -358,9 +367,9 @@ def _corrected_energy_perf(
     return round(corrected / distance_km, 4)
 
 
-ETA_DT = 0.90  # 传动效率 η（电池→车轮，含电机 0.95 × 变速器 0.95）
-ETA_REGEN = 0.90  # 再生制动效率 η（车轮→电池，与 η_dt 对称）
-_V_MAX_KMH = 100.0  # GPS 速度上限截断（km/h），UK 重卡限速 56 mph ≈ 90 km/h
+ETA_DT = 0.90  # drivetrain efficiency η (battery→wheels, motor 0.95 × gearbox 0.95)
+ETA_REGEN = 0.90  # regenerative-braking efficiency η (wheels→battery, symmetric with η_dt)
+_V_MAX_KMH = 100.0  # GPS speed upper-bound clamp (km/h); UK HGV speed limit 56 mph ≈ 90 km/h
 
 
 def _kinetics_corrected_energy_perf(
@@ -371,27 +380,29 @@ def _kinetics_corrected_energy_perf(
     speed_array_kmh,
 ) -> float:
     """
-    海拔 + 动能修正后的能量效率 (kWh/km)。
+    Elevation + kinetics-corrected energy performance (kWh/km).
 
-    基于 Sherborne (2024) Vehicle Model C（PhD thesis, Section 2.2.4, Eq. 2.6–2.10）：
-    使用 Logger 1Hz 速度数据逐秒计算再生调整动能变化 ke，
-    再转换为电池级能量消耗以校正行驶工况差异。
+    Based on Sherborne (2024) Vehicle Model C (PhD thesis, Section 2.2.4, Eq. 2.6–2.10):
+    uses Logger 1Hz speed data to compute the regen-adjusted kinetic-energy change
+    ke second by second, then converts it to battery-level energy consumption to
+    correct for driving-cycle differences.
 
-    逐秒动能变化：
+    Per-second kinetic-energy change:
       Δ_i = ½(v²_{i+1} - v²_i)            [J/kg]
-    再生调整权重：
-      W_i = 1     if Δ_i > 0（加速）
-      W_i = η²    if Δ_i ≤ 0（减速，η² 为往返效率）
-    电池级净动能消耗：
+    Regen-adjustment weight:
+      W_i = 1     if Δ_i > 0 (acceleration)
+      W_i = η²    if Δ_i ≤ 0 (deceleration, η² is the round-trip efficiency)
+    Battery-level net kinetic-energy consumption:
       E_KE_bat = (1/η) × m × Σ(Δ_i × W_i)
               = Σ(ΔKE>0)/η_dt - η_regen × Σ(|ΔKE<0|)
 
-    η² 的物理含义：减速时动能经电机→逆变器→电池存储（效率 η），
-    下一次加速时再经电池→逆变器→电机转回动能（效率 η），
-    往返效率 = η × η = η²。
+    Physical meaning of η²: on deceleration the kinetic energy is stored via
+    motor→inverter→battery (efficiency η), and on the next acceleration is
+    converted back to kinetic energy via battery→inverter→motor (efficiency η), so
+    the round-trip efficiency = η × η = η².
 
     Args:
-        speed_array_kmh: numpy array，Logger 1Hz 速度值 (km/h)
+        speed_array_kmh: numpy array, Logger 1Hz speed values (km/h)
     """
     if any(np.isnan(v) for v in (energy_kwh, distance_km, mass_kg)):
         return nan
@@ -399,23 +410,23 @@ def _kinetics_corrected_energy_perf(
         return nan
     if speed_array_kmh is None or len(speed_array_kmh) < 2:
         return nan
-    # 海拔修正
+    # Elevation correction
     e_gravity_kwh = 0.0
     if not np.isnan(elevation_m):
         e_gravity_kwh = mass_kg * _G * elevation_m / 3_600_000.0
-    # GPS 速度预处理：截断异常值 + 3 点中位数滤波抑制尖刺
+    # GPS speed preprocessing: clamp outliers + a 3-point median filter to suppress spikes
     v_kmh = np.asarray(speed_array_kmh, dtype=float)
     v_kmh = np.clip(v_kmh, 0.0, _V_MAX_KMH)
     if len(v_kmh) >= 3:
         v_kmh = pd.Series(v_kmh).rolling(3, center=True, min_periods=1).median().values
-    # 逐秒动能变化（Sherborne Eq. 2.6–2.9）
+    # Per-second kinetic-energy change (Sherborne Eq. 2.6–2.9)
     v_ms = v_kmh / 3.6  # km/h → m/s
     delta_ke_j = 0.5 * mass_kg * np.diff(v_ms**2)  # Joules
     accel_energy_j = delta_ke_j[delta_ke_j > 0].sum()
     braking_energy_j = np.abs(delta_ke_j[delta_ke_j < 0]).sum()
-    # 电池级净动能消耗 = 加速耗能/η_dt - η_regen × 制动回收
+    # Battery-level net kinetic-energy consumption = acceleration energy/η_dt - η_regen × braking recovery
     net_ke_kwh = (accel_energy_j / ETA_DT - ETA_REGEN * braking_energy_j) / 3_600_000.0
-    # 安全检查：校正量不应超过实际电池能量的 80%
+    # Safety check: the correction should not exceed 80% of the actual battery energy
     if abs(net_ke_kwh) > 0.8 * abs(energy_kwh):
         return nan
     corrected = abs(energy_kwh) - e_gravity_kwh - net_ke_kwh
@@ -423,14 +434,14 @@ def _kinetics_corrected_energy_perf(
 
 
 def _get_trip_speed_array(logger_speed_df, t_start, t_end):
-    """提取 Logger 1Hz 速度数组（用于动能修正计算）。
+    """Extract the Logger 1Hz speed array (for the kinetics correction).
 
     Args:
-        logger_speed_df: pd.DataFrame，索引为 UTC 时间戳，列 'logger_speed' (km/h)
-        t_start, t_end: 行程时间窗口边界
+        logger_speed_df: pd.DataFrame, indexed by UTC timestamp, column 'logger_speed' (km/h)
+        t_start, t_end: trip time-window boundaries
 
     Returns:
-        numpy array (km/h) 或 None（数据不足时）
+        numpy array (km/h) or None (when data is insufficient)
     """
     if logger_speed_df is None or logger_speed_df.empty:
         return None
@@ -440,11 +451,11 @@ def _get_trip_speed_array(logger_speed_df, t_start, t_end):
         return None
     if len(sliced) < 2:
         return None
-    return sliced.values  # numpy array，单位 km/h
+    return sliced.values  # numpy array, in km/h
 
 
 def _point_str(lat, lon) -> str | None:
-    """格式化为 'Point(lat lon)'（与老版 JOLT 一致）。"""
+    """Format as 'Point(lat lon)' (consistent with the legacy JOLT)."""
     if lat is None or lon is None:
         return None
     try:
@@ -464,12 +475,12 @@ _POSTCODE_CACHE_PATH = get_cache_dir() / "postcode_cache.json"
 
 
 def _load_postcode_cache() -> dict:
-    """从磁盘加载 postcode 缓存。"""
+    """Load the postcode cache from disk."""
     if _POSTCODE_CACHE_PATH.exists():
         try:
             with open(_POSTCODE_CACHE_PATH, "r") as f:
                 raw = json.load(f)
-            # JSON 键为字符串如 "(52.0368, -0.6572)"，转回 tuple
+            # JSON keys are strings like "(52.0368, -0.6572)", convert back to tuples
             return {
                 tuple(map(float, k.strip("()").split(", "))): v for k, v in raw.items()
             }
@@ -479,7 +490,7 @@ def _load_postcode_cache() -> dict:
 
 
 def _save_postcode_cache():
-    """保存 postcode 缓存到磁盘。"""
+    """Save the postcode cache to disk."""
     try:
         _POSTCODE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         serializable = {str(k): v for k, v in _postcode_cache.items()}
@@ -560,7 +571,7 @@ def _get_leg_type(mode: str, seg: dict, energy_ac, energy_dc, home_point) -> str
     if mode == "charge":
         lat = seg.get("latitude")
         lon = seg.get("longitude")
-        # 充电段：只要坐标接近 home 即判定为 Home
+        # Charge segment: classified as Home whenever the coordinates are near home
         place = "Home" if _is_home(lat, lon, home_point) else "Away"
         ac_ok = (
             abs(float(energy_ac)) > 1
@@ -764,7 +775,7 @@ def _insert_stop_rows(
 
 
 # =============================================================================
-# Segment → Excel 行构建
+# Segment → Excel row construction
 # =============================================================================
 
 
@@ -788,17 +799,17 @@ def _seg_to_row(
     mass_agg: str = "mean",
 ) -> tuple:
     """
-    将一个 segment dict 转换为一行 Excel 数据（HEADERS 顺序）。
+    Convert a segment dict into one row of Excel data (HEADERS order).
 
     mode: 'charge' | 'discharge'
-    logger_speed_all:      Logger 1Hz 速度 DataFrame（索引为 UTC 时间戳，列 'logger_speed'），
-                           用于逐秒动能修正计算。
-    logger_acc_pedal_all:  Logger EEC2 油门踏板位置 DataFrame（索引为 UTC 时间戳）。
-    logger_dec_pedal_all:  Logger EBC1 制动踏板位置 DataFrame（索引为 UTC 时间戳）。
+    logger_speed_all:      Logger 1Hz speed DataFrame (indexed by UTC timestamp, column 'logger_speed'),
+                           used for the per-second kinetics correction.
+    logger_acc_pedal_all:  Logger EEC2 accelerator-pedal position DataFrame (indexed by UTC timestamp).
+    logger_dec_pedal_all:  Logger EBC1 brake-pedal position DataFrame (indexed by UTC timestamp).
     """
     t_s = pd.Timestamp(seg["start_time"])
     t_e = pd.Timestamp(seg["end_time"])
-    # 统一时区：确保两者都是 UTC 或都是 tz-naive
+    # Unify time zones: ensure both are UTC or both tz-naive
     if t_s.tzinfo is not None and t_e.tzinfo is None:
         t_e = t_e.tz_localize("UTC")
     elif t_s.tzinfo is None and t_e.tzinfo is not None:
@@ -807,7 +818,7 @@ def _seg_to_row(
 
     # ── URLs ───────────────────────────────────────────────────────────────
     telem_url = _build_telematics_url(leg_uri, t_s, t_e)
-    # Logger Link 仅用于放电/行程段；充电段不应有 Logger 链接
+    # The Logger Link is only for discharge/trip segments; a charge segment should have no Logger link
     logger_url = None
     if mode == "discharge":
         logger_uri = _find_overlap(logger_windows, t_s, t_e, tol_min=5)
@@ -817,7 +828,7 @@ def _seg_to_row(
     if mode == "charge":
         charger_uri = _find_overlap(charger_windows, t_s, t_e, tol_min=4)
         charger_url = _build_charger_url(charger_uri, t_s, t_e) if charger_uri else None
-        # 提取匹配的充电桩能量数据
+        # Extract the matching charger energy data
         if charger_uri:
             for entry in charger_windows:
                 if len(entry) >= 4 and entry[2] == charger_uri and entry[3] is not None:
@@ -864,11 +875,13 @@ def _seg_to_row(
 
     dur_h = duration.total_seconds() / 3600.0
     # ── Average Speed ────────────────────────────────────────────────────
-    # 默认（first_motion anchor）：distance / 端点差
-    # zero_speed anchor 模式下，端点已被外扩到零速样本，trip 窗口含零速尾巴 →
-    # 分母改用 trip 内 v > speed_threshold 子区间的累计时长，保持速度物理意义。
-    # 由 find_discharge_segments_by_speed() 在 zero_speed 模式写入 seg['motion_duration_s']；
-    # first_motion 模式 / charge 段 该字段为 None 或不存在。
+    # Default (first_motion anchor): distance / endpoint difference.
+    # In zero_speed anchor mode the endpoints have been extended out to zero-speed
+    # samples, so the trip window contains zero-speed tails → the denominator uses
+    # the cumulative duration of the trip's v > speed_threshold sub-intervals
+    # instead, preserving the physical meaning of speed. Written by
+    # find_discharge_segments_by_speed() in zero_speed mode as seg['motion_duration_s'];
+    # in first_motion mode / for charge segments this field is None or absent.
     _motion_s = seg.get("motion_duration_s") if mode == "discharge" else None
     if _motion_s is not None and _motion_s > 0 and not np.isnan(distance):
         avg_speed = round(distance / (_motion_s / 3600.0), 2)
@@ -884,9 +897,10 @@ def _seg_to_row(
     recuperation = _get_recuperation(df_leg, t_s, t_e)
     elevation_diff = _get_elevation_diff(df_leg, t_s, t_e, altitude_col)
 
-    # ── Propulsion energy (kWh) — 仅 trip 段（v2.2.3）─────────────────────
-    # 充电段 / 静止段 propulsion 必为 0，写 NaN 与现有 EP 列在 charge/stop
-    # 行的处理一致；只对 discharge 计算插值差分。
+    # ── Propulsion energy (kWh) — trip segments only (v2.2.3) ─────────────
+    # For charge / stationary segments propulsion is necessarily 0; writing NaN is
+    # consistent with the existing EP columns' handling on charge/stop rows; the
+    # interpolated difference is computed only for discharge.
     propulsion_kwh = nan
     if mode == "discharge":
         propulsion_kwh = _get_propulsion_energy(df_leg, t_s, t_e)
@@ -919,8 +933,8 @@ def _seg_to_row(
         energy_perf_corrected = _corrected_energy_perf(
             energy_change, distance, elevation_diff, veh_mass
         )
-        # 去辅助负载净牵引效率：(propulsion − recuperation) / distance。
-        # propulsion / recuperation 任一 NaN（计数器缺失）→ NaN。
+        # Auxiliary-load-excluded net traction efficiency: (propulsion − recuperation) / distance.
+        # NaN if either propulsion / recuperation is NaN (counter missing) → NaN.
         ep_exclude_aux = _ep_exclude_aux(propulsion_kwh, recuperation, distance)
         if logger_speed_all is not None:
             speed_arr = _get_trip_speed_array(logger_speed_all, t_s, t_e)
@@ -929,7 +943,7 @@ def _seg_to_row(
                     energy_change, distance, elevation_diff, veh_mass, speed_arr
                 )
 
-    # ── 踏板位置直方图（仅放电段，距离 > 10 km）──────────────────────
+    # ── Pedal-position histograms (discharge segments only, distance > 10 km) ──
     acc_hist = None
     dec_hist = None
     if (

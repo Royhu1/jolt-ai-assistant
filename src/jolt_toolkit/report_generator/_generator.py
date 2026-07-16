@@ -1,9 +1,9 @@
 """
 report_generator.py
 =========================
-编排 fetch -> segment -> write 主流程。
-使用 segment_algorithms 进行统一充放电分段，
-通过 report_builder 生成 Excel 报告和可选的验证图。
+Orchestrates the fetch -> segment -> write main flow.
+Uses segment_algorithms for the unified charge/discharge segmentation, and
+report_builder to generate the Excel report and optional validation figures.
 """
 
 import io
@@ -59,17 +59,19 @@ from jolt_toolkit.report_generator.capacity import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
-# ── Logger 值转换：srf_client.pandas.to_numeric 的超集 ───────────────────────
-# srf_client 默认的 to_numeric 只处理数字和 "NaN" 字符串；遇到 J1939 布尔字段
-# （如 CCVS cruise control active / brake switch / clutch switch 的 "true"/"false"）
-# 会无差别返回 math.nan，导致这些列在 Logger CSV 中全部丢失。
-# 这里把布尔字符串映射到 0/1，保留对其他值的原有行为，是一个严格超集。
+# ── Logger value conversion: a superset of srf_client.pandas.to_numeric ───────
+# srf_client's default to_numeric only handles numbers and the "NaN" string; for
+# J1939 boolean fields (e.g. CCVS cruise control active / brake switch / clutch
+# switch's "true"/"false") it indiscriminately returns math.nan, causing these
+# columns to be entirely lost in the Logger CSV. Here the boolean strings are
+# mapped to 0/1 while the original behaviour for other values is preserved — a
+# strict superset.
 _LOGGER_BOOL_TRUE = frozenset({'true', 'True', 'TRUE'})
 _LOGGER_BOOL_FALSE = frozenset({'false', 'False', 'FALSE'})
 
 
 def _logger_to_numeric(v: str):
-    """布尔感知版本的数值转换器，用于 leg.get_data_frame(conversion=...)."""
+    """Boolean-aware numeric converter, for leg.get_data_frame(conversion=...)."""
     import math
     if v in _LOGGER_BOOL_TRUE:
         return 1
@@ -85,7 +87,7 @@ def _logger_to_numeric(v: str):
 
 
 def _ensure_utc_index(df: pd.DataFrame) -> pd.DataFrame:
-    """确保 DataFrame 索引为 UTC 时区。"""
+    """Ensure the DataFrame index is in the UTC time zone."""
     if df.index.tz is None:
         df.index = df.index.tz_localize('UTC')
     else:
@@ -100,16 +102,16 @@ def _load_logger_channel(
     target_col: str,
     desc: str,
 ) -> pd.DataFrame | None:
-    """从 Logger legs 加载指定通道数据的通用函数。
+    """Generic function to load a given channel's data from Logger legs.
 
     Args:
-        logger_legs: Logger leg 对象列表
-        channels:    按优先级排列的 (channel_name, column_name_or_candidates) 元组列表。
-                     column_name 可为单个字符串或多个候选列名的元组（按优先级尝试）。
-        target_col:  输出 DataFrame 的列名
-        desc:        tqdm 进度条描述
+        logger_legs: list of Logger leg objects
+        channels:    list of (channel_name, column_name_or_candidates) tuples in priority order.
+                     column_name may be a single string or a tuple of candidate column names (tried in priority order).
+        target_col:  column name of the output DataFrame
+        desc:        tqdm progress-bar description
     Returns:
-        合并后的 DataFrame（索引为 UTC 时间戳）或 None
+        The merged DataFrame (indexed by UTC timestamps) or None
     """
     dfs = []
     for lg in tqdm(logger_legs, desc=desc, leave=False):
@@ -118,13 +120,13 @@ def _load_logger_channel(
             for channel, col_spec in channels:
                 if channel in avail:
                     df_ch = lg.get_data_frame(channel, resolution='1s')
-                    # col_spec 支持单列名或多个候选列名
+                    # col_spec supports a single column name or multiple candidate column names
                     candidates = (col_spec,) if isinstance(col_spec, str) else col_spec
                     for col in candidates:
                         if col in df_ch.columns:
                             dfs.append(df_ch[[col]].rename(columns={col: target_col}))
                             break
-                    break  # 使用第一个匹配的通道
+                    break  # use the first matching channel
         except Exception:
             pass
     if not dfs:
@@ -134,7 +136,7 @@ def _load_logger_channel(
 
 
 class JOLTReportGenerator:
-    """从 SRF API 获取数据，运行分段算法，生成 Excel 报告。"""
+    """Fetch data from the SRF API, run the segmentation algorithm, and generate the Excel report."""
 
     def __init__(
         self,
@@ -146,11 +148,14 @@ class JOLTReportGenerator:
     ):
         """
         save_figures
-            仅在 ``debug_mode=True`` 时有意义：是否在 generate 阶段绘制烤入标注的
-            validation 图。设为 ``False`` 时仍落盘 raw telematics CSV + inspect HTML，
-            但跳过画图（图稍后由 :class:`ValidationGenerator` overlay regenerate 统一
-            重画新样式，避免画两遍）。raw CSV 落盘与画图本就解耦（前者 gated on
-            ``debug_mode``，后者 gated on ``debug_mode and save_figures``）。
+            Only meaningful when ``debug_mode=True``: whether to draw the
+            label-baked validation figures during the generate stage. When set to
+            ``False``, the raw telematics CSV + inspect HTML are still written to
+            disk, but plotting is skipped (the figures are later redrawn uniformly
+            in the new style by :class:`ValidationGenerator`'s overlay regenerate,
+            avoiding drawing twice). Raw-CSV writing and plotting are already
+            decoupled (the former gated on ``debug_mode``, the latter on
+            ``debug_mode and save_figures``).
         """
         self.srf_data = self._make_srf_data(
             api_key=os.environ.get("SRF_API_KEY"),
@@ -165,30 +170,34 @@ class JOLTReportGenerator:
         self.save_figures = save_figures
 
     def generate_report(self, vehicle_registration, date_start, date_end):
-        """为指定车辆和日期范围生成 JOLT Excel 报告。返回 Excel 路径或 None。"""
+        """Generate a JOLT Excel report for the given vehicle and date range. Returns the Excel path or None."""
         time_start = perf_counter()
-        logger.info("开始生成报告: %s  %s ~ %s", vehicle_registration, date_start, date_end)
+        logger.info("Starting report generation: %s  %s ~ %s", vehicle_registration, date_start, date_end)
 
         reg = vehicle_registration.replace(" ", "")
         cfg = VEHICLE_CONFIG.get(reg)
         if cfg is None:
             raise ValueError(
-                f"车辆 {vehicle_registration!r} 未在 jolt_toolkit/report_generator/configs/vehicles.json 中注册"
+                f"Vehicle {vehicle_registration!r} is not registered in jolt_toolkit/report_generator/configs/vehicles.json"
             )
         reg_srf = cfg["srf_reg"]
-        # 报告周期串（YYYYMMDD_YYYYMMDD），与季度报告 / quarterly schema key 1:1
+        # Report-period string (YYYYMMDD_YYYYMMDD), 1:1 with the quarterly report / quarterly schema key
         period_key = f"{date_start.replace('-', '')}_{date_end.replace('-', '')}"
-        # v2.2.2: 柴油车没有电池，跳过所有容量相关字段
+        # v2.2.2: diesel vehicles have no battery, skip all capacity-related fields
         is_diesel = str(cfg.get("fuel_type", "")).upper() == "DIESEL"
         nominal_kwh = cfg.get("nominal_kwh") if not is_diesel else None
         srf_capacity_kwh = cfg.get("srf_capacity_kwh", nominal_kwh)
-        # effective_capacity_kwh: 全量可靠季度的 donor 加权平均（v2.2.6+ schema）；
-        # 未计算时为 None，回退到 srf_capacity。
+        # effective_capacity_kwh: the donor-weighted average over all reliable
+        # quarters (v2.2.6+ schema); None when not computed, falling back to
+        # srf_capacity.
         eff_cap_kwh = cfg.get("effective_capacity_kwh")
-        # SOC 估算容量种子（v2.2.6+）：优先取**本报告周期**且可靠（n ≥ MIN_DONORS）的
-        # 季度容量，否则全量加权平均 effective_capacity_kwh，再否则 srf_capacity /
-        # nominal。让每期 SOC 种子用该期对应容量（随后仍被逐 leg time-local 修正覆盖，
-        # 故仅影响 window 全无 donor 时的兜底取值，不改 measured-leg 数值）。
+        # SOC-estimate capacity seed (v2.2.6+): prefer **this report period**'s
+        # reliable (n ≥ MIN_DONORS) quarterly capacity, otherwise the whole-fleet
+        # weighted-average effective_capacity_kwh, otherwise srf_capacity /
+        # nominal. This lets each period's SOC seed use that period's corresponding
+        # capacity (subsequently still overwritten by the per-leg time-local
+        # correction, so it only affects the fallback value when the window has no
+        # donor at all, not the measured-leg values).
         quarterly_cfg = cfg.get("effective_capacity_quarterly") or {}
         this_q = quarterly_cfg.get(period_key)
         if (this_q and this_q.get("n", 0) >= MIN_DONORS
@@ -198,8 +207,9 @@ class JOLTReportGenerator:
             soc_est_cap = eff_cap_kwh or srf_capacity_kwh or nominal_kwh
         altitude_col = cfg.get("altitude_col")
         speed_col = cfg.get("speed_col", "wheel_based_speed")
-        # v2.2.6: per-segment 质量聚合方法（vehicle > pipeline > 默认 'mean'）。
-        # 解析一次后透传给每个 _seg_to_row，使 Excel 列与校验图同口径稳健估计。
+        # v2.2.6: per-segment mass aggregation method (vehicle > pipeline > default
+        # 'mean'). Resolved once and passed through to each _seg_to_row so the Excel
+        # column and the validation figure use the same robust estimate.
         mass_agg = resolve_mass_agg(
             reg, PIPELINE_CONFIGS.get(cfg.get("pipeline", "default_soc"))
         )
@@ -220,7 +230,7 @@ class JOLTReportGenerator:
             date_end=de, srf_data=self.srf_data,
         )
         time_fetch = perf_counter()
-        logger.info("数据拉取完成，耗时 %.2f 秒", time_fetch - time_start)
+        logger.info("Data fetch complete, took %.2f seconds", time_fetch - time_start)
 
         charger_windows, charger_objects = self._collect_charger_windows(
             server_data)
@@ -243,24 +253,25 @@ class JOLTReportGenerator:
         cumulative_km = 0.0
         home_point = None
 
-        # ── 运营商解析（v2.2.5 恢复）────────────────────────────────────
-        # SRF 为主：round-robin 车取 leg.trip.trial.description（per-leg 变），
-        # 专属车取 vehicle.organisation.name（整车一致）。fetch 一次静态 org，
-        # trial.description 按 trip URI 记忆化，op_acc 汇总一次性日志。
+        # ── Operator resolution (restored in v2.2.5) ────────────────────
+        # SRF-preferred: round-robin vehicles take leg.trip.trial.description
+        # (varies per leg), dedicated vehicles take vehicle.organisation.name
+        # (consistent for the whole vehicle). Fetch the static org once, memoise
+        # trial.description by trip URI, and op_acc aggregates a one-off log.
         srf_org_raw = None
         try:
             srf_org_raw = self.srf_data.vehicles.get(obj_id=reg_srf).organisation.name
         except Exception as exc:
-            logger.debug("无法获取 vehicle.organisation.name: %s", exc)
+            logger.debug("Could not fetch vehicle.organisation.name: %s", exc)
         trial_cache: dict = {}
         op_acc: dict = {}
 
-        # ── 柴油车分支：用 SRFLOGGER_V1 legs 作为主循环源 ────────────────
+        # ── Diesel branch: use the SRFLOGGER_V1 legs as the main loop source ────
         if is_diesel:
             cumulative_km = self._process_diesel_legs(
                 logger_legs, cfg, reg, out_dir, cumulative_km,
                 srf_org_raw, trial_cache, op_acc, all_rows)
-            # 跳过 FPS 主循环和 home_point / charger reclassification
+            # Skip the FPS main loop and home_point / charger reclassification
             fps_legs = []
 
         cumulative_km, home_point = self._process_fps_legs(
@@ -273,7 +284,7 @@ class JOLTReportGenerator:
         self._reclassify_home_charging(all_rows, home_point)
 
         time_process = perf_counter()
-        logger.info("分段处理完成，耗时 %.2f 秒", time_process - time_fetch)
+        logger.info("Segmentation processing complete, took %.2f seconds", time_process - time_fetch)
 
         all_rows.sort(key=lambda x: (
             pd.Timestamp(x[0]).tz_convert(None)
@@ -283,25 +294,25 @@ class JOLTReportGenerator:
         sorted_rows = [r for _, r in all_rows]
 
         if not sorted_rows:
-            logger.warning("未检测到有效分段，跳过 Excel 生成")
+            logger.warning("No valid segments detected, skipping Excel generation")
             return None
 
-        # 根据 fuel type 选择列布局（电车 HEADERS / 柴油 DIESEL_HEADERS）
+        # Choose the column layout by fuel type (EV HEADERS / diesel DIESEL_HEADERS)
         out_headers = DIESEL_HEADERS if is_diesel else HEADERS
 
-        # ── 一次性运营商解析汇总 ────────────────────────────────────────
+        # ── One-off operator-resolution summary ─────────────────────────
         if op_acc:
             unknown = op_acc.pop("_unknown", set())
             dist = ", ".join(
                 f"{(k if k is not None else '<none>')}={v}"
                 for k, v in sorted(op_acc.items(), key=lambda kv: -kv[1])
             )
-            logger.info("运营商解析（按 leg 计）：%s", dist or "无")
+            logger.info("Operator resolution (counted by leg): %s", dist or "none")
             bad = {c for c in unknown if c is not None}
             if bad:
-                logger.warning("运营商代码未在 KNOWN_OPERATOR_CODES 中：%s", ", ".join(sorted(bad)))
+                logger.warning("Operator codes not in KNOWN_OPERATOR_CODES: %s", ", ".join(sorted(bad)))
             if None in op_acc:
-                logger.warning("有 %d 个 leg 无法确定运营商", op_acc[None])
+                logger.warning("%d legs could not have their operator determined", op_acc[None])
 
         sorted_rows, period_cap_kwh, period_n, period_src = self._finalize_rows(
             sorted_rows, out_headers, is_diesel, cfg, soc_est_cap)
@@ -328,17 +339,17 @@ class JOLTReportGenerator:
                     except AttributeError:
                         pass
             except Exception as exc:
-                logger.warning("充电桩事件拉取失败: %s", exc)
+                logger.warning("Charger-event fetch failed: %s", exc)
         return charger_windows, charger_objects
 
     def _collect_legs(self, server_data, is_diesel, charger_windows):
         """Split legs into SRFLOGGER (logger) and FPS; fast_mode still collects the
         logger legs for diesel. Logs the per-source counts."""
         logger_windows = []
-        logger_legs = []          # 所有 logger legs
-        logger_legs_by_src = {}   # {source_str: [legs]} 按版本分组
+        logger_legs = []          # all logger legs
+        logger_legs_by_src = {}   # {source_str: [legs]} grouped by version
         fps_legs = []
-        # 柴油车的 legs 全部来自 SRFLOGGER_V1，fast_mode 也必须收集
+        # A diesel vehicle's legs all come from SRFLOGGER_V1, so fast_mode must still collect them
         _collect_logger = (not self.fast_mode) or is_diesel
         try:
             for leg in paging.paged_items(server_data.legs):
@@ -353,13 +364,13 @@ class JOLTReportGenerator:
                 except AttributeError:
                     pass
         except Exception as exc:
-            logger.warning("Legs 拉取失败: %s", exc)
+            logger.warning("Legs fetch failed: %s", exc)
 
         if self.fast_mode:
-            logger.info("Fast 模式: 跳过 Charger/Logger 数据。FPS 腿数: %d", len(fps_legs))
+            logger.info("Fast mode: skipping Charger/Logger data. FPS legs: %d", len(fps_legs))
         else:
             logger.info(
-                "FPS 腿数: %d  充电桩: %d  Logger: %d (%s)",
+                "FPS legs: %d  Chargers: %d  Logger: %d (%s)",
                 len(fps_legs), len(charger_windows), len(logger_windows),
                 ", ".join(f"{k}={len(v)}" for k, v in logger_legs_by_src.items()) or "none",
             )
@@ -368,8 +379,8 @@ class JOLTReportGenerator:
     def _preload_logger_channels(self, logger_legs, is_diesel):
         """Preload the speed / mass / accelerator / brake logger channels once for
         the whole period (EV only; diesel pulls its channels per leg)."""
-        # ── 预加载 Logger 各通道数据 ─────────────────────────────────────
-        # 柴油车的 diesel_pipeline 自行按 leg 拉取所需 channel，不依赖预加载。
+        # ── Preload each Logger channel's data ───────────────────────────
+        # A diesel vehicle's diesel_pipeline pulls the needed channels per leg and does not rely on preloading.
         logger_speed_all = None
         logger_mass_all = None
         logger_acc_pedal_all = None
@@ -380,45 +391,45 @@ class JOLTReportGenerator:
                 [('CCVS', 'CCVS wheel based vehicle speed'),
                  ('2', '2 speed')],
                 target_col='logger_speed',
-                desc="加载 Logger speed",
+                desc="Loading Logger speed",
             )
             if logger_speed_all is not None:
-                logger.info("Logger speed 数据: %d 条", len(logger_speed_all))
+                logger.info("Logger speed data: %d rows", len(logger_speed_all))
 
             logger_mass_all = _load_logger_channel(
                 logger_legs,
                 [('CVW', 'CVW gross combination vehicle weight'),
                  ('VW', ('VW axle weight', 'VW cargo weight'))],
                 target_col='logger_mass',
-                desc="加载 Logger mass",
+                desc="Loading Logger mass",
             )
             if logger_mass_all is not None:
-                logger.info("Logger mass 数据: %d 条", len(logger_mass_all))
+                logger.info("Logger mass data: %d rows", len(logger_mass_all))
 
             logger_acc_pedal_all = _load_logger_channel(
                 logger_legs,
                 [('EEC2', 'EEC2 accelerator pedal position 1')],
                 target_col='EEC2 accelerator pedal position 1',
-                desc="加载 Logger EEC2",
+                desc="Loading Logger EEC2",
             )
             if logger_acc_pedal_all is not None:
-                logger.info("Logger EEC2 油门踏板数据: %d 条", len(logger_acc_pedal_all))
+                logger.info("Logger EEC2 accelerator-pedal data: %d rows", len(logger_acc_pedal_all))
 
             logger_dec_pedal_all = _load_logger_channel(
                 logger_legs,
                 [('EBC1', 'EBC1 brake pedal position')],
                 target_col='EBC1 brake pedal position',
-                desc="加载 Logger EBC1",
+                desc="Loading Logger EBC1",
             )
             if logger_dec_pedal_all is not None:
-                logger.info("Logger EBC1 制动踏板数据: %d 条", len(logger_dec_pedal_all))
+                logger.info("Logger EBC1 brake-pedal data: %d rows", len(logger_dec_pedal_all))
         return (logger_speed_all, logger_mass_all,
                 logger_acc_pedal_all, logger_dec_pedal_all)
 
     def _preload_charger_meter(self, charger_objects):
         """Preload charger start/end meter readings into a time-indexed frame for
         the validation figures (debug_mode only)."""
-        # ── 预加载 Charger meter 数据（用于 validation 图）──────────────
+        # ── Preload Charger meter data (for the validation figures) ────────
         charger_meter_all = None
         if self.debug_mode and charger_objects:
             meter_rows = []
@@ -445,8 +456,8 @@ class JOLTReportGenerator:
                              op_acc, all_rows):
         """Diesel branch: build rows from SRFLOGGER_V1 legs via process_diesel_leg,
         appending them to all_rows. Returns the updated cumulative_km."""
-        logger.info("柴油车分支: 处理 %d 个 SRFLOGGER leg", len(logger_legs))
-        for leg_idx, leg in enumerate(tqdm(logger_legs, desc="处理 diesel logger legs")):
+        logger.info("Diesel branch: processing %d SRFLOGGER legs", len(logger_legs))
+        for leg_idx, leg in enumerate(tqdm(logger_legs, desc="Processing diesel logger legs")):
             try:
                 trip_rows, cumulative_km = process_diesel_leg(
                     leg, cfg, cumulative_km, srf_data=self.srf_data,
@@ -457,15 +468,16 @@ class JOLTReportGenerator:
                     trial_cache=trial_cache,
                     op_acc=op_acc,
                     debug_mode=self.debug_mode,
-                    # 柴油 raw logger CSV 由 _save_logger_data 独立落盘（gated on
-                    # debug_mode）；此处仅控制 4 面板 diesel validation 图，故
-                    # --raw-only 时关图不影响 raw 落盘。
+                    # The diesel raw logger CSV is written independently by
+                    # _save_logger_data (gated on debug_mode); this only controls
+                    # the 4-panel diesel validation figure, so turning figures off
+                    # for --raw-only does not affect the raw write.
                     generate_validation_fig=self.save_figures,
                     leg_idx=leg_idx,
                 )
                 all_rows.extend(trip_rows)
             except Exception:
-                logger.exception("柴油 leg 处理失败: %s", getattr(leg, 'uri', '?'))
+                logger.exception("Diesel leg processing failed: %s", getattr(leg, 'uri', '?'))
         return cumulative_km
 
     def _process_fps_legs(self, fps_legs, reg, out_dir, raw_dir, cap_lo,
@@ -477,9 +489,9 @@ class JOLTReportGenerator:
         """Main EV loop: per FPS leg cache raw telematics, run segmentation, build
         charge/discharge rows, and detect the home charging point. Returns the
         updated (cumulative_km, home_point)."""
-        for leg_idx, leg in enumerate(tqdm(fps_legs, desc="处理 FPS legs")):
+        for leg_idx, leg in enumerate(tqdm(fps_legs, desc="Processing FPS legs")):
             try:
-                # ── 应用层缓存：按 leg URI 缓存原始遥测 CSV ──────────
+                # ── Application-level cache: cache the raw telematics CSV by leg URI ──
                 leg_uri_hash = leg.uri.rstrip("/").rsplit("/", 1)[-1]
                 cache_path = get_cache_dir() / "srf_raw" / f"{leg_uri_hash}.csv"
 
@@ -491,11 +503,11 @@ class JOLTReportGenerator:
                         continue
                     csv_text = "\n".join(c for c in raw_chunks if c.strip())
                     df_leg = pd.read_csv(io.StringIO(csv_text), dtype=str)
-                    # 缓存到磁盘
+                    # Cache to disk
                     cache_path.parent.mkdir(parents=True, exist_ok=True)
                     df_leg.to_csv(cache_path, index=False)
             except Exception as exc:
-                logger.warning("腿 %d 读取失败: %s", leg_idx, exc)
+                logger.warning("Leg %d read failed: %s", leg_idx, exc)
                 continue
 
             if df_leg.empty or SOC_COL not in df_leg.columns:
@@ -509,7 +521,7 @@ class JOLTReportGenerator:
                 raw_name = f"raw_{suffix}.csv"
                 df_leg.to_csv(raw_dir / raw_name, index=False)
 
-            # 当前 leg 时间窗口
+            # Current leg's time window
             ts_s = pd.Timestamp(leg.start_time)
             ts_e = pd.Timestamp(leg.end_time)
             if ts_s.tzinfo is None:
@@ -517,7 +529,7 @@ class JOLTReportGenerator:
             if ts_e.tzinfo is None:
                 ts_e = ts_e.tz_localize('UTC')
 
-            # 切片当前 leg 时间窗口的 logger speed 数据
+            # Slice the current leg's time window from the logger speed data
             leg_logger_spd = None
             if logger_speed_all is not None:
                 try:
@@ -527,7 +539,7 @@ class JOLTReportGenerator:
                 except Exception:
                     leg_logger_spd = None
 
-            # 切片当前 leg 时间窗口的 logger mass 数据
+            # Slice the current leg's time window from the logger mass data
             leg_logger_mass = None
             if logger_mass_all is not None:
                 try:
@@ -537,7 +549,7 @@ class JOLTReportGenerator:
                 except Exception:
                     leg_logger_mass = None
 
-            # 切片当前 leg 时间窗口的 charger meter 数据
+            # Slice the current leg's time window from the charger meter data
             leg_charger_meter = None
             if charger_meter_all is not None:
                 try:
@@ -547,8 +559,9 @@ class JOLTReportGenerator:
                 except Exception:
                     leg_charger_meter = None
 
-            # 画图 gated on debug_mode AND save_figures；raw CSV 已在上面独立落盘
-            # （gated on debug_mode），故 --raw-only 时此处只关图、不影响 raw 落盘。
+            # Plotting is gated on debug_mode AND save_figures; the raw CSV was
+            # written independently above (gated on debug_mode), so --raw-only only
+            # turns figures off here and does not affect the raw write.
             make_figs = self.debug_mode and self.save_figures
             c_segs, d_segs = run_segment_detection(
                 df_leg, reg=reg, suffix=suffix,
@@ -560,7 +573,7 @@ class JOLTReportGenerator:
                 charger_meter_df=leg_charger_meter,
             )
 
-            # ── 运营商代码（per-leg；同一 leg 的所有 seg 共用）──────────
+            # ── Operator code (per-leg; shared by all segments of the same leg) ──
             op_code, _op_src, _op_unknown = derive_leg_operator(
                 leg, reg,
                 srf_org_raw=srf_org_raw,
@@ -577,7 +590,7 @@ class JOLTReportGenerator:
                 seg_clean = {k: v for k, v in seg.items() if k not in _ANCHOR_PRIVATE_KEYS}
                 row, _ = _seg_to_row(
                     seg_clean, "charge", leg_uri,
-                    [], [],  # charger/logger links 由 patcher 补全
+                    [], [],  # charger/logger links filled in by the patcher
                     df_leg, cumulative_km, home_point,
                     srf_data=self.srf_data,
                     altitude_col=altitude_col,
@@ -591,7 +604,7 @@ class JOLTReportGenerator:
                 seg_clean = {k: v for k, v in seg.items() if k not in _ANCHOR_PRIVATE_KEYS}
                 row, cumulative_km = _seg_to_row(
                     seg_clean, "discharge", leg_uri,
-                    [], [],  # charger/logger links 由 patcher 补全
+                    [], [],  # charger/logger links filled in by the patcher
                     df_leg, cumulative_km, home_point,
                     srf_data=self.srf_data,
                     altitude_col=altitude_col,
@@ -623,8 +636,8 @@ class JOLTReportGenerator:
     def _reclassify_home_charging(self, all_rows, home_point):
         """Post-process: relabel 'Away' charge rows within 0.5 km of the detected
         home point as 'Home' (mutates all_rows in place)."""
-        # ── 后处理：用检测到的 home_point 重新分类充电段 ────────────────
-        # 首批充电段在 home_point 未知时被分类为 Away，此处修正
+        # ── Post-processing: reclassify charge segments using the detected home_point ──
+        # The first charge segments were classified as Away while home_point was unknown; corrected here
         if home_point is not None:
             from geopy import Point as GeoPoint
             from geopy.distance import geodesic
@@ -649,15 +662,15 @@ class JOLTReportGenerator:
                 except Exception:
                     pass
             if reclassified:
-                logger.info("充电段重新分类: %d 行 Away → Home", reclassified)
+                logger.info("Charge-segment reclassification: %d rows Away → Home", reclassified)
 
     def _finalize_rows(self, sorted_rows, out_headers, is_diesel, cfg,
                        soc_est_cap):
         """Effective-capacity correction (EV) + non-discharge EP scrub + per-period
         donor capacity + Stop-row insertion. Returns
         (sorted_rows, period_cap_kwh, period_n, period_src)."""
-        # ── 后处理：effective capacity 修正 ──────────────────────────────
-        # 柴油车没有 SOC / 电池容量，跳过此步骤。
+        # ── Post-processing: effective capacity correction ──────────────
+        # Diesel vehicles have no SOC / battery capacity, skip this step.
         if is_diesel:
             computed_eff_cap = None
             cap_source = 'diesel'
@@ -672,10 +685,11 @@ class JOLTReportGenerator:
                 soc_est_cap, _IDX_EPERF_KIN, idx_start=_IDX_START,
                 soc_fallback=_resolve_soc_fallback(cfg))
 
-            # Bug fix: 充电行的 Energy Performance 理应永远为 NaN，但某些路径
-            # （例如 effective-capacity step 2 剔除 ±1σ 异常值后反算时，对有
-            # 误填 distance > 0 的充电事件）会意外写入 EP 值。这里显式清空
-            # 所有非 discharge 行的三个 EP 列作为最后兜底。
+            # Bug fix: a charge row's Energy Performance should always be NaN, but
+            # some paths (e.g. the effective-capacity step-2 re-derivation after
+            # removing ±1σ outliers, for a charge event with a wrongly-filled
+            # distance > 0) accidentally write an EP value. Here we explicitly clear
+            # the three EP columns of all non-discharge rows as a final safeguard.
             for row in sorted_rows:
                 lt = row[_IDX_LEG_TYPE]
                 if not isinstance(lt, str):
@@ -688,14 +702,15 @@ class JOLTReportGenerator:
                     row[_IDX_EPERF_KIN] = float('nan')
                     row[_IDX_EP_EXCL_AUX] = float('nan')
 
-            # v2.2.6+: 本报告周期的 donor-based capacity (kwh, n)，与
-            # _correct_effective_capacity 的 avg_eff_cap 同口径（充电优先 measured
-            # leg 均值）。在 Stop 行插入之前、于 _correct 后的同一 sorted_rows 上算，
-            # 供 _persist_effective_capacity 合入 quarterly 加权平均。
+            # v2.2.6+: this report period's donor-based capacity (kwh, n), same
+            # convention as _correct_effective_capacity's avg_eff_cap (charge-preferred
+            # measured-leg mean). Computed before Stop rows are inserted, on the same
+            # sorted_rows after _correct, for _persist_effective_capacity to merge
+            # into the quarterly weighted average.
             period_cap_kwh, period_n, period_src = _period_capacity_from_rows(
                 sorted_rows, _IDX_CAP, _IDX_SOC_CHANGE, _IDX_ESOURCE)
 
-        # ── 后处理：填充 Stop 行（trip/charge 之间的静止段）────────────────
+        # ── Post-processing: fill in Stop rows (stationary segments between trip/charge) ──
         # Must run AFTER sorting + effective capacity correction so that the
         # Stop rows pick up the corrected SOC/mass endpoints from their
         # neighbours.
@@ -703,7 +718,7 @@ class JOLTReportGenerator:
         sorted_rows = _insert_stop_rows(sorted_rows, headers=out_headers)
         n_stops_added = len(sorted_rows) - n_before_stops
         if n_stops_added:
-            logger.info("插入 %d 个 Stop 行（合计 %d 行）",
+            logger.info("Inserted %d Stop rows (%d rows total)",
                          n_stops_added, len(sorted_rows))
         return sorted_rows, period_cap_kwh, period_n, period_src
 
@@ -714,8 +729,9 @@ class JOLTReportGenerator:
         """Persist effective capacity (EV), write the xlsx (+ inspect HTML in debug
         mode), then run the charger/logger patchers (EV only). Returns the
         report path (or the existing path when overwrite is disabled)."""
-        # 持久化 effective_capacity 到 vehicles.json（v2.2.6+ merge 语义：写本期
-        # quarterly[period_key] = {kwh, n}，再用所有可靠季度重算 donor 加权平均）
+        # Persist effective_capacity to vehicles.json (v2.2.6+ merge semantics:
+        # write this period's quarterly[period_key] = {kwh, n}, then recompute the
+        # donor weighted average from all reliable quarters)
         if not is_diesel:
             self._persist_effective_capacity(
                 reg, period_cap_kwh, period_n, period_src, period_key)
@@ -726,7 +742,7 @@ class JOLTReportGenerator:
         report_path = out_dir / report_name
 
         if report_path.exists() and not self.overwrite_existing_report:
-            logger.info("报告已存在且未启用覆盖: %s", report_path)
+            logger.info("Report already exists and overwrite is disabled: %s", report_path)
             return str(report_path)
 
         period_start = ds.date()
@@ -739,9 +755,10 @@ class JOLTReportGenerator:
 
         time_write = perf_counter()
 
-        # ── 后处理：用 patcher 补全 Charger/Logger 数据 ───────────────────
-        # 柴油车在主管线里已经直接从 Logger 通道填好 mass / temperature / 链接，
-        # 也没有充电事件，跳过两个 patcher。
+        # ── Post-processing: fill in Charger/Logger data with the patchers ───────
+        # A diesel vehicle already has mass / temperature / links filled directly
+        # from the Logger channels in the main pipeline, and has no charge events,
+        # so both patchers are skipped.
         if not self.fast_mode and not is_diesel:
             from jolt_toolkit.report_generator.charger_patcher import ChargerPatcher
             from jolt_toolkit.report_generator.logger_patcher import LoggerPatcher
@@ -753,17 +770,19 @@ class JOLTReportGenerator:
                 logger_windows=logger_windows)
 
         logger.info("Report written: %s", report_path)
-        logger.info("Excel 写入完成，耗时 %.2f 秒", perf_counter() - time_write)
-        logger.info("报告总耗时: %.2f 秒", perf_counter() - time_start)
+        logger.info("Excel write complete, took %.2f seconds", perf_counter() - time_write)
+        logger.info("Total report time: %.2f seconds", perf_counter() - time_start)
         return str(report_path)
 
     @staticmethod
     def _save_charger_data(charger_objects, out_dir):
-        """保存充电桩事务汇总数据到 CSV（合并已有数据，按 uri 去重）。
+        """Save the charger-transaction summary data to CSV (merge with existing data, dedup by uri).
 
-        委托给 charger_patcher.merge_save_charger_transactions —— 每次运行只拉取本
-        周期的事务，若直接覆盖会让 raw_charger CSV 忘掉窗口外的历史，故改为「与现有
-        CSV 合并、按 uri 去重（保留最新）、按 start_time 排序」。schema 与旧版一致。
+        Delegates to charger_patcher.merge_save_charger_transactions — each run
+        only fetches this period's transactions, and overwriting directly would
+        make the raw_charger CSV forget history outside the window, so it instead
+        "merges with the existing CSV, dedups by uri (keep latest), sorts by
+        start_time". The schema is identical to the old version.
         """
         from jolt_toolkit.report_generator.charger_patcher import (
             merge_save_charger_transactions,
@@ -772,10 +791,10 @@ class JOLTReportGenerator:
 
     @staticmethod
     def _save_logger_data(logger_legs, out_dir, source: str = "SRFLOGGER"):
-        """通过 get_data_frame 保存 SRF Logger 数据到 CSV。"""
+        """Save SRF Logger data to CSV via get_data_frame."""
         if not logger_legs:
             return
-        # 按版本命名文件夹：SRFLOGGER_V1 → raw_logger_v1
+        # Name the folder by version: SRFLOGGER_V1 → raw_logger_v1
         suffix = source.replace("SRFLOGGER", "").strip("_").lower()
         dir_name = f"raw_logger_{suffix}" if suffix else "raw_logger"
         logger_dir = out_dir / dir_name
@@ -797,9 +816,9 @@ class JOLTReportGenerator:
                 df.to_csv(logger_dir / csv_name)
                 saved += 1
             except Exception as exc:
-                logger.warning("Logger leg %d 读取失败: %s", idx, exc)
+                logger.warning("Logger leg %d read failed: %s", idx, exc)
         if saved:
-            logger.info("保存 Logger 数据: %d 条 -> %s", saved, logger_dir.name)
+            logger.info("Saved Logger data: %d legs -> %s", saved, logger_dir.name)
 
     @staticmethod
     def _make_srf_data(api_key, root, cache_dir=None, verify=True):
@@ -807,7 +826,7 @@ class JOLTReportGenerator:
             return make_srf_client(
                 cache_dir, api_key=api_key, root=root, verify=verify)
         except Exception as e:
-            logger.error("SRF 客户端创建失败: %s", e)
+            logger.error("SRF client creation failed: %s", e)
             raise
 
 

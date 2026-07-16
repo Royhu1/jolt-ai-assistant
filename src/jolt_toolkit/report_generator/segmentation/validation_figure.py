@@ -32,7 +32,7 @@ from .timeutil import _to_utc
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# 验证图绘制（需要 matplotlib）
+# Validation-figure plotting (requires matplotlib)
 # =============================================================================
 try:
     import matplotlib
@@ -72,7 +72,7 @@ _DATE_FMT        = '%d %b\n%H:%M'
 
 
 def _build_energy_series(df_raw: pd.DataFrame, *cols):
-    """返回 (times_np, values_np)：相对腿起点归零，单位 kWh。"""
+    """Return (times_np, values_np): zeroed relative to the leg start, in kWh."""
     sub = df_raw[[TIME_COL] + list(cols)].copy()
     for c in cols:
         sub[c] = pd.to_numeric(sub[c], errors='coerce')
@@ -91,15 +91,15 @@ def _overlay(ax, df_seg: pd.DataFrame, color: str, kwh_col: str | None = None,
              *, span_alpha: float = 0.12, line_alpha: float = 0.85,
              label_prefix: str = '', y_offset_frac: float = 0.0,
              z_base: int = 1, seg_prefix: str = '', panel: int | None = None):
-    """在 ax 上叠加分段区间（阴影 + 竖线 + 可选 SOC 标注）。
+    """Overlay segment intervals on ax (shading + vertical lines + optional SOC annotation).
 
-    参数
-    ----
-    span_alpha : axvspan 透明度（base segs 默认 0.12；overlay 默认 0.40）
-    line_alpha : axvline 透明度
-    label_prefix : annotation 文本前缀（overlay 用 '[FT] ' 做区分）
-    y_offset_frac : annotation 纵向位移比例（相对 y 轴范围，overlay 上移 ~10%）
-    z_base : axvspan / axvline 的 zorder 基准（overlay 用更大值盖在上面）
+    Parameters
+    ----------
+    span_alpha : axvspan opacity (base segs default 0.12; overlay default 0.40)
+    line_alpha : axvline opacity
+    label_prefix : annotation text prefix (overlay uses '[FT] ' to distinguish)
+    y_offset_frac : annotation vertical shift fraction (relative to the y-axis range; overlay shifts up ~10%)
+    z_base : zorder base for axvspan / axvline (overlay uses a larger value to sit on top)
 
     Note: the dSOC label (when ``kwh_col`` is set) is always drawn with a rounded
     ``_TEXT_BBOX`` background. In the interactive-overlay export path
@@ -107,7 +107,7 @@ def _overlay(ax, df_seg: pd.DataFrame, color: str, kwh_col: str | None = None,
     :func:`_export_overlay_boxes` strips every such bbox label from the PNG and
     re-emits it as an HTML overlay; in the legacy path it stays baked in.
     """
-    # 计算 y 轴范围以便 offset
+    # Compute the y-axis range for the offset
     ylim = ax.get_ylim()
     y_span = ylim[1] - ylim[0] if ylim[1] > ylim[0] else 1.0
     y_shift = y_offset_frac * y_span
@@ -121,9 +121,10 @@ def _overlay(ax, df_seg: pd.DataFrame, color: str, kwh_col: str | None = None,
         ax.axvline(t_e, color=color, lw=2.0, linestyle=':',  alpha=line_alpha,
                    zorder=z_base + 1)
         if kwh_col is not None:
-            # ``row.get(..., nan)`` 在值为 ``None`` 时不会触发 default，
-            # 因此需要显式把 None / 空字符串转 NaN（xlsx 反推的 overlay segs
-            # 里部分字段可能为空，见 :func:`reconstruct_segs_from_xlsx`）。
+            # ``row.get(..., nan)`` does not trigger the default when the value is
+            # ``None``, so None / empty strings must be explicitly converted to NaN
+            # (some fields in the xlsx-reconstructed overlay segs may be empty, see
+            # :func:`reconstruct_segs_from_xlsx`).
             def _f(val, default=float('nan')):
                 if val is None or val == '':
                     return default
@@ -135,7 +136,7 @@ def _overlay(ax, df_seg: pd.DataFrame, color: str, kwh_col: str | None = None,
             kwh = _f(row.get(kwh_col))
             eff = _f(row.get('effective_capacity_kwh'))
             mid_t = t_s + (t_e - t_s) / 2
-            # 交替上下放置，避免相邻段文字重叠
+            # Alternate above/below placement to avoid overlapping text on adjacent segments
             end_soc = _f(row.get('end_soc'), 50.0)
             start_soc = _f(row.get('start_soc'), end_soc)
             if idx % 2 == 0:
@@ -144,8 +145,8 @@ def _overlay(ax, df_seg: pd.DataFrame, color: str, kwh_col: str | None = None,
             else:
                 y_pos = max(min(start_soc, end_soc) - 3, 5)
                 va = 'top'
-            # Overlay 纵向错开：y_shift 正值表示向上推（bottom 位置向上，top 位置
-            # 也向上），clamp 到 [0, 110] 防止越界
+            # Overlay vertical stagger: a positive y_shift pushes upward (both the
+            # bottom and top positions move up), clamped to [0, 110] to prevent overrun
             y_pos = max(0, min(y_pos + y_shift, 110))
             lines = [f'dSOC={dsoc:+.0f}%']
             if not np.isnan(kwh):
@@ -188,16 +189,16 @@ def _mark_anchors_stored(
     panel: int | None = None,
 ):
     """
-    在能量子图上标注算法记录的锚点（▼▲）及 delta 虚线。
+    Annotate the algorithm-recorded anchors (▼▲) and delta dashed lines on the energy subplot.
 
-    NaN 锚点（soc_estimate 情况或 finetune overlay 缺失原始累计数据时）自动跳过。
+    NaN anchors (the soc_estimate case, or when the finetune overlay lacks the original cumulative data) are skipped automatically.
 
-    参数
-    ----
-    label_prefix : 文字前缀（overlay 用 ``'[FT]'``），空字符串表示无前缀（原图风格）
-    y_offset_frac : 文字纵向偏移比例（相对 y 轴范围），overlay 用正值向上错开避免
-        压到原始标注。triangles 本身不偏移，只有文字位置偏移。
-    z_base : 三角形和虚线的 zorder 基准（overlay 用更大值盖在原图之上）
+    Parameters
+    ----------
+    label_prefix : text prefix (overlay uses ``'[FT]'``); an empty string means no prefix (original figure style)
+    y_offset_frac : text vertical offset fraction (relative to the y-axis range); overlay uses a positive value to
+        stagger upward and avoid overwriting the original annotation. The triangles themselves are not offset, only the text position.
+    z_base : zorder base for the triangles and dashed lines (overlay uses a larger value to sit on top of the original figure)
     """
     if df_seg.empty or '_anchor_start_time' not in df_seg.columns:
         return
@@ -249,20 +250,21 @@ def _annotate_overlay_energy_delta(
     seg_prefix: str = '',
     panel: int | None = None,
 ):
-    """在能量子图（Panel 2 AC+DC delta / Panel 3 Total Energy Used）上
-    为 overlay segments 标注 ``[FT] ±X.X kWh``。
+    """Annotate ``[FT] ±X.X kWh`` for overlay segments on the energy subplot
+    (Panel 2 AC+DC delta / Panel 3 Total Energy Used).
 
-    与 :func:`_mark_anchors_stored` 不同，overlay segs 由
-    :func:`reconstruct_segs_from_xlsx` 从 xlsx 反推得到，没有内部锚点字段
-    （``_anchor_*``），因此位置基于 ``start_time``/``end_time`` 的中点，
-    并在 y 轴顶部附近以 ``y_offset_frac`` 比例错开避免压到原始标注。
-    字体比原始小 0.5pt，颜色与 overlay shading 一致。
+    Unlike :func:`_mark_anchors_stored`, overlay segs are reconstructed from the
+    xlsx by :func:`reconstruct_segs_from_xlsx` and have no internal anchor fields
+    (``_anchor_*``), so the position is based on the midpoint of
+    ``start_time``/``end_time``, staggered near the top of the y-axis by the
+    ``y_offset_frac`` fraction to avoid overwriting the original annotation.
+    The font is 0.5pt smaller than the original, and the colour matches the overlay shading.
     """
     if df_seg is None or df_seg.empty:
         return
     ylim = ax.get_ylim()
     y_span = ylim[1] - ylim[0] if ylim[1] > ylim[0] else 1.0
-    # overlay 标注放在段上方接近 y_max 的位置，向下偏移 y_offset_frac × span
+    # Place the overlay annotation above the segment near y_max, offset downward by y_offset_frac × span
     y_pos = ylim[1] - y_offset_frac * y_span
     for idx, (_, row) in enumerate(df_seg.iterrows()):
         t_s = _to_utc(row['start_time'])
@@ -444,20 +446,22 @@ def plot_leg_validation(
     export_dsoc_overlay: bool = False,
 ) -> None:
     """
-    为一条腿生成四面板验证图，保存为 PNG。
+    Generate a four-panel validation figure for one leg and save it as a PNG.
 
-    Panel 1 (SOC + Speed)         — SOC 左轴，Speed 右轴（Telematics + 可选 Logger）
-    Panel 2 (AC+DC Delta)         — 累计充电能量折线 + 充电锚点 ▼▲
-    Panel 3 (Discharge Energy)    — panel3_col 累计 delta 折线 + 放电锚点 ▼▲
-    Panel 4 (Vehicle Mass)        — mass_col 时序散点（kg） + 可选 Logger CVW，段阴影叠加
+    Panel 1 (SOC + Speed)         — SOC on the left axis, Speed on the right axis (Telematics + optional Logger)
+    Panel 2 (AC+DC Delta)         — cumulative charge-energy line + charge anchors ▼▲
+    Panel 3 (Discharge Energy)    — panel3_col cumulative delta line + discharge anchors ▼▲
+    Panel 4 (Vehicle Mass)        — mass_col time-series scatter (kg) + optional Logger CVW, with segment shading overlaid
 
-    Overlay（v2.2.4 新增）：
-    当 ``overlay_charge_segs`` / ``overlay_discharge_segs`` 非空时，在 base
-    segment shading（红 / 绿）之上叠加第二套 shading（默认橙 / 青），用于
-    finetune 前后对比。overlay annotations 加 ``overlay_label_prefix``（默认
-    ``[FT]``）前缀，纵向错开避免重叠。legend 扩展为 4 项（Original charge /
-    Original discharge / Finetuned charge / Finetuned discharge）。
-    当两个 overlay 参数都为 None 时，函数行为与 v2.2.3 完全一致（向后兼容）。
+    Overlay (added in v2.2.4):
+    When ``overlay_charge_segs`` / ``overlay_discharge_segs`` are non-empty, a
+    second set of shading (default orange / cyan) is overlaid on the base segment
+    shading (red / green), for before/after finetune comparison. The overlay
+    annotations gain an ``overlay_label_prefix`` (default ``[FT]``) prefix,
+    staggered vertically to avoid overlap. The legend expands to 4 items (Original
+    charge / Original discharge / Finetuned charge / Finetuned discharge).
+    When both overlay parameters are None, the function behaves identically to
+    v2.2.3 (backward compatible).
 
     Interactive overlay (``export_dsoc_overlay``, introduced and later generalised within v2.2.4):
     when ``True``, **every** rounded-bbox data label across all four panels — the
@@ -480,7 +484,7 @@ def plot_leg_validation(
     df_c = pd.DataFrame(charge_segs)
     df_d = pd.DataFrame(discharge_segs)
 
-    # Overlay (v2.2.4): 额外的 finetuned segs，用不同色相叠加在 base 之上
+    # Overlay (v2.2.4): additional finetuned segs, overlaid on the base in a different hue
     _has_overlay = (overlay_charge_segs is not None or
                      overlay_discharge_segs is not None)
     df_oc = pd.DataFrame(overlay_charge_segs) if overlay_charge_segs else pd.DataFrame()
@@ -523,7 +527,7 @@ def plot_leg_validation(
     if not df_c.empty:
         _overlay(ax1, df_c, _CHARGE_COLOR,    kwh_col='delta_energy_kwh',
                  seg_prefix='c', panel=1)
-    # Overlay (finetuned) — 用不同色相 + 更深 alpha + 纵向错开 annotations
+    # Overlay (finetuned) — different hue + deeper alpha + vertically-staggered annotations
     if _has_overlay:
         if not df_od.empty:
             _overlay(ax1, df_od, overlay_color_discharge,
@@ -539,7 +543,7 @@ def plot_leg_validation(
                      label_prefix=overlay_label_prefix,
                      y_offset_frac=0.10, z_base=2,
                      seg_prefix='oc', panel=1)
-    # ── Panel 1 右轴：Speed ──────────────────────────────────────────────
+    # ── Panel 1 right axis: Speed ─────────────────────────────────────────
     ax1_speed = ax1.twinx()
     _tele_speed_plotted = False
     _logger_speed_plotted = False
@@ -555,7 +559,7 @@ def plot_leg_validation(
     if _tele_speed_plotted or _logger_speed_plotted:
         ax1_speed.set_ylabel('Speed (km/h)', fontsize=_LABEL_FONT, color='#1565C0')
         ax1_speed.tick_params(axis='y', labelcolor='#1565C0', labelsize=_TICK_FONT)
-        # 固定 0–100 km/h：全项目 speed 轴一致标准，便于不同 leg 之间对比
+        # Fixed 0–100 km/h: a project-wide consistent speed axis, for easy comparison across legs
         ax1_speed.set_ylim(0, 100)
     else:
         ax1_speed.set_yticks([])
@@ -589,7 +593,7 @@ def plot_leg_validation(
     ax1.grid(True, alpha=0.3)
     ax1.set_title(f'{reg}  {suffix}  [Segment Validation]', fontsize=_LABEL_FONT)
 
-    # ── Panel 2: AC+DC 累计 delta + 充电锚点 ──────────────────────────────────
+    # ── Panel 2: AC+DC cumulative delta + charge anchors ──────────────────────
     if t2 is not None:
         ax2.plot(t2, v2, color=_CHARGE_COLOR, lw=1.8, alpha=0.9)
     if not df_d.empty:
@@ -604,10 +608,12 @@ def plot_leg_validation(
         if not df_oc.empty:
             _overlay(ax2, df_oc, overlay_color_charge,
                      span_alpha=0.40, line_alpha=0.95, z_base=2)
-            # 充电段 overlay 的 ▼▲ 锚点（在 AC+DC 累计曲线上）+ `[FT] +XX.X kWh`。
-            # 锚点由 reconstruct_segs_from_xlsx → attach_anchors_from_df 从 df_raw
-            # 线性插值得出，风格与原 production 图（_mark_anchors_stored）完全一致。
-            # 若 overlay segs 缺失 _anchor_* 字段（向后兼容），退化为顶部文字标注。
+            # ▼▲ anchors for the charge-segment overlay (on the AC+DC cumulative
+            # curve) + `[FT] +XX.X kWh`. The anchors are linearly interpolated from
+            # df_raw by reconstruct_segs_from_xlsx → attach_anchors_from_df, styled
+            # identically to the original production figure (_mark_anchors_stored).
+            # If the overlay segs lack the _anchor_* fields (backward compat),
+            # degrade to a top-of-panel text annotation.
             if '_anchor_start_time' in df_oc.columns:
                 _mark_anchors_stored(
                     ax2, df_oc, overlay_color_charge,
@@ -624,13 +630,13 @@ def plot_leg_validation(
     ax2.set_ylabel('AC+DC Delta\n(kWh)', fontsize=_LABEL_FONT)
     ax2.set_ylim(bottom=0)
     ax2.grid(True, alpha=0.3)
-    # ── Panel 2 右轴：Charger Meter ─────────────────────────────────────
+    # ── Panel 2 right axis: Charger Meter ───────────────────────────────
     if charger_meter_df is not None and not charger_meter_df.empty:
         from matplotlib.lines import Line2D
         ax2_r = ax2.twinx()
         meter_vals = charger_meter_df['meter_kwh'].values
         meter_times = charger_meter_df.index
-        # 归一化：从 0 开始（减去首个读数）
+        # Normalise: start from 0 (subtract the first reading)
         meter_base = meter_vals[0] if len(meter_vals) else 0.0
         meter_normed = meter_vals - meter_base
         ax2_r.plot(meter_times, meter_normed,
@@ -638,9 +644,10 @@ def plot_leg_validation(
         ax2_r.set_ylabel('Charger Meter\n(kWh)', fontsize=_LABEL_FONT, color='#6A1B9A')
         ax2_r.tick_params(axis='y', labelcolor='#6A1B9A', labelsize=_TICK_FONT)
         ax2_r.set_ylim(bottom=0)
-        # 标注充电桩总能量变化量（首个读数 → 末个读数）。用 ``ax.text`` 而非
-        # ``ax.annotate``，使其与其余数据标注框一致，能被 _export_overlay_boxes
-        # 统一收集为 HTML overlay。
+        # Annotate the charger's total energy change (first reading → last
+        # reading). Use ``ax.text`` rather than ``ax.annotate`` so it matches the
+        # other data annotation boxes and can be collected uniformly by
+        # _export_overlay_boxes as an HTML overlay.
         if len(meter_vals) >= 2:
             total_delta = meter_vals[-1] - meter_vals[0]
             mid_time = meter_times[0] + (meter_times[-1] - meter_times[0]) / 2
@@ -648,7 +655,7 @@ def plot_leg_validation(
             ax2_r.text(mid_time, mid_val, f'{total_delta:+.1f} kWh',
                        fontsize=12, color='#6A1B9A', ha='center', va='bottom',
                        fontweight='bold', bbox=_TEXT_BBOX, zorder=8)
-        # 图例
+        # Legend
         legend_p2 = [
             Line2D([0], [0], color=_CHARGE_COLOR, lw=2, alpha=0.9, label='AC+DC Delta'),
             Line2D([0], [0], color='#6A1B9A', lw=2.4, alpha=0.9,
@@ -656,8 +663,8 @@ def plot_leg_validation(
         ]
         ax2.legend(handles=legend_p2, fontsize=_LEGEND_FONT, loc='upper left')
 
-    # ── Panel 3: 放电能量 delta + 再生回收能量 delta + 放电锚点 ────────────────
-    _RECUP_PLOT_COLOR = '#2E7D32'  # 深绿色区分再生回收
+    # ── Panel 3: discharge-energy delta + recuperation-energy delta + discharge anchors ──
+    _RECUP_PLOT_COLOR = '#2E7D32'  # dark green to distinguish recuperation
     if t3 is not None:
         ax3.plot(t3, v3, color=_DISCHARGE_COLOR, lw=1.8, alpha=0.9,
                  label='Total Energy Used')
@@ -670,9 +677,10 @@ def plot_leg_validation(
         if not df_od.empty:
             _overlay(ax3, df_od, overlay_color_discharge,
                      span_alpha=0.40, line_alpha=0.95, z_base=2)
-            # 放电段 overlay 的 ▼▲ 锚点（在 Total Energy Used 累计曲线上）+
-            # `[FT] -XX.X kWh`。同 Panel 2，风格与原 production 图一致。
-            # 向后兼容：缺 _anchor_* 时退化为顶部文字。
+            # ▼▲ anchors for the discharge-segment overlay (on the Total Energy
+            # Used cumulative curve) + `[FT] -XX.X kWh`. As in Panel 2, styled like
+            # the original production figure. Backward compat: degrade to top text
+            # when _anchor_* is missing.
             if '_anchor_start_time' in df_od.columns:
                 _mark_anchors_stored(
                     ax3, df_od, overlay_color_discharge,
@@ -693,7 +701,7 @@ def plot_leg_validation(
     ax3.set_ylim(bottom=0)
     ax3.grid(True, alpha=0.3)
 
-    # ── Panel 3 右 Y 轴：Recuperation Energy（归零化） ──────────────────────
+    # ── Panel 3 right Y axis: Recuperation Energy (zeroed) ──────────────────
     t_recup, v_recup = (_build_energy_series(df_r, RECUP_COL)
                         if RECUP_COL in df_r.columns else (None, None))
     if t_recup is not None and len(t_recup) > 1:
@@ -704,7 +712,7 @@ def plot_leg_validation(
                          color=_RECUP_PLOT_COLOR)
         ax3r.tick_params(axis='y', labelcolor=_RECUP_PLOT_COLOR, labelsize=_TICK_FONT)
         ax3r.set_ylim(bottom=0)
-        # 在放电段锚点位置标注 recuperation 数据点
+        # Annotate the recuperation data points at the discharge-segment anchor positions
         if not df_d.empty and '_anchor_start_time' in df_d.columns:
             recup_idx = pd.DatetimeIndex(t_recup, tz='UTC')
             recup_s = pd.Series(v_recup, index=recup_idx)
@@ -715,7 +723,7 @@ def plot_leg_validation(
                     continue
                 t_s_a = _to_utc(t_s_raw)
                 t_e_a = _to_utc(t_e_raw)
-                # 找最近的 recup 数据点
+                # Find the nearest recup data point
                 try:
                     idx_s = recup_s.index.searchsorted(t_s_a)
                     idx_e = recup_s.index.searchsorted(t_e_a)
@@ -739,15 +747,16 @@ def plot_leg_validation(
                         _t.set_gid(f'd{_ridx}|p3|value')
                 except (IndexError, KeyError):
                     pass
-        # 统一左右 Y 轴刻度：以 Total Energy Used（左轴）的范围为主，
-        # Recuperation（右轴）使用相同范围，保证两条曲线直观可比。
+        # Unify the left/right Y-axis scales: take the Total Energy Used (left
+        # axis) range as primary, and give Recuperation (right axis) the same
+        # range so the two curves are directly comparable.
         ymax_left  = ax3.get_ylim()[1]
         ymax_right = ax3r.get_ylim()[1]
-        ymax_unified = max(ymax_left, ymax_right, 5.0)  # 至少 5 kWh
+        ymax_unified = max(ymax_left, ymax_right, 5.0)  # at least 5 kWh
         ax3.set_ylim(0, ymax_unified)
         ax3r.set_ylim(0, ymax_unified)
 
-        # 合并图例（左右轴）
+        # Combined legend (left and right axes)
         from matplotlib.lines import Line2D
         lines3_left = [Line2D([0], [0], color=_DISCHARGE_COLOR, lw=1.8, alpha=0.9,
                               label=ylabel3.replace('\n', ' '))]
@@ -782,7 +791,7 @@ def plot_leg_validation(
         if not df_oc.empty:
             _overlay(ax4, df_oc, overlay_color_charge,
                      span_alpha=0.40, line_alpha=0.95, z_base=2)
-    # ── 每个分段的平均质量（虚线 + 标注）──────────────────────────────────────
+    # ── Average mass of each segment (dashed line + annotation) ──────────────
     # v2.2.6: the Panel-4 segment mass now uses the SAME filter + aggregation as
     # the Excel "Vehicle Mass (kg)" column (report_builder._get_vehicle_mass):
     # window -> valid (>0) -> moving-only (speed > MOVING_SPEED_THRESHOLD_KMH,
@@ -822,14 +831,14 @@ def plot_leg_validation(
             t_e = _to_utc(row['end_time'])
             _seg_mass = None
             _from_logger = False
-            # 优先使用遥测质量（与 Excel 列同口径过滤 + mass_agg 聚合）
+            # Prefer telematics mass (same filter as the Excel column + mass_agg aggregation)
             _sel, _sel_ts = _telemetry_mass(t_s, t_e)
             if _sel is not None:
                 _mkg, _ = _agg_mass(_sel, mass_agg, timestamps=_sel_ts)
                 if np.isfinite(_mkg):
                     _seg_mass = float(_mkg)
                     _from_logger = mass_from_logger
-            # 回退：若遥测质量不可用，使用 Logger CVW（同样 mass_agg 聚合）
+            # Fallback: if telematics mass is unavailable, use Logger CVW (also mass_agg aggregation)
             if _seg_mass is None and logger_mass_df is not None and not logger_mass_df.empty:
                 _log_slice = logger_mass_df.loc[t_s:t_e]
                 if not _log_slice.empty:
@@ -855,16 +864,18 @@ def plot_leg_validation(
                     _mean_mass_logger = True
                 else:
                     _mean_mass_tele = True
-    # ── Overlay（v2.2.4+）：finetuned 段的 mean mass 横线 + `[FT] XX.X t` 标注 ──
-    # 与 base 段同样的质量计算逻辑，但线 / 文字用 overlay color；线和文字都向上
-    # 偏移 y_span 的 ~3% 避免遮挡 base 的同高度 dashed line（典型情况下 base 和
-    # overlay 的 mean mass 非常接近，不偏移时橙 / 青线会完全盖住红 / 绿线）。
-    # 文字额外再抬高一点与线错开。
+    # ── Overlay (v2.2.4+): mean-mass horizontal line for the finetuned segments + `[FT] XX.X t` annotation ──
+    # Same mass computation as the base segments, but the line / text use the
+    # overlay colour; both the line and the text are shifted up by ~3% of y_span to
+    # avoid occluding the base's same-height dashed line (typically the base and
+    # overlay mean masses are very close, and without the shift the orange / cyan
+    # line would completely cover the red / green line).
+    # The text is raised a little more to stagger it from the line.
     if _has_overlay:
         _y4_lim = ax4.get_ylim()
         _y4_span = _y4_lim[1] - _y4_lim[0] if _y4_lim[1] > _y4_lim[0] else 10000.0
-        _y4_line_shift = 0.03 * _y4_span   # 线向上抬 ~3% 避免盖住 base
-        _y4_text_shift = 0.08 * _y4_span   # 文字再抬 ~5% 避免压到原始 t 标注
+        _y4_line_shift = 0.03 * _y4_span   # raise the line ~3% to avoid covering the base
+        _y4_text_shift = 0.08 * _y4_span   # raise the text further ~5% to avoid overwriting the original t annotation
         for _df_ov, _ov_col, _ov_pfx in ((df_od, overlay_color_discharge, 'od'),
                                          (df_oc, overlay_color_charge, 'oc')):
             if _df_ov is None or _df_ov.empty:
@@ -874,7 +885,7 @@ def plot_leg_validation(
                 t_e = _to_utc(row['end_time'])
                 _seg_mass = None
                 _from_logger = False
-                # 与 base 段同口径：window -> valid -> moving -> mass_agg 聚合
+                # Same convention as the base segments: window -> valid -> moving -> mass_agg aggregation
                 _sel, _sel_ts = _telemetry_mass(t_s, t_e)
                 if _sel is not None:
                     _mkg, _ = _agg_mass(_sel, mass_agg, timestamps=_sel_ts)
@@ -897,12 +908,12 @@ def plot_leg_validation(
                 if _seg_mass is None:
                     continue
                 _ls = ':' if _from_logger else '--'
-                # 线本身向上抬 _y4_line_shift，避免盖住 base 的同高度虚线
+                # Raise the line itself by _y4_line_shift to avoid covering the base's same-height dashed line
                 _line_y = min(_seg_mass + _y4_line_shift, _y4_lim[1])
                 ax4.plot([t_s, t_e], [_line_y, _line_y],
                          color=_ov_col, lw=4.0, linestyle=_ls,
                          alpha=0.9, zorder=6)
-                # 文字位置比线再高一点，避免覆盖原始段的 t 标注
+                # Place the text a little higher than the line to avoid covering the original segment's t annotation
                 _label_y = min(_seg_mass + _y4_text_shift, _y4_lim[1])
                 _t = ax4.text(t_s + (t_e - t_s) / 2, _label_y,
                               f'{overlay_label_prefix} {_seg_mass / 1000:.1f} t',

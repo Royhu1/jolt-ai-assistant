@@ -1,26 +1,30 @@
 """
 capacity_backfill.py
 ====================
-不重跑报告，从既有 xlsx 报告库回填 vehicles.json 的
-``effective_capacity_quarterly`` schema（v2.2.6+）。
+Backfill vehicles.json's ``effective_capacity_quarterly`` schema (v2.2.6+) from
+the existing xlsx report library, without re-running the reports.
 
-对每辆电车（``fuel_type != "DIESEL"``）：
+For each EV (``fuel_type != "DIESEL"``):
 
-1. 扫描 ``<report_db>/<REG>/jolt_report_<REG>_<start>_<end>.xlsx``（按文件名严格
-   匹配，自动排除 ``*_finetuned*`` 等非标准命名）。
-2. 读 "Report" sheet，对每份报告复刻 :func:`_period_capacity_from_rows` 的
-   donor-based 定义（充电优先：``Energy Source`` 非 ``soc_estimate`` 且
-   ``SOC Change (%) > 0`` 的 leg 的 ``Battery Capacity (kWh)`` 均值；无则 discharge）
-   算该周期 ``(kwh, n_donors)``。这与生成器 / 持久化路径**同一口径**，保证 backfill
-   与重跑结果一致。
-3. 把 ``(kwh, n)`` 写入 ``effective_capacity_quarterly[period_key]``，再用所有可靠
-   季度（``n >= MIN_DONORS``）重算 donor 加权平均写回 ``effective_capacity_kwh``，
-   稀疏季度 ``kwh`` 回填为该平均（见 :func:`_recompute_weighted_capacity`）。
+1. Scan ``<report_db>/<REG>/jolt_report_<REG>_<start>_<end>.xlsx`` (matched
+   strictly by file name, automatically excluding non-standard names such as
+   ``*_finetuned*``).
+2. Read the "Report" sheet, and for each report replicate the donor-based
+   definition of :func:`_period_capacity_from_rows` (charge preferred: the mean
+   ``Battery Capacity (kWh)`` of legs whose ``Energy Source`` is not
+   ``soc_estimate`` and ``SOC Change (%) > 0``; otherwise discharge) to compute
+   that period's ``(kwh, n_donors)``. This is the **same convention** as the
+   generator / persistence path, ensuring backfill matches a re-run.
+3. Write ``(kwh, n)`` into ``effective_capacity_quarterly[period_key]``, then
+   recompute the donor weighted average from all reliable quarters
+   (``n >= MIN_DONORS``) back into ``effective_capacity_kwh``, with sparse quarters'
+   ``kwh`` backfilled to that average (see :func:`_recompute_weighted_capacity`).
 
-柴油车整车跳过、不加任何 quarterly 字段。无 donor 的纯 soc_estimate 车（如 SOC-only
-Mercedes）产生空 quarterly、不动既有标量。
+Diesel vehicles are skipped entirely and get no quarterly fields. Pure
+soc_estimate vehicles with no donor (e.g. the SOC-only Mercedes) produce an empty
+quarterly and leave the existing scalar untouched.
 
-用法（jolt env，从 repo 根运行）::
+Usage (jolt env, run from the repo root)::
 
     PYTHONUTF8=1 D:/Anaconda/envs/jolt/python.exe \\
         -m jolt_toolkit.report_generator.capacity_backfill \\
@@ -44,19 +48,20 @@ from jolt_toolkit.report_generator._generator import (
     _recompute_weighted_capacity,
 )
 
-# 仅匹配标准报告命名（结尾恰为 _<8digit>_<8digit>.xlsx）；finetuned / 其它后缀
-# 自然不匹配而被跳过。
+# Only match the standard report naming (ending exactly in _<8digit>_<8digit>.xlsx);
+# finetuned / other suffixes naturally do not match and are skipped.
 _REPORT_RE = re.compile(
     r'^jolt_report_(?P<reg>[A-Z0-9]+)_(?P<start>\d{8})_(?P<end>\d{8})\.xlsx$'
 )
 
 
 def _read_report_donor_capacity(xlsx_path: Path):
-    """读单份报告 "Report" sheet，返回 ``(kwh|None, n_donors, source)``。
+    """Read a single report's "Report" sheet, returning ``(kwh|None, n_donors, source)``.
 
-    用 ``data_only=True`` 读缓存值（Battery Capacity / SOC Change 是 xlsxwriter 写的
-    纯数字，非 ``=NA()`` 公式，故安全）。复用 :func:`_period_capacity_from_rows`：把
-    每行抽成 ``(cap, soc, src)`` 三元组传 idx 0/1/2，与 live 路径同一口径。
+    Uses ``data_only=True`` to read the cached values (Battery Capacity / SOC
+    Change are plain numbers written by xlsxwriter, not ``=NA()`` formulas, so it
+    is safe). Reuses :func:`_period_capacity_from_rows`: extracts each row into a
+    ``(cap, soc, src)`` triple passed as idx 0/1/2, the same convention as the live path.
     """
     wb = load_workbook(xlsx_path, read_only=True, data_only=True)
     try:
@@ -71,7 +76,7 @@ def _read_report_donor_capacity(xlsx_path: Path):
             i_soc = header.index('SOC Change (%)')
             i_src = header.index('Energy Source')
         except ValueError:
-            # 柴油 / 旧列布局没有这些列
+            # Diesel / old column layouts do not have these columns
             return None, 0, 'fallback'
         triples = []
         for r in rows_iter:
@@ -88,18 +93,18 @@ def _read_report_donor_capacity(xlsx_path: Path):
 
 def backfill_vehicle(reg: str, report_dir: Path, entry: dict,
                      min_donors: int = MIN_DONORS) -> dict:
-    """回填单车 quarterly + 加权平均（就地改 ``entry``）。返回 summary dict。"""
+    """Backfill a single vehicle's quarterly + weighted average (mutates ``entry`` in place). Returns a summary dict."""
     quarterly: dict = {}
-    per_period = []  # [(period_key, kwh|None, n, source)]，含 fallback 周期供展示
+    per_period = []  # [(period_key, kwh|None, n, source)], includes fallback periods for display
     for xp in sorted(report_dir.glob(f'jolt_report_{reg}_*.xlsx')):
         m = _REPORT_RE.match(xp.name)
         if not m:
-            continue  # 跳过 *_finetuned* 等非标准命名
+            continue  # skip non-standard names such as *_finetuned*
         period_key = f"{m.group('start')}_{m.group('end')}"
         kwh, n, src = _read_report_donor_capacity(xp)
         per_period.append((period_key, kwh, n, src))
         if src == 'fallback' or kwh is None:
-            continue  # 无 donor 的周期不入 quarterly
+            continue  # periods with no donor do not enter quarterly
         quarterly[period_key] = {'kwh': round(float(kwh), 1), 'n': int(n)}
 
     summary = {

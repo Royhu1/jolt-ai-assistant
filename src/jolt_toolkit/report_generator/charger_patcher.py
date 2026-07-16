@@ -1,12 +1,12 @@
 """
 charger_patcher.py
 ==================
-独立的充电桩数据补全工具。
+Standalone charger data backfill tool.
 
-读取已生成的 Excel 报告，从 SRF API 获取充电桩事件，
-补全报告中缺失的 Charger Link 列。
+Reads a generated Excel report, fetches charger events from the SRF API, and
+backfills the report's missing Charger Link column.
 
-用法：
+Usage:
     from jolt_toolkit.report_generator.charger_patcher import ChargerPatcher
     patcher = ChargerPatcher()
     patcher.patch_file("excel_report_database/1.0.0/KY24LHT/jolt_report_KY24LHT_20250101_20250131.xlsx")
@@ -41,7 +41,7 @@ from jolt_toolkit.report_generator.xlsx_patch_common import (
 
 logger = logging.getLogger(__name__)
 
-# ── Excel 列索引 (1-based, openpyxl 约定) ────────────────────────────────
+# ── Excel column indices (1-based, openpyxl convention) ─────────────────
 _COL_LEG_TYPE       = 2
 _COL_CHARGER        = 4   # Charger Link
 _COL_START_TIME     = 6
@@ -65,7 +65,7 @@ CHARGER_CSV_NAME = "charger_transactions.csv"
 _SRF_API_KEY_ENV = "SRF_API_KEY"
 
 
-# ── 工具函数 ──────────────────────────────────────────────────────────────
+# ── Utility functions ─────────────────────────────────────────────────────
 # _parse_report_filename / _cell_is_empty / _to_timestamp are shared with the
 # logger patcher — see report_generator.xlsx_patch_common.
 
@@ -168,7 +168,7 @@ def merge_save_charger_transactions(charger_objects, out_dir) -> int:
         try:
             rows.append(_charger_transaction_to_row(ct))
         except Exception as exc:
-            logger.warning("充电桩事务解析失败: %s", exc)
+            logger.warning("Charger-transaction parse failed: %s", exc)
     if not rows:
         return 0
 
@@ -181,28 +181,28 @@ def merge_save_charger_transactions(charger_objects, out_dir) -> int:
             # still merge cleanly (new schema wins).
             df_new = pd.concat([df_old, df_new], ignore_index=True)
         except Exception as exc:
-            logger.warning("既有充电桩 CSV 读取失败，改为覆盖: %s", exc)
+            logger.warning("Existing charger CSV read failed, overwriting instead: %s", exc)
 
     # New rows are appended last → keep='last' retains the freshest copy of a uri.
     df_new = df_new.drop_duplicates(subset='uri', keep='last')
     df_new = df_new.sort_values('start_time').reset_index(drop=True)
     df_new.to_csv(csv_path, index=False)
-    logger.info("保存充电桩事务: %d 条 -> %s", len(df_new), csv_path.name)
+    logger.info("Saved charger transactions: %d rows -> %s", len(df_new), csv_path.name)
     return len(df_new)
 
 
-# ── 主类 ─────────────────────────────────────────────────────────────────
+# ── Main class ────────────────────────────────────────────────────────────
 
 class ChargerPatcher:
     """
-    充电桩数据补全工具。
+    Charger data backfill tool.
 
-    读取已生成的 xlsx 报告文件，从 SRF API 获取充电桩事件，
-    通过时间窗口匹配将 Charger Link URL 写入报告。
+    Reads a generated xlsx report file, fetches charger events from the SRF API,
+    and writes the Charger Link URL into the report by time-window matching.
 
     Args:
-        srf_data:    可选的已有 SRF 客户端实例（共享连接以避免重复创建）
-        cache_dir:   SRF API 缓存目录
+        srf_data:    optional existing SRF client instance (share the connection to avoid recreating it)
+        cache_dir:   SRF API cache directory
     """
 
     def __init__(self, srf_data=None, cache_dir: str | None = None):
@@ -213,58 +213,60 @@ class ChargerPatcher:
         else:
             api_key = os.environ.get("SRF_API_KEY")
             if not api_key:
-                logger.warning("ChargerPatcher: SRF_API_KEY 未设置")
+                logger.warning("ChargerPatcher: SRF_API_KEY is not set")
             self._srf_data = make_srf_client(cache_dir, api_key=api_key)
 
-    # ── 公开接口 ──────────────────────────────────────────────────────────
+    # ── Public interface ──────────────────────────────────────────────────
 
     def patch_file(self, xlsx_path: str | Path, *,
                    charger_windows: list | None = None) -> int:
         """
-        补全单个 xlsx 报告的 Charger Link。
+        Backfill a single xlsx report's Charger Link.
 
         Args:
-            xlsx_path:        报告文件路径
-            charger_windows:  可选的预加载充电桩窗口列表 [(start, end, uri), ...]
-                              若为 None，则从 SRF API 自动获取
+            xlsx_path:        report file path
+            charger_windows:  optional preloaded list of charger windows [(start, end, uri), ...]
+                              if None, fetched automatically from the SRF API
 
         Returns:
-            补全的行数。
+            The number of rows backfilled.
         """
         xlsx_path = Path(xlsx_path)
         if not xlsx_path.exists():
-            logger.error("文件不存在: %s", xlsx_path)
+            logger.error("File does not exist: %s", xlsx_path)
             return 0
 
-        # 1. 获取 charger windows
+        # 1. Obtain the charger windows
         if charger_windows is None:
             charger_windows = self._fetch_charger_windows(xlsx_path)
             if charger_windows is None:
                 return 0
 
         if not charger_windows:
-            logger.info("ChargerPatcher: 无充电桩事件，跳过 %s", xlsx_path.name)
+            logger.info("ChargerPatcher: no charger events, skipping %s", xlsx_path.name)
             return 0
 
-        # 2. 打开 xlsx
-        logger.info("ChargerPatcher: 补全 %s", xlsx_path.name)
+        # 2. Open the xlsx
+        logger.info("ChargerPatcher: backfilling %s", xlsx_path.name)
         wb = load_workbook(str(xlsx_path))
         if 'Report' not in wb.sheetnames:
-            logger.error("  'Report' 工作表未找到: %s", xlsx_path.name)
+            logger.error("  'Report' worksheet not found: %s", xlsx_path.name)
             wb.close()
             return 0
         ws = wb['Report']
 
-        # 3. 遍历行，匹配充电段
+        # 3. Iterate rows, matching charge segments
         patched = 0
         for row_idx in range(2, ws.max_row + 1):
             if not _cell_is_empty(ws.cell(row_idx, _COL_CHARGER)):
                 continue
 
-            # 只对充电段补全 Charger Link。除了 AC/DC 明细腿，报告构造器还会为
-            # 无法归因 AC/DC 计数器的充电腿产出通用类型 'Charge Home' / 'Charge
-            # Away'（EX74JXW / EX74JXY / LN25NKE / YN25RSY / YN75NMA 全部如此，其余
-            # 每台车也散落若干），故过滤条件必须一并包含 'Charge'。
+            # Backfill the Charger Link only for charge segments. Besides the AC/DC
+            # detail legs, the report builder also produces the generic types
+            # 'Charge Home' / 'Charge Away' for charge legs whose AC/DC counters
+            # cannot be attributed (all of EX74JXW / EX74JXY / LN25NKE / YN25RSY /
+            # YN75NMA are like this, with a few scattered across every other
+            # vehicle too), so the filter must also include 'Charge'.
             leg_type = ws.cell(row_idx, _COL_LEG_TYPE).value
             if not isinstance(leg_type, str):
                 continue
@@ -280,8 +282,9 @@ class ChargerPatcher:
             if not matches:
                 continue
 
-            # 汇总本腿内 ALL 重叠窗口的能量（多事务腿：dual-gun / 连续多段），
-            # 超链接指向最早开始窗口的 charger URI（matches 已按 ws 升序）。
+            # Sum the energy of ALL overlapping windows in this leg (multi-transaction
+            # legs: dual-gun / consecutive sessions); the hyperlink points at the
+            # earliest-starting window's charger URI (matches already sorted by ws ascending).
             uri = matches[0][2]
             energies = [m[3] for m in matches if m[3] is not None]
             total_energy = sum(energies) if energies else None
@@ -298,23 +301,23 @@ class ChargerPatcher:
 
         if patched > 0:
             wb.save(str(xlsx_path))
-            logger.info("  补全 %d 行 Charger Link，已保存", patched)
+            logger.info("  Backfilled %d Charger Link rows, saved", patched)
         else:
-            logger.info("  无需补全 Charger Link")
+            logger.info("  No Charger Link to backfill")
 
         wb.close()
         return patched
 
     def patch_folder(self, folder_path: str | Path) -> dict[str, int]:
-        """补全文件夹下所有 jolt_report_*.xlsx 的 Charger Link。"""
+        """Backfill the Charger Link of all jolt_report_*.xlsx under a folder."""
         folder = Path(folder_path)
         if not folder.is_dir():
-            logger.error("文件夹不存在: %s", folder)
+            logger.error("Folder does not exist: %s", folder)
             return {}
 
         xlsx_files = sorted(folder.glob('jolt_report_*.xlsx'))
         if not xlsx_files:
-            logger.info("ChargerPatcher: %s 下无报告文件", folder)
+            logger.info("ChargerPatcher: no report files under %s", folder)
             return {}
 
         results = {}
@@ -322,19 +325,19 @@ class ChargerPatcher:
             results[fp.name] = self.patch_file(fp)
         return results
 
-    # ── 内部方法 ──────────────────────────────────────────────────────────
+    # ── Internal methods ──────────────────────────────────────────────────
 
     def _fetch_charger_windows(self, xlsx_path: Path) -> list | None:
-        """从 SRF API 获取充电桩事件窗口列表（供 patch_file 自动拉取路径）。"""
+        """Fetch the list of charger-event windows from the SRF API (for patch_file's auto-fetch path)."""
         parsed = _parse_report_filename(xlsx_path)
         if parsed is None:
-            logger.error("  无法从文件名解析车辆信息: %s", xlsx_path.name)
+            logger.error("  Cannot parse vehicle info from the file name: %s", xlsx_path.name)
             return None
 
         reg, ds_str, de_str = parsed
         cfg = VEHICLE_CONFIG.get(reg)
         if cfg is None:
-            logger.error("  车辆 %s 未在 vehicles.json 中注册", reg)
+            logger.error("  Vehicle %s is not registered in vehicles.json", reg)
             return None
 
         reg_srf = cfg["srf_reg"]
@@ -354,7 +357,7 @@ class ChargerPatcher:
         an outright API failure. ``ds``/``de`` are dates (or datetimes); the query
         range is the full ``[ds 00:00, de 23:59:59]`` UTC day span.
         """
-        logger.info("  从 SRF API 获取充电桩事件: %s  %s ~ %s",
+        logger.info("  Fetching charger events from the SRF API: %s  %s ~ %s",
                     reg_srf, ds.strftime("%Y%m%d"), de.strftime("%Y%m%d"))
         params = {
             "start_time": srf_client.filter.between(
@@ -372,9 +375,9 @@ class ChargerPatcher:
             ):
                 objects.append(ct)
         except Exception as exc:
-            logger.warning("  充电桩事件拉取失败: %s", exc)
+            logger.warning("  Charger-event fetch failed: %s", exc)
             return None
-        logger.info("  获取到 %d 个充电桩事件", len(objects))
+        logger.info("  Fetched %d charger events", len(objects))
         return objects
 
     @staticmethod
@@ -396,7 +399,7 @@ class ChargerPatcher:
         return windows
 
 
-# ── .env 载入（无第三方依赖，供 CLI 在环境变量缺失时兜底）──────────────────
+# ── .env loading (dependency-free, a fallback for the CLI when the environment variable is missing) ──
 
 def _load_srf_key_from_dotenv() -> None:
     """Populate ``SRF_API_KEY`` from the repo-root ``.env`` if it is unset.
@@ -423,11 +426,11 @@ def _load_srf_key_from_dotenv() -> None:
                 if key and key not in os.environ:
                     os.environ[key] = value
         except Exception as exc:
-            logger.warning(".env 解析失败 (%s): %s", env_path, exc)
+            logger.warning(".env parse failed (%s): %s", env_path, exc)
         break
 
 
-# ── 回填 CLI（backfill）──────────────────────────────────────────────────────
+# ── Backfill CLI ─────────────────────────────────────────────────────────────
 
 def _collect_report_files(target: Path) -> list:
     """Resolve a CLI target into the list of report xlsx files to patch.
@@ -495,7 +498,7 @@ def main(argv: list | None = None) -> int:
     target = Path(args.target)
     reports = _collect_report_files(target)
     if not reports:
-        logger.error("未找到 jolt_report_*.xlsx: %s", target)
+        logger.error("No jolt_report_*.xlsx found: %s", target)
         return 1
 
     patcher = ChargerPatcher()
@@ -504,15 +507,15 @@ def main(argv: list | None = None) -> int:
     for xlsx_path in reports:
         parsed = _parse_report_filename(xlsx_path)
         if parsed is None:
-            logger.warning("跳过（文件名无法解析）: %s", xlsx_path.name)
+            logger.warning("Skipping (file name unparseable): %s", xlsx_path.name)
             continue
         reg, ds_str, de_str = parsed
         cfg = VEHICLE_CONFIG.get(reg)
         if cfg is None:
-            logger.warning("跳过（%s 未在 vehicles.json 注册）: %s", reg, xlsx_path.name)
+            logger.warning("Skipping (%s not registered in vehicles.json): %s", reg, xlsx_path.name)
             continue
         if str(cfg.get("fuel_type", "")).upper() == "DIESEL":
-            logger.info("跳过柴油车 %s: %s", reg, xlsx_path.name)
+            logger.info("Skipping diesel vehicle %s: %s", reg, xlsx_path.name)
             continue
 
         reg_srf = cfg["srf_reg"]
@@ -530,7 +533,7 @@ def main(argv: list | None = None) -> int:
         if args.persist_raw and objects:
             merge_save_charger_transactions(objects, xlsx_path.parent)
 
-    logger.info("完成：%d 份报告，共补全 %d 个 Charger Link", n_reports, total_patched)
+    logger.info("Done: %d reports, %d Charger Links backfilled in total", n_reports, total_patched)
     return 0
 
 

@@ -400,7 +400,7 @@ def _recompute_report(reg, all_rows, cfg, qstart, qend, lookup, out_path):
                 row[_IDX_EPERF_KIN] = float('nan')
                 row[_IDX_EP_EXCL_AUX] = float('nan')
 
-    # period ΔSOC-weighted donor capacity (same口径 as live + backfill)
+    # period ΔSOC-weighted donor capacity (same convention as live + backfill)
     pcap, pn, psrc = _period_capacity_from_rows(
         rows2, _IDX_CAP, _IDX_SOC_CHANGE, _IDX_ESOURCE)
 

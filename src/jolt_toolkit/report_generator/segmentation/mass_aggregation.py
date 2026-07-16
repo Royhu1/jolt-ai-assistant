@@ -15,7 +15,7 @@ from .constants import PIPELINE_CONFIGS, VEHICLE_CONFIG
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# 每段质量聚合（可配置、稳健）
+# Per-segment vehicle-mass aggregation (configurable, robust)
 # =============================================================================
 # Single source of truth shared by the three plain-mean sites that estimate a
 # segment's vehicle mass (Excel "Vehicle Mass (kg)" column, the validation-figure

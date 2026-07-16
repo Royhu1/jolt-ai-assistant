@@ -1,12 +1,12 @@
 """
 logger_patcher.py
 =================
-独立的 SRF Logger 数据补全工具。
+Standalone SRF Logger data backfill tool.
 
-读取已生成的 Excel 报告，从 SRF API 获取 Logger legs，
-补全报告中缺失的 Logger Link、天气列和质量数据。
+Reads a generated Excel report, fetches Logger legs from the SRF API, and
+backfills the report's missing Logger Link, weather columns and mass data.
 
-用法：
+Usage:
     from jolt_toolkit.report_generator.logger_patcher import LoggerPatcher
     patcher = LoggerPatcher()
     patcher.patch_file("excel_report_database/1.0.0/YK73WFN/jolt_report_YK73WFN_20250820_20250822.xlsx")
@@ -52,7 +52,7 @@ from jolt_toolkit.report_generator.xlsx_patch_common import (
 
 logger = logging.getLogger(__name__)
 
-# ── Excel 列索引 (1-based, openpyxl 约定) ────────────────────────────────
+# ── Excel column indices (1-based, openpyxl convention) ─────────────────
 _COL_LEG_TYPE    = 2   # Leg Type
 _COL_LOGGER_LINK = 5   # SRF Logger Link
 _COL_START_TIME  = 6
@@ -98,29 +98,29 @@ assert _COL_EPERF_KIN == HEADERS.index("Energy Performance Kinetics Corrected (k
 assert _COL_HIST_ACC == HEADERS.index("Histogram of Accelerator Pedal Position") + 1
 assert _COL_HIST_DEC == HEADERS.index("Histogram of Decelerator Pedal Position") + 1
 
-# ── Logger Channel 7 列名 ─────────────────────────────────────────────────
+# ── Logger Channel 7 column names ─────────────────────────────────────────
 _W_TEMP   = '7 temperature'
 _W_PRESS  = '7 pressure'
 _W_HUMID  = '7 humidity'
 _W_WIND_S = '7 wind speed'
 _W_WIND_D = '7 wind direction'
 
-# ── Logger CVW 列名 ──────────────────────────────────────────────────────
+# ── Logger CVW column name ───────────────────────────────────────────────
 _CVW_COL = 'CVW gross combination vehicle weight'
 
 _CARDINALS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 
-# ── 充电类型正则（与 report_builder 一致）──────────────────────────────────
+# ── Charge-type regex (consistent with report_builder) ─────────────────────
 _CHARGE_RE = re.compile(r'^(AC|DC|Charge|Mix|estimated)', re.IGNORECASE)
 
 
-# ── 工具函数 ──────────────────────────────────────────────────────────────
+# ── Utility functions ─────────────────────────────────────────────────────
 # _parse_report_filename / _cell_is_empty / _to_timestamp are shared with the
 # charger patcher — see report_generator.xlsx_patch_common.
 
 
 def _cell_needs_weather(cell) -> bool:
-    """判断天气单元格是否需要补全。"""
+    """Return whether a weather cell needs backfilling."""
     v = cell.value
     if v is None:
         return True
@@ -129,27 +129,28 @@ def _cell_needs_weather(cell) -> bool:
     return False
 
 
-# ── 主类 ─────────────────────────────────────────────────────────────────
+# ── Main class ────────────────────────────────────────────────────────────
 
 class LoggerPatcher:
     """
-    SRF Logger 数据补全工具。
+    SRF Logger data backfill tool.
 
-    读取已生成的 xlsx 报告文件，从 SRF API 获取 Logger legs，
-    通过时间窗口匹配补全 Logger Link URL 和天气列。
+    Reads a generated xlsx report file, fetches Logger legs from the SRF API, and
+    backfills the Logger Link URL and weather columns by time-window matching.
 
-    补全内容：
-    - SRF Logger Link — 可点击的 Logger 可视化 URL
+    What is backfilled:
+    - SRF Logger Link — a clickable Logger visualisation URL
     - Average Temperature / Pressure / Humidity / Wind Speed / Wind Direction
-      — 从 Logger Channel 7 天气数据按时间窗口平均
-    - Vehicle Mass (kg) + CV — 从 Logger CVW 通道按时间窗口取中位数
-      （仅当报告中该行无有效质量数据时补全，不覆盖已有值）
-    - Energy Performance Kinetics Corrected (kWh/km) — 使用 Logger 1Hz 速度数据
-      逐秒计算动能修正后的能量效率（90% 再生制动效率）
+      — averaged over the time window from the Logger Channel 7 weather data
+    - Vehicle Mass (kg) + CV — the time-window median from the Logger CVW channel
+      (backfilled only when the report row has no valid mass data, never overwriting an existing value)
+    - Energy Performance Kinetics Corrected (kWh/km) — the kinetics-corrected
+      energy performance computed second by second from the Logger 1Hz speed data
+      (90% regenerative-braking efficiency)
 
     Args:
-        srf_data:    可选的已有 SRF 客户端实例（共享连接以避免重复创建）
-        cache_dir:   SRF API 缓存目录
+        srf_data:    optional existing SRF client instance (share the connection to avoid recreating it)
+        cache_dir:   SRF API cache directory
     """
 
     def __init__(self, srf_data=None, cache_dir: str | None = None):
@@ -160,32 +161,32 @@ class LoggerPatcher:
         else:
             api_key = os.environ.get("SRF_API_KEY")
             if not api_key:
-                logger.warning("LoggerPatcher: SRF_API_KEY 未设置")
+                logger.warning("LoggerPatcher: SRF_API_KEY is not set")
             self._srf_data = make_srf_client(cache_dir, api_key=api_key)
 
-    # ── 公开接口 ──────────────────────────────────────────────────────────
+    # ── Public interface ──────────────────────────────────────────────────
 
     def patch_file(self, xlsx_path: str | Path, *,
                    logger_legs: list | None = None,
                    logger_windows: list | None = None) -> int:
         """
-        补全单个 xlsx 报告的 Logger Link 和天气数据。
+        Backfill a single xlsx report's Logger Link and weather data.
 
         Args:
-            xlsx_path:       报告文件路径
-            logger_legs:     可选的预加载 Logger leg 对象列表
-            logger_windows:  可选的预加载 Logger 时间窗口列表 [(start, end, uri), ...]
-                             若 logger_legs 和 logger_windows 均为 None，从 SRF API 获取
+            xlsx_path:       report file path
+            logger_legs:     optional preloaded list of Logger leg objects
+            logger_windows:  optional preloaded list of Logger time windows [(start, end, uri), ...]
+                             if both logger_legs and logger_windows are None, fetch from the SRF API
 
         Returns:
-            补全的行数（Link 或天气至少补全一列即计数）。
+            The number of rows backfilled (counted if at least one of Link or weather columns is backfilled).
         """
         xlsx_path = Path(xlsx_path)
         if not xlsx_path.exists():
-            logger.error("文件不存在: %s", xlsx_path)
+            logger.error("File does not exist: %s", xlsx_path)
             return 0
 
-        # 1. 获取 logger 数据
+        # 1. Obtain the logger data
         if logger_legs is None or logger_windows is None:
             fetched = self._fetch_logger_data(xlsx_path)
             if fetched is None:
@@ -196,31 +197,31 @@ class LoggerPatcher:
                 logger_windows = fetched[1]
 
         if not logger_legs and not logger_windows:
-            logger.info("LoggerPatcher: 无 Logger 数据，跳过 %s", xlsx_path.name)
+            logger.info("LoggerPatcher: no Logger data, skipping %s", xlsx_path.name)
             return 0
 
-        # 2. 预加载 Channel 7 天气数据 + CVW 质量数据 + CCVS 速度数据 + 踏板数据
+        # 2. Preload Channel 7 weather data + CVW mass data + CCVS speed data + pedal data
         weather_df = self._load_weather_data(logger_legs)
         mass_df = self._load_mass_data(logger_legs)
         speed_df = self._load_speed_data(logger_legs)
         acc_pedal_df = self._load_pedal_data(logger_legs, channel='EEC2')
         dec_pedal_df = self._load_pedal_data(logger_legs, channel='EBC1')
 
-        # 3. 打开 xlsx
-        logger.info("LoggerPatcher: 补全 %s", xlsx_path.name)
+        # 3. Open the xlsx
+        logger.info("LoggerPatcher: backfilling %s", xlsx_path.name)
         wb = load_workbook(str(xlsx_path))
         if 'Report' not in wb.sheetnames:
-            logger.error("  'Report' 工作表未找到: %s", xlsx_path.name)
+            logger.error("  'Report' worksheet not found: %s", xlsx_path.name)
             wb.close()
             return 0
         ws = wb['Report']
 
-        # 4. 遍历行，补全 Link 和天气（仅放电/行程段，跳过充电段）
+        # 4. Iterate rows, backfilling Link and weather (discharge/trip segments only, skip charge segments)
         patched = 0
-        total_rows = ws.max_row - 1  # 减去标题行
-        for row_idx in tqdm(range(2, ws.max_row + 1), desc="Logger 补全行",
+        total_rows = ws.max_row - 1  # minus the header row
+        for row_idx in tqdm(range(2, ws.max_row + 1), desc="Logger backfill rows",
                             total=total_rows, leave=False):
-            # 充电段不应有 Logger 数据
+            # Charge segments should have no Logger data
             leg_type_val = ws.cell(row_idx, _COL_LEG_TYPE).value
             if leg_type_val and isinstance(leg_type_val, str) and _CHARGE_RE.match(leg_type_val):
                 continue
@@ -244,7 +245,7 @@ class LoggerPatcher:
                         cell.font = Font(color='0000FF', underline='single')
                         row_patched = True
 
-            # 4b. 天气数据
+            # 4b. Weather data
             if weather_df is not None and any(
                 _cell_needs_weather(ws.cell(row_idx, c)) for c in _WEATHER_COLS
             ):
@@ -270,7 +271,7 @@ class LoggerPatcher:
                                 _CARDINALS[round(avg_deg / 45) % 8])
                     row_patched = True
 
-            # 4c. 质量数据（仅当报告中无有效质量时补全）
+            # 4c. Mass data (backfilled only when the report has no valid mass)
             if mass_df is not None and _cell_needs_weather(ws.cell(row_idx, _COL_MASS)):
                 matched_m = mass_df.loc[t_s:t_e]
                 valid_m = matched_m[_CVW_COL].dropna()
@@ -283,7 +284,7 @@ class LoggerPatcher:
                         ws.cell(row_idx, _COL_MASS_CV).value = round(cv, 3)
                     row_patched = True
 
-            # 4d. 动能修正能量效率（使用 Logger 1Hz 速度数据逐秒计算）
+            # 4d. Kinetics-corrected energy performance (computed second by second from the Logger 1Hz speed data)
             if speed_df is not None and _cell_needs_weather(ws.cell(row_idx, _COL_EPERF_KIN)):
                 energy_val = ws.cell(row_idx, _COL_ENERGY).value
                 dist_val = ws.cell(row_idx, _COL_DISTANCE).value
@@ -306,7 +307,7 @@ class LoggerPatcher:
                     except (TypeError, ValueError):
                         pass
 
-            # 4e. 踏板位置直方图（仅放电段，距离 > 10 km）
+            # 4e. Pedal-position histograms (discharge segments only, distance > 10 km)
             dist_val = ws.cell(row_idx, _COL_DISTANCE).value
             try:
                 dist_km = float(dist_val) if dist_val is not None else 0.0
@@ -314,7 +315,7 @@ class LoggerPatcher:
                 dist_km = 0.0
 
             if dist_km > MIN_DISTANCE_FOR_PEDAL_KM:
-                # 油门踏板直方图
+                # Accelerator-pedal histogram
                 if acc_pedal_df is not None and _cell_is_empty(ws.cell(row_idx, _COL_HIST_ACC)):
                     try:
                         acc_slice = acc_pedal_df.loc[t_s:t_e].dropna()
@@ -324,7 +325,7 @@ class LoggerPatcher:
                             row_patched = True
                     except Exception:
                         pass
-                # 制动踏板直方图
+                # Brake-pedal histogram
                 if dec_pedal_df is not None and _cell_is_empty(ws.cell(row_idx, _COL_HIST_DEC)):
                     try:
                         dec_slice = dec_pedal_df.loc[t_s:t_e].dropna()
@@ -340,50 +341,50 @@ class LoggerPatcher:
 
         if patched > 0:
             wb.save(str(xlsx_path))
-            logger.info("  补全 %d 行 (Logger Link + 天气 + 质量 + 动能修正 + 踏板直方图)，已保存", patched)
+            logger.info("  Backfilled %d rows (Logger Link + weather + mass + kinetics correction + pedal histograms), saved", patched)
         else:
-            logger.info("  无需补全 Logger 数据")
+            logger.info("  No Logger data to backfill")
 
         wb.close()
         return patched
 
     def patch_folder(self, folder_path: str | Path) -> dict[str, int]:
-        """补全文件夹下所有 jolt_report_*.xlsx 的 Logger 数据。"""
+        """Backfill the Logger data of all jolt_report_*.xlsx under a folder."""
         folder = Path(folder_path)
         if not folder.is_dir():
-            logger.error("文件夹不存在: %s", folder)
+            logger.error("Folder does not exist: %s", folder)
             return {}
 
         xlsx_files = sorted(folder.glob('jolt_report_*.xlsx'))
         if not xlsx_files:
-            logger.info("LoggerPatcher: %s 下无报告文件", folder)
+            logger.info("LoggerPatcher: no report files under %s", folder)
             return {}
 
         results = {}
-        for fp in tqdm(xlsx_files, desc="Logger patch 文件"):
+        for fp in tqdm(xlsx_files, desc="Logger patch files"):
             results[fp.name] = self.patch_file(fp)
         return results
 
-    # ── 内部方法 ──────────────────────────────────────────────────────────
+    # ── Internal methods ──────────────────────────────────────────────────
 
     def _fetch_logger_data(self, xlsx_path: Path) -> tuple[list, list] | None:
-        """从 SRF API 获取 Logger legs 和时间窗口。返回 (legs, windows) 或 None。"""
+        """Fetch Logger legs and time windows from the SRF API. Returns (legs, windows) or None."""
         parsed = _parse_report_filename(xlsx_path)
         if parsed is None:
-            logger.error("  无法从文件名解析车辆信息: %s", xlsx_path.name)
+            logger.error("  Cannot parse vehicle info from the file name: %s", xlsx_path.name)
             return None
 
         reg, ds_str, de_str = parsed
         cfg = VEHICLE_CONFIG.get(reg)
         if cfg is None:
-            logger.error("  车辆 %s 未在 vehicles.json 中注册", reg)
+            logger.error("  Vehicle %s is not registered in vehicles.json", reg)
             return None
 
         reg_srf = cfg["srf_reg"]
         ds = datetime.datetime.strptime(ds_str, "%Y%m%d")
         de = datetime.datetime.strptime(de_str, "%Y%m%d")
 
-        logger.info("  从 SRF API 获取 Logger legs: %s  %s ~ %s", reg_srf, ds_str, de_str)
+        logger.info("  Fetching Logger legs from the SRF API: %s  %s ~ %s", reg_srf, ds_str, de_str)
         params = {
             "start_time": srf_client.filter.between(
                 datetime.datetime.combine(ds, datetime.time.min, datetime.timezone.utc),
@@ -408,19 +409,19 @@ class LoggerPatcher:
                 except AttributeError:
                     pass
         except Exception as exc:
-            logger.warning("  Logger legs 拉取失败: %s", exc)
+            logger.warning("  Logger legs fetch failed: %s", exc)
             return [], []
 
-        logger.info("  获取到 %d 个 Logger legs", len(legs))
+        logger.info("  Fetched %d Logger legs", len(legs))
         return legs, windows
 
     def _load_weather_data(self, logger_legs: list) -> pd.DataFrame | None:
-        """从所有 Logger legs 的 Channel 7 加载天气数据。"""
+        """Load weather data from Channel 7 of all Logger legs."""
         if not logger_legs:
             return None
 
         dfs = []
-        for leg in tqdm(logger_legs, desc="加载 Logger 天气", leave=False):
+        for leg in tqdm(logger_legs, desc="Loading Logger weather", leave=False):
             try:
                 if '7' not in leg.types:
                     continue
@@ -428,10 +429,10 @@ class LoggerPatcher:
                 if df_w is not None and not df_w.empty:
                     dfs.append(df_w)
             except Exception as exc:
-                logger.debug("  Logger 天气提取失败: %s", exc)
+                logger.debug("  Logger weather extraction failed: %s", exc)
 
         if not dfs:
-            logger.info("  Logger 中无 Channel 7 天气数据")
+            logger.info("  No Channel 7 weather data in the Logger")
             return None
 
         weather_df = pd.concat(dfs).sort_index()
@@ -439,16 +440,16 @@ class LoggerPatcher:
             weather_df.index = weather_df.index.tz_localize('UTC')
         else:
             weather_df.index = weather_df.index.tz_convert('UTC')
-        logger.info("  从 Logger 提取到 %d 条天气读数", len(weather_df))
+        logger.info("  Extracted %d weather readings from the Logger", len(weather_df))
         return weather_df
 
     def _load_mass_data(self, logger_legs: list) -> pd.DataFrame | None:
-        """从所有 Logger legs 的 CVW 通道加载质量数据。"""
+        """Load mass data from the CVW channel of all Logger legs."""
         if not logger_legs:
             return None
 
         dfs = []
-        for leg in tqdm(logger_legs, desc="加载 Logger CVW", leave=False):
+        for leg in tqdm(logger_legs, desc="Loading Logger CVW", leave=False):
             try:
                 if 'CVW' not in leg.types:
                     continue
@@ -456,10 +457,10 @@ class LoggerPatcher:
                 if df_m is not None and not df_m.empty and _CVW_COL in df_m.columns:
                     dfs.append(df_m[[_CVW_COL]])
             except Exception as exc:
-                logger.debug("  Logger CVW 提取失败: %s", exc)
+                logger.debug("  Logger CVW extraction failed: %s", exc)
 
         if not dfs:
-            logger.info("  Logger 中无 CVW 质量数据")
+            logger.info("  No CVW mass data in the Logger")
             return None
 
         mass_df = pd.concat(dfs).sort_index()
@@ -467,16 +468,16 @@ class LoggerPatcher:
             mass_df.index = mass_df.index.tz_localize('UTC')
         else:
             mass_df.index = mass_df.index.tz_convert('UTC')
-        logger.info("  从 Logger 提取到 %d 条 CVW 质量读数", len(mass_df))
+        logger.info("  Extracted %d CVW mass readings from the Logger", len(mass_df))
         return mass_df
 
     def _load_speed_data(self, logger_legs: list) -> pd.DataFrame | None:
-        """从所有 Logger legs 的 CCVS 通道加载车轮速度数据（用于动能修正）。"""
+        """Load wheel-based speed data from the CCVS channel of all Logger legs (for the kinetics correction)."""
         if not logger_legs:
             return None
 
         dfs = []
-        for leg in tqdm(logger_legs, desc="加载 Logger speed", leave=False):
+        for leg in tqdm(logger_legs, desc="Loading Logger speed", leave=False):
             try:
                 avail = leg.types
                 if 'CCVS' in avail:
@@ -490,10 +491,10 @@ class LoggerPatcher:
                     if col in df_spd.columns:
                         dfs.append(df_spd[[col]].rename(columns={col: 'logger_speed'}))
             except Exception as exc:
-                logger.debug("  Logger CCVS 速度提取失败: %s", exc)
+                logger.debug("  Logger CCVS speed extraction failed: %s", exc)
 
         if not dfs:
-            logger.info("  Logger 中无 CCVS 速度数据")
+            logger.info("  No CCVS speed data in the Logger")
             return None
 
         speed_df = pd.concat(dfs).sort_index()
@@ -501,19 +502,19 @@ class LoggerPatcher:
             speed_df.index = speed_df.index.tz_localize('UTC')
         else:
             speed_df.index = speed_df.index.tz_convert('UTC')
-        logger.info("  从 Logger 提取到 %d 条 CCVS 速度读数", len(speed_df))
+        logger.info("  Extracted %d CCVS speed readings from the Logger", len(speed_df))
         return speed_df
 
     def _load_pedal_data(self, logger_legs: list,
                          channel: str = 'EEC2') -> pd.DataFrame | None:
-        """从所有 Logger legs 加载踏板位置数据。
+        """Load pedal-position data from all Logger legs.
 
         Args:
-            logger_legs: Logger leg 对象列表
-            channel: 'EEC2'（油门踏板）或 'EBC1'（制动踏板）
+            logger_legs: list of Logger leg objects
+            channel: 'EEC2' (accelerator pedal) or 'EBC1' (brake pedal)
 
         Returns:
-            DataFrame（索引为 UTC 时间戳，列为踏板位置百分比）或 None
+            DataFrame (indexed by UTC timestamp, column = pedal-position percentage) or None
         """
         if not logger_legs:
             return None
@@ -527,7 +528,7 @@ class LoggerPatcher:
             return None
 
         dfs = []
-        for leg in tqdm(logger_legs, desc=f"加载 Logger {channel}", leave=False):
+        for leg in tqdm(logger_legs, desc=f"Loading Logger {channel}", leave=False):
             try:
                 if channel not in leg.types:
                     continue
@@ -535,10 +536,10 @@ class LoggerPatcher:
                 if df_p is not None and not df_p.empty and target_col in df_p.columns:
                     dfs.append(df_p[[target_col]])
             except Exception as exc:
-                logger.debug("  Logger %s 提取失败: %s", channel, exc)
+                logger.debug("  Logger %s extraction failed: %s", channel, exc)
 
         if not dfs:
-            logger.info("  Logger 中无 %s 踏板数据", channel)
+            logger.info("  No %s pedal data in the Logger", channel)
             return None
 
         pedal_df = pd.concat(dfs).sort_index()
@@ -546,5 +547,5 @@ class LoggerPatcher:
             pedal_df.index = pedal_df.index.tz_localize('UTC')
         else:
             pedal_df.index = pedal_df.index.tz_convert('UTC')
-        logger.info("  从 Logger 提取到 %d 条 %s 踏板读数", len(pedal_df), channel)
+        logger.info("  Extracted %d %s pedal readings from the Logger", len(pedal_df), channel)
         return pedal_df

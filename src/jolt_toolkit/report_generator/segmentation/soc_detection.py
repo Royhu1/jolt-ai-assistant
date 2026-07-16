@@ -23,7 +23,7 @@ from .constants import (
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# 充电分段检测
+# Charge-segment detection
 # =============================================================================
 def find_charge_segments_by_soc(
     df_raw: pd.DataFrame,
@@ -38,26 +38,26 @@ def find_charge_segments_by_soc(
     nominal_kwh: float | None = None,
 ) -> list[dict]:
     """
-    从稀疏原始遥测数据中检测充电分段（SOC 持续上升段）。
+    Detect charge segments (segments of sustained SOC rise) from sparse raw telemetry data.
 
-    能量来源优先级
-    --------------
-    1. AC+DC 列（ac_col + dc_col）有效数据 → energy_source='ac_dc'
-    2. SOC × nominal_kwh 估算            → energy_source='soc_estimate'
+    Energy-source priority
+    ----------------------
+    1. AC+DC columns (ac_col + dc_col) with valid data → energy_source='ac_dc'
+    2. SOC × nominal_kwh estimate                      → energy_source='soc_estimate'
 
-    返回字段（v2 统一 schema）
-    -------------------------
+    Returned fields (v2 unified schema)
+    -----------------------------------
     start_time, end_time, start_soc, end_soc,
-    delta_soc_pct (正值),
-    delta_energy_kwh (正值),
+    delta_soc_pct (positive),
+    delta_energy_kwh (positive),
     energy_source,
-    delta_moving_kwh (>= 0，或 None),
+    delta_moving_kwh (>= 0, or None),
     effective_capacity_kwh,
     charge_type,
-    ac_start_wh, ac_end_wh, dc_start_wh, dc_end_wh (None 若无 AC/DC 数据),
+    ac_start_wh, ac_end_wh, dc_start_wh, dc_end_wh (None if no AC/DC data),
     odo_start_km, odo_end_km, latitude, longitude
 
-    临时字段（_ANCHOR_PRIVATE_KEYS，保存 CSV 前需过滤）：
+    Temporary fields (_ANCHOR_PRIVATE_KEYS, must be filtered out before saving to CSV):
     _anchor_start_time, _anchor_end_time,
     _anchor_start_rel_kwh, _anchor_end_rel_kwh
     """
@@ -87,7 +87,7 @@ def find_charge_segments_by_soc(
             df[_c] = pd.to_numeric(df[_c], errors='coerce')
             df.loc[df[_c] == 0, _c] = np.nan
 
-    # ── SOC 上升块检测 ────────────────────────────────────────────────────────
+    # ── SOC rising-block detection ──────────────────────────────────────────
     soc_mask = df[SOC_COL].notna()
     soc_pos  = np.array(df.index[soc_mask].tolist(), dtype=np.intp)
     if len(soc_pos) < 2:
@@ -112,7 +112,7 @@ def find_charge_segments_by_soc(
     if not blocks:
         return []
 
-    # ── 合并相邻块 ────────────────────────────────────────────────────────────
+    # ── Merge adjacent blocks ───────────────────────────────────────────────
     plateau_ns = int(plateau_window_min * 60 * 1_000_000_000)
     merged = [blocks[0][:]]
     for blk in blocks[1:]:
@@ -125,7 +125,7 @@ def find_charge_segments_by_soc(
         else:
             merged.append(blk[:])
 
-    # ── 准备能量序列 ──────────────────────────────────────────────────────────
+    # ── Prepare energy series ───────────────────────────────────────────────
     energy_pos  = np.array([], dtype=np.intp)
     base_wh     = 0.0
     if has_acdc:
@@ -139,7 +139,7 @@ def find_charge_segments_by_soc(
         mmask   = df[moving_energy_col].notna()
         mov_pos = np.array(df.index[mmask].tolist(), dtype=np.intp)
 
-    # ── 生成分段 ──────────────────────────────────────────────────────────────
+    # ── Build segments ──────────────────────────────────────────────────────
     segments: list[dict] = []
     for blk_start, blk_end in merged:
         soc_row_s = int(soc_pos[blk_start - 1])
@@ -214,7 +214,7 @@ def find_charge_segments_by_soc(
                 if _dm >= 0:
                     delta_moving = round(_dm, 3)
 
-        # 充电类型
+        # Charge type
         if energy_source == 'ac_dc':
             thr = 0.5
             d_ac = (ac_e - ac_s) / 1000.0
@@ -265,7 +265,7 @@ def find_charge_segments_by_soc(
     return segments
 
 # =============================================================================
-# 放电分段检测
+# Discharge-segment detection
 # =============================================================================
 def find_discharge_segments_by_soc(
     df_raw: pd.DataFrame,
@@ -281,35 +281,36 @@ def find_discharge_segments_by_soc(
     min_trip_distance_km: float = 0.0,
 ) -> list[dict]:
     """
-    从稀疏原始遥测数据中检测放电/行驶分段（SOC 持续下降段）。
+    Detect discharge/driving segments (segments of sustained SOC fall) from sparse raw telemetry data.
 
-    能量来源优先级
-    --------------
-    1. total_energy_col（total_electric_energy_used_plugged_in_included）→ energy_source='total_energy'
-    2. moving_energy_col（electric_energy_wheelbased_speed_over_zero）   → energy_source='moving_energy'
-    3. SOC × nominal_kwh 估算                                            → energy_source='soc_estimate'
+    Energy-source priority
+    ----------------------
+    1. total_energy_col (total_electric_energy_used_plugged_in_included) → energy_source='total_energy'
+    2. moving_energy_col (electric_energy_wheelbased_speed_over_zero)    → energy_source='moving_energy'
+    3. SOC × nominal_kwh estimate                                       → energy_source='soc_estimate'
 
-    返回字段（v2 统一 schema）
-    -------------------------
+    Returned fields (v2 unified schema)
+    -----------------------------------
     start_time, end_time, start_soc, end_soc,
-    delta_soc_pct (负值，如 -25.0),
-    delta_energy_kwh (负值，如 -80.0),
+    delta_soc_pct (negative, e.g. -25.0),
+    delta_energy_kwh (negative, e.g. -80.0),
     energy_source,
-    delta_moving_kwh (>= 0，或 None),
+    delta_moving_kwh (>= 0, or None),
     effective_capacity_kwh,
     odo_start_km, odo_end_km, lat_start, lon_start, lat_end, lon_end
 
-    临时字段（_ANCHOR_PRIVATE_KEYS，保存 CSV 前需过滤）：
+    Temporary fields (_ANCHOR_PRIVATE_KEYS, must be filtered out before saving to CSV):
     _anchor_start_time, _anchor_end_time,
     _anchor_start_rel_kwh, _anchor_end_rel_kwh
 
-    参数
-    ----
+    Parameters
+    ----------
     min_trip_distance_km : float, default 0.0
-        放电段最短里程过滤阈值（km）。若 (odo_end_km - odo_start_km) < 该值，
-        则剔除该 segment。默认 0.0 表示不过滤，向后兼容。
-        典型用途：mercedes_soc 上设为 10.0 抑制 depot/short-haul SOC 抖动造成
-        的 EP outlier（短段 EP 噪声极大）。
+        Minimum-distance filter threshold (km) for a discharge segment. If
+        (odo_end_km - odo_start_km) < this value, the segment is dropped. The
+        default 0.0 means no filtering, backward compatible. Typical use: set to
+        10.0 on mercedes_soc to suppress the EP outliers caused by depot/short-haul
+        SOC jitter (short segments have very noisy EP).
     """
     if SOC_COL not in df_raw.columns or TIME_COL not in df_raw.columns:
         return []
@@ -388,7 +389,7 @@ def find_discharge_segments_by_soc(
         pos = int(np.searchsorted(tarr, t, side='left'))
         return (pos, float(varr[pos])) if pos < len(tarr) else (-1, np.nan)
 
-    # ── SOC 下降块检测 ────────────────────────────────────────────────────────
+    # ── SOC falling-block detection ─────────────────────────────────────────
     soc_diff  = np.diff(soc_vals)
     declining = np.concatenate([[False], soc_diff < 0])
     blocks: list[list[int]] = []
@@ -405,7 +406,7 @@ def find_discharge_segments_by_soc(
     if not blocks:
         return []
 
-    # ── 合并相邻块 ────────────────────────────────────────────────────────────
+    # ── Merge adjacent blocks ───────────────────────────────────────────────
     merged = [blocks[0][:]]
     for blk in blocks[1:]:
         prev_end = merged[-1][1]
@@ -419,7 +420,7 @@ def find_discharge_segments_by_soc(
         else:
             merged.append(blk[:])
 
-    # ── 计算分段指标 ──────────────────────────────────────────────────────────
+    # ── Compute segment metrics ─────────────────────────────────────────────
     segments: list[dict] = []
     for blk_start, blk_end in merged:
         i_s = blk_start - 1
@@ -538,9 +539,10 @@ def find_discharge_segments_by_soc(
             '_anchor_end_rel_kwh':    anchor_e_rel,
         })
 
-    # ── 最短里程过滤（per-pipeline 可选；默认 0.0 = 不过滤，向后兼容）─────────
-    # 目的：抑制 depot/short-haul 抖动造成的 EP outlier（短段 EP 噪声极大）。
-    # 在所有 segments 形成之后做后置 filter，能精确统计 drop 数。
+    # ── Minimum-distance filter (per-pipeline optional; default 0.0 = no filtering, backward compatible) ──
+    # Purpose: suppress the EP outliers caused by depot/short-haul jitter (short
+    # segments have very noisy EP). Applied as a post-filter after all segments
+    # are formed, so the drop count can be reported exactly.
     if min_trip_distance_km > 0.0 and segments:
         _kept: list[dict] = []
         _drops: list[float] = []
@@ -548,7 +550,7 @@ def find_discharge_segments_by_soc(
             _o_s = _seg.get('odo_start_km')
             _o_e = _seg.get('odo_end_km')
             if _o_s is None or _o_e is None:
-                # 无 odo 信息时不应用 distance filter（避免误删）
+                # Do not apply the distance filter when there is no odo information (avoids wrongful deletion)
                 _kept.append(_seg)
                 continue
             _dist = float(_o_e) - float(_o_s)
@@ -558,8 +560,8 @@ def find_discharge_segments_by_soc(
             _kept.append(_seg)
         if _drops:
             logger.info(
-                '  最短里程过滤: 剔除 %d 段 distance < %.2f km '
-                '(被剔除距离 km: %s)',
+                '  minimum-distance filter: dropped %d segments with distance < %.2f km '
+                '(dropped distances km: %s)',
                 len(_drops), min_trip_distance_km,
                 ', '.join(f'{d:.2f}' for d in _drops),
             )
