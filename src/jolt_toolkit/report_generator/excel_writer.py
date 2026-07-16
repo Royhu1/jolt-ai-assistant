@@ -12,6 +12,7 @@ Split out of report_builder.py in v3.0.0 (pure move + clean block extraction).
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date
 from pathlib import Path
@@ -29,6 +30,8 @@ from jolt_toolkit.report_generator.charts import (
     _chart_subtitle,
     chart_row_step,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _write_na(ws, ri: int, ci: int, cell_format) -> None:
@@ -465,4 +468,4 @@ def _write_excel_report(
     )
 
     workbook.close()
-    print(f"  Excel report: {out_path.name}")
+    logger.info("  Excel report: %s", out_path.name)

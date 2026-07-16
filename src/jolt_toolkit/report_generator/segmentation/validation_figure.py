@@ -8,6 +8,7 @@ the monolith did, so the side-effect is preserved via the facade.
 from __future__ import annotations
 
 import json as _json
+import logging
 import warnings
 from pathlib import Path
 
@@ -27,6 +28,8 @@ from .constants import (
 )
 from .mass_aggregation import _agg_mass
 from .timeutil import _to_utc
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # 验证图绘制（需要 matplotlib）
@@ -999,4 +1002,4 @@ def plot_leg_validation(
     else:
         plt.savefig(out_path, dpi=_DPI, bbox_inches='tight')
     plt.close(fig)
-    print(f'  fig: {out_path.name}')
+    logger.info('  fig: %s', out_path.name)

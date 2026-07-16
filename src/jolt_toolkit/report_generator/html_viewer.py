@@ -13,8 +13,11 @@ Split out of report_builder.py in v3.0.0 (pure move + template externalization).
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # The viewer template is the exact source text of the former inline f-string
 # (doubled ``{{``/``}}`` preserved); ``str.format`` reproduces the f-string
@@ -240,4 +243,4 @@ def _write_html_viewer(
     )
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
-    print(f"  HTML viewer: {html_name}  ({len(figs)} figures)")
+    logger.info("  HTML viewer: %s  (%d figures)", html_name, len(figs))

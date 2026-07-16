@@ -28,9 +28,10 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font
 from tqdm import tqdm
 
-from jolt_toolkit.report_generator.paths import get_cache_dir, get_srf_api_root
+from jolt_toolkit.report_generator.paths import get_cache_dir
 from jolt_toolkit.report_generator.segment_algorithms import VEHICLE_CONFIG
 from jolt_toolkit.report_generator.report_builder import (
+    HEADERS,
     _find_overlap,
     _build_logger_url,
     _kinetics_corrected_energy_perf,
@@ -41,6 +42,12 @@ from jolt_toolkit.report_generator.pedal_histogram import (
     MIN_DISTANCE_FOR_PEDAL_KM,
     EEC2_COL,
     EBC1_COL,
+)
+from jolt_toolkit.report_generator.xlsx_patch_common import (
+    _parse_report_filename,
+    _cell_is_empty,
+    _to_timestamp,
+    make_srf_client,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,6 +74,30 @@ _COL_HIST_DEC    = 45  # Histogram of Decelerator Pedal Position
 
 _WEATHER_COLS = (_COL_TEMP, _COL_PRESSURE, _COL_HUMIDITY, _COL_WIND_SPEED, _COL_WIND_DIR)
 
+# Cheap sanity check (mirrors charger_patcher): the hard-coded 1-based Excel
+# columns above must stay in step with report_builder.HEADERS (Excel col ==
+# HEADERS.index(name) + 1). Any HEADERS reorder that moves one of these fields
+# fails loudly at import instead of silently patching the wrong cell. This only
+# guards the EV layout — diesel goes through DIESEL_HEADERS and never reaches the
+# LoggerPatcher.
+assert _COL_LEG_TYPE == HEADERS.index("Leg Type") + 1
+assert _COL_LOGGER_LINK == HEADERS.index("SRF Logger Link") + 1
+assert _COL_START_TIME == HEADERS.index("Start Time (UTC)") + 1
+assert _COL_END_TIME == HEADERS.index("End Time (UTC)") + 1
+assert _COL_MASS == HEADERS.index("Vehicle Mass (kg)") + 1
+assert _COL_MASS_CV == HEADERS.index("Vehicle Mass CV (reliability)") + 1
+assert _COL_TEMP == HEADERS.index("Average Temperature (C)") + 1
+assert _COL_PRESSURE == HEADERS.index("Average Pressure (hPa)") + 1
+assert _COL_HUMIDITY == HEADERS.index("Average Humidity (%)") + 1
+assert _COL_WIND_SPEED == HEADERS.index("Average Wind Speed (m/s)") + 1
+assert _COL_WIND_DIR == HEADERS.index("Average Wind Direction") + 1
+assert _COL_DISTANCE == HEADERS.index("Distance (km)") + 1
+assert _COL_ELEV_DIFF == HEADERS.index("Elevation Difference (m)") + 1
+assert _COL_ENERGY == HEADERS.index("Energy Change (kWh)") + 1
+assert _COL_EPERF_KIN == HEADERS.index("Energy Performance Kinetics Corrected (kWh/km)") + 1
+assert _COL_HIST_ACC == HEADERS.index("Histogram of Accelerator Pedal Position") + 1
+assert _COL_HIST_DEC == HEADERS.index("Histogram of Decelerator Pedal Position") + 1
+
 # ── Logger Channel 7 列名 ─────────────────────────────────────────────────
 _W_TEMP   = '7 temperature'
 _W_PRESS  = '7 pressure'
@@ -84,23 +115,8 @@ _CHARGE_RE = re.compile(r'^(AC|DC|Charge|Mix|estimated)', re.IGNORECASE)
 
 
 # ── 工具函数 ──────────────────────────────────────────────────────────────
-
-def _parse_report_filename(path: Path) -> tuple[str, str, str] | None:
-    """从报告文件名解析 (reg, date_start, date_end)。"""
-    m = re.match(r'jolt_report_(\w+)_(\d{8})_(\d{8})\.xlsx$', path.name)
-    if not m:
-        return None
-    return m.group(1), m.group(2), m.group(3)
-
-
-def _cell_is_empty(cell) -> bool:
-    """判断单元格是否为空。"""
-    v = cell.value
-    if v is None:
-        return True
-    if isinstance(v, str) and v.strip() == '':
-        return True
-    return False
+# _parse_report_filename / _cell_is_empty / _to_timestamp are shared with the
+# charger patcher — see report_generator.xlsx_patch_common.
 
 
 def _cell_needs_weather(cell) -> bool:
@@ -111,19 +127,6 @@ def _cell_needs_weather(cell) -> bool:
     if isinstance(v, str) and (v.strip() == '' or v.strip().upper() == '=NA()'):
         return True
     return False
-
-
-def _to_timestamp(dt_val):
-    """将 openpyxl 读取的日期时间值转为 pd.Timestamp (UTC)。"""
-    if dt_val is None:
-        return None
-    try:
-        ts = pd.Timestamp(dt_val)
-        if ts.tzinfo is None:
-            ts = ts.tz_localize('UTC')
-        return ts
-    except Exception:
-        return None
 
 
 # ── 主类 ─────────────────────────────────────────────────────────────────
@@ -158,16 +161,7 @@ class LoggerPatcher:
             api_key = os.environ.get("SRF_API_KEY")
             if not api_key:
                 logger.warning("LoggerPatcher: SRF_API_KEY 未设置")
-            cache = None
-            if cache_dir:
-                from cachecontrol.caches import SeparateBodyFileCache
-                srf_cache_path = os.path.join(cache_dir, "srf_http")
-                os.makedirs(srf_cache_path, exist_ok=True)
-                cache = SeparateBodyFileCache(srf_cache_path)
-            self._srf_data = srf_client.SRFData(
-                api_key=api_key, cache=cache,
-                root=get_srf_api_root(), verify=True,
-            )
+            self._srf_data = make_srf_client(cache_dir, api_key=api_key)
 
     # ── 公开接口 ──────────────────────────────────────────────────────────
 

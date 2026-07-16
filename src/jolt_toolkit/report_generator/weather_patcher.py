@@ -14,22 +14,25 @@ weather_patcher.py
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
-import requests
-from filelock import FileLock
 from openpyxl import load_workbook
 from tqdm import tqdm
 
 from jolt_toolkit.report_generator.paths import get_cache_dir
-from jolt_toolkit.report_generator.report_builder import is_trip_leg
+from jolt_toolkit.report_generator.report_builder import (
+    HEADERS,
+    is_trip_leg,
+)
+from jolt_toolkit.report_generator.weather_fetcher.openweather import (
+    KeyManager,
+    WeatherCache,
+    WeatherFetcher,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +50,23 @@ _COL_WIND_DIR      = 42
 _COL_WEATHER_TYPE  = 43
 
 _WEATHER_COLS = (_COL_TEMP, _COL_PRESSURE, _COL_HUMIDITY, _COL_WIND_SPEED, _COL_WIND_DIR, _COL_WEATHER_TYPE)
+
+# Cheap sanity check (mirrors charger_patcher): the hard-coded 1-based Excel
+# columns above must stay in step with report_builder.HEADERS (Excel col ==
+# HEADERS.index(name) + 1). If HEADERS is ever reordered this fails loudly at
+# import instead of silently patching the wrong cell. EV layout only — the
+# diesel-layout guard in patch_file refuses DIESEL_HEADERS workbooks.
+assert _COL_LEG_TYPE == HEADERS.index("Leg Type") + 1
+assert _COL_START_TIME == HEADERS.index("Start Time (UTC)") + 1
+assert _COL_ORIGIN == HEADERS.index("Origin (Lat, Lon)") + 1
+assert _COL_END_TIME == HEADERS.index("End Time (UTC)") + 1
+assert _COL_DEST == HEADERS.index("Destination (Lat, Lon)") + 1
+assert _COL_TEMP == HEADERS.index("Average Temperature (C)") + 1
+assert _COL_PRESSURE == HEADERS.index("Average Pressure (hPa)") + 1
+assert _COL_HUMIDITY == HEADERS.index("Average Humidity (%)") + 1
+assert _COL_WIND_SPEED == HEADERS.index("Average Wind Speed (m/s)") + 1
+assert _COL_WIND_DIR == HEADERS.index("Average Wind Direction") + 1
+assert _COL_WEATHER_TYPE == HEADERS.index("Weather Type") + 1
 
 
 # ── 工具函数 ──────────────────────────────────────────────────────────────
@@ -93,112 +113,22 @@ def _to_unix_utc(dt_val) -> int | None:
         return None
 
 
-# ── API 密钥管理 ─────────────────────────────────────────────────────────
+def _is_ev_layout(ws) -> bool:
+    """True iff the worksheet's header row matches the EV ``HEADERS`` layout.
 
-class _KeyManager:
-    """简化的多密钥轮转管理器（从 OPENWEATHER_API_KEYS 环境变量加载）。"""
-
-    def __init__(self):
-        keys_str = os.environ.get('OPENWEATHER_API_KEYS', '')
-        self._keys = {
-            k.strip(): {'active': True, 'usage': 0}
-            for k in keys_str.split(',') if k.strip()
-        }
-        if self._keys:
-            logger.info(f"WeatherPatcher: {len(self._keys)} API key(s) loaded")
-        else:
-            logger.warning("WeatherPatcher: OPENWEATHER_API_KEYS not set")
-
-    def get_key(self) -> str | None:
-        for k, v in self._keys.items():
-            if v['active']:
-                return k
-        return None
-
-    def increment(self, key: str):
-        if key in self._keys:
-            self._keys[key]['usage'] += 1
-
-    def disable(self, key: str):
-        if key in self._keys and self._keys[key]['active']:
-            self._keys[key]['active'] = False
-            masked = f"...{key[-8:]}" if len(key) > 8 else "***"
-            logger.warning(f"Disabled API key: {masked}")
-
-    def summary(self) -> dict:
-        total = sum(v['usage'] for v in self._keys.values())
-        active = sum(1 for v in self._keys.values() if v['active'])
-        return {'total_keys': len(self._keys), 'active': active, 'total_usage': total}
-
-
-# ── 天气缓存 ─────────────────────────────────────────────────────────────
-
-class _WeatherCache:
-    """JSON 文件缓存（filelock 线程安全）。
-
-    Cache-key quantisation mirrors ``FineGrainedWeatherPatcher._WeatherCache``:
-    the coordinate is rounded to ``precision`` decimal places (default 2 ≈ 1 km
-    grid) and the timestamp is floored to a ``time_bucket_s`` bucket (default
-    3600 s = 1 h, since the OpenWeather timemachine API is hourly). Weather only
-    varies on a city / hourly scale, so nearby same-hour points share a key and
-    reuse a single fetched value. The previous default (precision 6 ≈ 0.1 m plus
-    a raw per-second ``dt``) made virtually every point a unique key, so the
-    cache was never reused — every backfill re-fetched everything and burned
-    OpenWeather quota.
+    The ``_COL_*`` write indices assume the EV column order; a diesel report
+    uses ``DIESEL_HEADERS`` (fewer columns, different order), so comparing the
+    header row against ``HEADERS`` before writing prevents silently patching the
+    wrong cells of a diesel / unknown workbook.
     """
+    header = [ws.cell(1, c).value for c in range(1, len(HEADERS) + 1)]
+    return header == list(HEADERS)
 
-    def __init__(self, cache_file: str | Path, precision: int = 2,
-                 time_bucket_s: int = 3600):
-        self._path = Path(cache_file)
-        self._lock_path = Path(str(cache_file) + '.lock')
-        self._precision = precision
-        self._time_bucket_s = max(int(time_bucket_s), 1)
-        if not self._path.exists():
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._path, 'w', encoding='utf-8') as f:
-                json.dump({"cache": {}}, f)
 
-    def _key(self, lat: float, lon: float, dt: int) -> str:
-        # Quantise the coordinate to a ~``precision`` grid and floor the
-        # timestamp to a ``time_bucket_s`` bucket (hourly), so nearby /
-        # same-hour points share a key and reuse one fetched value.
-        dt_bucket = (int(dt) // self._time_bucket_s) * self._time_bucket_s
-        return f"{lat:.{self._precision}f},{lon:.{self._precision}f},{dt_bucket}"
-
-    def get_batch(self, locations: list[tuple]) -> tuple[dict, list]:
-        """返回 (hit_map, miss_list)。hit_map: {loc: weather_tuple}。"""
-        with FileLock(self._lock_path, timeout=10):
-            with open(self._path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        cache = data.get("cache", {})
-        hit_map: dict = {}
-        misses: list = []
-        for loc in locations:
-            k = self._key(*loc)
-            if k in cache:
-                hit_map[loc] = tuple(cache[k])
-            else:
-                misses.append(loc)
-        return hit_map, misses
-
-    def put_batch(self, results: dict):
-        """results: {(lat, lon, dt): (temp, press, humid, wind_s, wind_d, weather_type)}。"""
-        with FileLock(self._lock_path, timeout=10):
-            with open(self._path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            cache = data.get("cache", {})
-            for loc, weather in results.items():
-                cache[self._key(*loc)] = list(weather)
-            data["cache"] = cache
-            with open(self._path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-
-    @property
-    def size(self) -> int:
-        with FileLock(self._lock_path, timeout=10):
-            with open(self._path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        return len(data.get("cache", {}))
+# ── API 密钥管理 + 天气缓存 ────────────────────────────────────────────────
+# _KeyManager / _WeatherCache now live in weather_fetcher.openweather (shared
+# with FineGrainedWeatherPatcher). The coarse cache writes no metadata block on
+# init (metadata=None), preserving cache/.weather_cache.json's prior format.
 
 
 # ── 主类 ─────────────────────────────────────────────────────────────────
@@ -225,18 +155,15 @@ class WeatherPatcher:
         max_workers:   并发请求数（默认 30）
     """
 
-    API_URL = "https://api.openweathermap.org/data/3.0/onecall/timemachine"
-
     def __init__(self, cache_file: str | Path | None = None,
                  precision: int = 2, time_bucket_s: int = 3600,
                  max_workers: int = 30):
         cache_file = cache_file or os.environ.get(
             'WEATHER_CACHE_FILE',
             str(get_cache_dir() / '.weather_cache.json'))
-        self._cache = _WeatherCache(cache_file, precision, time_bucket_s)
-        self._keys = _KeyManager()
-        self._lock = threading.Lock()
-        self._max_workers = max_workers
+        self._cache = WeatherCache(cache_file, precision, time_bucket_s)
+        self._keys = KeyManager("WeatherPatcher")
+        self._fetcher = WeatherFetcher(self._keys, max_workers)
 
     # ── 公开接口 ──────────────────────────────────────────────────────────
 
@@ -263,6 +190,17 @@ class WeatherPatcher:
             wb.close()
             return 0
         ws = wb['Report']
+
+        # Diesel-layout guard: this patcher's _COL_* indices are the EV HEADERS
+        # layout. A diesel report uses DIESEL_HEADERS (different column order),
+        # so patching one here would silently write weather into the wrong
+        # cells. Detect it by comparing the header row against HEADERS and skip.
+        if not _is_ev_layout(ws):
+            logger.error(
+                "  %s: diesel/unknown layout, skipping (coarse weather patcher "
+                "supports the EV layout only)", xlsx_path.name)
+            wb.close()
+            return 0
 
         # 1. 收集需要补全的行
         tasks = []  # (row_idx, o_lat, o_lon, o_dt, d_lat, d_lon, d_dt)
@@ -315,7 +253,8 @@ class WeatherPatcher:
 
         # 4. 从 API 获取缺失数据
         if missing:
-            fetched = self._fetch_batch(missing)
+            fetched = self._fetcher.fetch_batch(
+                missing, desc="获取天气 API", warn_on_failure=True)
             weather_map.update(fetched)
             if fetched:
                 self._cache.put_batch(fetched)
@@ -381,71 +320,4 @@ class WeatherPatcher:
         results = {}
         for fp in tqdm(xlsx_files, desc="天气 patch 文件"):
             results[fp.name] = self.patch_file(fp)
-        return results
-
-    # ── 内部方法 ──────────────────────────────────────────────────────────
-
-    def _fetch_single(self, loc: tuple) -> tuple[tuple, tuple | None]:
-        """获取单个位置的天气数据（线程安全）。"""
-        lat, lon, dt = loc
-        with self._lock:
-            api_key = self._keys.get_key()
-        if not api_key:
-            return loc, None
-
-        try:
-            resp = requests.get(self.API_URL, params={
-                'lat': lat, 'lon': lon, 'dt': dt, 'appid': api_key
-            }, timeout=10)
-
-            if resp.status_code == 429:
-                with self._lock:
-                    self._keys.disable(api_key)
-                return loc, None
-
-            if resp.status_code != 200:
-                logger.debug(f"  HTTP {resp.status_code} for ({lat:.4f}, {lon:.4f}, dt={dt})")
-                return loc, None
-
-            w = resp.json()['data'][0]
-
-            with self._lock:
-                self._keys.increment(api_key)
-
-            # 提取天气类型（如 Clear, Clouds, Rain 等）
-            weather_type = None
-            if 'weather' in w and w['weather']:
-                weather_type = w['weather'][0].get('main')
-
-            return loc, (
-                round(w['temp'] - 273.15, 1),  # K → C
-                w['pressure'],                  # hPa
-                w['humidity'],                  # %
-                w['wind_speed'],                # m/s
-                w['wind_deg'],                  # degrees
-                weather_type,                   # 天气类型
-            )
-        except Exception as e:
-            logger.debug(f"  API error for ({lat:.4f}, {lon:.4f}): {e}")
-            return loc, None
-
-    def _fetch_batch(self, locations: list[tuple]) -> dict:
-        """并发获取多个位置的天气数据。"""
-        results: dict = {}
-        logger.info(f"  Fetching {len(locations)} locations "
-                    f"({self._max_workers} workers)...")
-
-        with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            futures = {pool.submit(self._fetch_single, loc): loc
-                       for loc in locations}
-            for f in tqdm(as_completed(futures), desc="获取天气 API",
-                          total=len(futures), leave=False):
-                loc, weather = f.result()
-                if weather is not None:
-                    results[loc] = weather
-
-        failed = len(locations) - len(results)
-        if failed > 0:
-            logger.warning(f"  {failed}/{len(locations)} locations failed")
-
         return results

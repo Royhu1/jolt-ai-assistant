@@ -39,21 +39,16 @@ cache 设计：
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
-import threading
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 import pandas as pd
-import requests
-from filelock import FileLock
 from openpyxl import load_workbook
 from tqdm import tqdm
 
@@ -62,6 +57,11 @@ from jolt_toolkit.report_generator.report_builder import (
     HEADERS,
     DIESEL_HEADERS,
     is_trip_leg,
+)
+from jolt_toolkit.report_generator.weather_fetcher.openweather import (
+    KeyManager,
+    WeatherCache,
+    WeatherFetcher,
 )
 
 logger = logging.getLogger(__name__)
@@ -139,114 +139,11 @@ def _cell_needs_patch(cell) -> bool:
     return False
 
 
-# ── API 密钥管理 + cache（与旧 patcher 同结构）───────────────────────────
-
-class _KeyManager:
-    """多 API key 轮转，从 OPENWEATHER_API_KEYS 环境变量加载。"""
-
-    def __init__(self):
-        keys_str = os.environ.get('OPENWEATHER_API_KEYS', '')
-        self._keys = {
-            k.strip(): {'active': True, 'usage': 0}
-            for k in keys_str.split(',') if k.strip()
-        }
-        if self._keys:
-            logger.info(f"FineGrainedWeatherPatcher: {len(self._keys)} API key(s) loaded")
-        else:
-            logger.warning("FineGrainedWeatherPatcher: OPENWEATHER_API_KEYS not set")
-
-    def get_key(self) -> str | None:
-        for k, v in self._keys.items():
-            if v['active']:
-                return k
-        return None
-
-    def increment(self, key: str):
-        if key in self._keys:
-            self._keys[key]['usage'] += 1
-
-    def disable(self, key: str):
-        if key in self._keys and self._keys[key]['active']:
-            self._keys[key]['active'] = False
-            masked = f"...{key[-8:]}" if len(key) > 8 else "***"
-            logger.warning(f"Disabled API key: {masked}")
-
-    def summary(self) -> dict:
-        total = sum(v['usage'] for v in self._keys.values())
-        active = sum(1 for v in self._keys.values() if v['active'])
-        return {'total_keys': len(self._keys), 'active': active, 'total_usage': total}
-
-
-class _WeatherCache:
-    """
-    JSON 文件 cache，schema 与旧 ``WeatherPatcher._WeatherCache`` 兼容。
-
-    cache value 增至 6 元素：(temp, pressure, humidity, wind_speed, wind_deg, weather_type)
-    与旧 weather_patcher.py 的 6 元素结构一致。
-    """
-
-    def __init__(self, cache_file: str | Path, precision: int = 4,
-                 time_bucket_s: int = 3600):
-        self._path = Path(cache_file)
-        self._lock_path = Path(str(cache_file) + '.lock')
-        self._precision = precision
-        self._time_bucket_s = max(int(time_bucket_s), 1)
-        if not self._path.exists():
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._path, 'w', encoding='utf-8') as f:
-                json.dump({
-                    "metadata": {
-                        "version": "1.0",
-                        "precision": self._precision,
-                        "time_bucket_s": self._time_bucket_s,
-                        "description": (
-                            "FineGrainedWeatherPatcher cache "
-                            "(value = [temp, pressure, humidity, wind_speed, "
-                            "wind_deg, weather_type])"
-                        ),
-                    },
-                    "cache": {},
-                }, f, indent=2)
-            logger.info(f"Initialized fine-grained cache: {self._path}")
-
-    def _key(self, lat: float, lon: float, dt: int) -> str:
-        # 时间量化到 bucket（OpenWeather timemachine 是小时粒度，3600s 足够）
-        dt_bucket = (int(dt) // self._time_bucket_s) * self._time_bucket_s
-        return f"{lat:.{self._precision}f},{lon:.{self._precision}f},{dt_bucket}"
-
-    def get_batch(self, locations: list[tuple]) -> tuple[dict, list]:
-        """returns (hit_map: {loc: weather_tuple}, miss_list)."""
-        with FileLock(self._lock_path, timeout=10):
-            with open(self._path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        cache = data.get("cache", {})
-        hit_map: dict = {}
-        misses: list = []
-        for loc in locations:
-            k = self._key(*loc)
-            if k in cache:
-                hit_map[loc] = tuple(cache[k])
-            else:
-                misses.append(loc)
-        return hit_map, misses
-
-    def put_batch(self, results: dict):
-        with FileLock(self._lock_path, timeout=10):
-            with open(self._path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            cache = data.get("cache", {})
-            for loc, weather in results.items():
-                cache[self._key(*loc)] = list(weather)
-            data["cache"] = cache
-            with open(self._path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-
-    @property
-    def size(self) -> int:
-        with FileLock(self._lock_path, timeout=10):
-            with open(self._path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        return len(data.get("cache", {}))
+# ── API 密钥管理 + cache ────────────────────────────────────────────────
+# _KeyManager / _WeatherCache now live in weather_fetcher.openweather (shared
+# with the coarse WeatherPatcher). This patcher passes the fine cache's
+# metadata block + init log so the freshly-created
+# cache/weather/.weather_cache_fine.json keeps its prior format.
 
 
 # ── raw_telematics CSV 缓存 ──────────────────────────────────────────────
@@ -404,8 +301,6 @@ class FineGrainedWeatherPatcher:
         headers:                列结构，默认为 EV ``HEADERS``；柴油传 ``DIESEL_HEADERS``。
     """
 
-    API_URL = "https://api.openweathermap.org/data/3.0/onecall/timemachine"
-
     def __init__(
         self,
         raw_telematics_dir: str | Path | None = None,
@@ -426,16 +321,26 @@ class FineGrainedWeatherPatcher:
             'WEATHER_CACHE_FILE_FINE',
             str(get_cache_dir() / 'weather' / '.weather_cache_fine.json'),
         )
-        self._cache = _WeatherCache(cache_file, precision=precision,
-                                    time_bucket_s=time_bucket_s)
-        self._keys = _KeyManager()
-        self._lock = threading.Lock()
-        self._max_workers = max_workers
+        # Fine cache keeps its metadata block + init log (coarse writes neither).
+        cache_metadata = {
+            "version": "1.0",
+            "precision": precision,
+            "time_bucket_s": max(int(time_bucket_s), 1),
+            "description": (
+                "FineGrainedWeatherPatcher cache "
+                "(value = [temp, pressure, humidity, wind_speed, "
+                "wind_deg, weather_type])"
+            ),
+        }
+        self._cache = WeatherCache(
+            cache_file, precision=precision, time_bucket_s=time_bucket_s,
+            metadata=cache_metadata,
+            init_log=f"Initialized fine-grained cache: {Path(cache_file)}")
+        self._keys = KeyManager("FineGrainedWeatherPatcher")
+        self._fetcher = WeatherFetcher(self._keys, max_workers)
 
-        # 统计计数器（每次 patch_file 重置）
-        self._stat_api_calls = 0
+        # 统计计数器（每次 patch_file 重置）；api_calls / failures 由 fetcher 记录
         self._stat_cache_hits = 0
-        self._stat_failures = 0
 
     # ── 公开接口 ──────────────────────────────────────────────────────────
 
@@ -481,10 +386,9 @@ class FineGrainedWeatherPatcher:
                     'api_calls': 0, 'cache_hits': 0, 'failures': 0}
         ws = wb['Report']
 
-        # 重置统计
-        self._stat_api_calls = 0
+        # 重置统计（api_calls / failures 计在 fetcher 上）
+        self._fetcher.reset_stats()
         self._stat_cache_hits = 0
-        self._stat_failures = 0
 
         # 1. 扫描需要补全的行：仅补全 **行驶 / trip 行**（is_trip_leg），充电 / Stop
         #    行不需要天气、查询只会浪费 OpenWeather 配额，直接跳过。
@@ -559,7 +463,8 @@ class FineGrainedWeatherPatcher:
                     f"{len(missing)} need API")
 
         if missing:
-            fetched = self._fetch_batch(missing)
+            fetched = self._fetcher.fetch_batch(
+                missing, desc="OpenWeather API", warn_on_failure=False)
             weather_map.update(fetched)
             if fetched:
                 self._cache.put_batch(fetched)
@@ -594,8 +499,8 @@ class FineGrainedWeatherPatcher:
         summary = self._keys.summary()
         logger.info(
             f"  Summary: {patched} rows patched, {total_samples} samples, "
-            f"{self._stat_api_calls} API calls, {self._stat_cache_hits} cache hits, "
-            f"{self._stat_failures} failures"
+            f"{self._fetcher.api_calls} API calls, {self._stat_cache_hits} cache hits, "
+            f"{self._fetcher.failures} failures"
         )
         logger.info(
             f"  API keys: {summary['active']}/{summary['total_keys']} active, "
@@ -605,9 +510,9 @@ class FineGrainedWeatherPatcher:
         return {
             'patched_rows': patched,
             'total_samples': total_samples,
-            'api_calls': self._stat_api_calls,
+            'api_calls': self._fetcher.api_calls,
             'cache_hits': self._stat_cache_hits,
-            'failures': self._stat_failures,
+            'failures': self._fetcher.failures,
         }
 
     def patch_folder(self, folder_path: str | Path,
@@ -718,64 +623,3 @@ class FineGrainedWeatherPatcher:
             w_type = None
 
         return temp, press, humid, wind_s, wind_deg, w_type
-
-    # ── API 调用 ──────────────────────────────────────────────────────────
-
-    def _fetch_single(self, loc: tuple) -> tuple[tuple, tuple | None]:
-        lat, lon, dt = loc
-        with self._lock:
-            api_key = self._keys.get_key()
-        if not api_key:
-            with self._lock:
-                self._stat_failures += 1
-            return loc, None
-        try:
-            resp = requests.get(self.API_URL, params={
-                'lat': lat, 'lon': lon, 'dt': dt, 'appid': api_key,
-            }, timeout=10)
-            if resp.status_code == 429:
-                with self._lock:
-                    self._keys.disable(api_key)
-                    self._stat_failures += 1
-                return loc, None
-            if resp.status_code != 200:
-                logger.debug(f"  HTTP {resp.status_code} for ({lat:.4f},{lon:.4f},dt={dt})")
-                with self._lock:
-                    self._stat_failures += 1
-                return loc, None
-
-            w = resp.json()['data'][0]
-            with self._lock:
-                self._keys.increment(api_key)
-                self._stat_api_calls += 1
-
-            weather_type = None
-            if 'weather' in w and w['weather']:
-                weather_type = w['weather'][0].get('main')
-            return loc, (
-                round(w['temp'] - 273.15, 1),
-                w['pressure'],
-                w['humidity'],
-                w['wind_speed'],
-                w['wind_deg'],
-                weather_type,
-            )
-        except Exception as e:
-            logger.debug(f"  API error ({lat:.4f},{lon:.4f}): {e}")
-            with self._lock:
-                self._stat_failures += 1
-            return loc, None
-
-    def _fetch_batch(self, locations: list[tuple]) -> dict:
-        results: dict = {}
-        logger.info(f"  Fetching {len(locations)} locations "
-                    f"({self._max_workers} workers)...")
-        with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            futures = {pool.submit(self._fetch_single, loc): loc
-                       for loc in locations}
-            for f in tqdm(as_completed(futures), desc="OpenWeather API",
-                          total=len(futures), leave=False):
-                loc, weather = f.result()
-                if weather is not None:
-                    results[loc] = weather
-        return results

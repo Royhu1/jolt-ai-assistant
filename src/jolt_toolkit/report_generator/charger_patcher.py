@@ -17,7 +17,6 @@ from __future__ import annotations
 import datetime
 import logging
 import os
-import re
 from pathlib import Path
 
 import srf_client
@@ -27,11 +26,17 @@ from openpyxl.styles import Font
 
 import pandas as pd
 
-from jolt_toolkit.report_generator.paths import get_cache_dir, get_srf_api_root
+from jolt_toolkit.report_generator.paths import get_cache_dir
 from jolt_toolkit.report_generator.segment_algorithms import VEHICLE_CONFIG
 from jolt_toolkit.report_generator.report_builder import (
     HEADERS,
     _build_charger_url,
+)
+from jolt_toolkit.report_generator.xlsx_patch_common import (
+    _parse_report_filename,
+    _cell_is_empty,
+    _to_timestamp,
+    make_srf_client,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,19 +66,8 @@ _SRF_API_KEY_ENV = "SRF_API_KEY"
 
 
 # ── 工具函数 ──────────────────────────────────────────────────────────────
-
-def _parse_report_filename(path: Path) -> tuple[str, str, str] | None:
-    """从报告文件名解析 (reg, date_start, date_end)。"""
-    m = re.match(r'jolt_report_(\w+)_(\d{8})_(\d{8})\.xlsx$', path.name)
-    if not m:
-        return None
-    return m.group(1), m.group(2), m.group(3)
-
-
-def _cell_is_empty(cell) -> bool:
-    """判断单元格是否为空。"""
-    v = cell.value
-    return v is None or (isinstance(v, str) and v.strip() == '')
+# _parse_report_filename / _cell_is_empty / _to_timestamp are shared with the
+# logger patcher — see report_generator.xlsx_patch_common.
 
 
 def _find_charger_matches(windows: list, t_start, t_end, tol_min: float = 4) -> list:
@@ -118,19 +112,6 @@ def _find_charger_matches(windows: list, t_start, t_end, tol_min: float = 4) -> 
             continue
     matches.sort(key=lambda m: m[0])
     return matches
-
-
-def _to_timestamp(dt_val):
-    """将 openpyxl 读取的日期时间值转为 pd.Timestamp (UTC)。"""
-    if dt_val is None:
-        return None
-    try:
-        ts = pd.Timestamp(dt_val)
-        if ts.tzinfo is None:
-            ts = ts.tz_localize('UTC')
-        return ts
-    except Exception:
-        return None
 
 
 # ── raw_charger CSV persistence (shared by _generator + the backfill CLI) ──────
@@ -233,16 +214,7 @@ class ChargerPatcher:
             api_key = os.environ.get("SRF_API_KEY")
             if not api_key:
                 logger.warning("ChargerPatcher: SRF_API_KEY 未设置")
-            cache = None
-            if cache_dir:
-                from cachecontrol.caches import SeparateBodyFileCache
-                srf_cache_path = os.path.join(cache_dir, "srf_http")
-                os.makedirs(srf_cache_path, exist_ok=True)
-                cache = SeparateBodyFileCache(srf_cache_path)
-            self._srf_data = srf_client.SRFData(
-                api_key=api_key, cache=cache,
-                root=get_srf_api_root(), verify=True,
-            )
+            self._srf_data = make_srf_client(cache_dir, api_key=api_key)
 
     # ── 公开接口 ──────────────────────────────────────────────────────────
 

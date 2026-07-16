@@ -15,7 +15,6 @@ from pathlib import Path
 from time import perf_counter
 
 import pandas as pd
-import srf_client
 from srf_client import paging
 from tqdm import tqdm
 
@@ -44,6 +43,7 @@ from jolt_toolkit.report_generator.diesel_pipeline import (
     process_diesel_leg,
 )
 from jolt_toolkit.report_generator.operators import derive_leg_operator
+from jolt_toolkit.report_generator.xlsx_patch_common import make_srf_client
 from jolt_toolkit.report_generator.capacity import (  # noqa: F401
     _row_idx,
     _IDX_LEG_TYPE, _IDX_SOC_CHANGE, _IDX_ENERGY, _IDX_DISTANCE, _IDX_EPERF,
@@ -804,15 +804,8 @@ class JOLTReportGenerator:
     @staticmethod
     def _make_srf_data(api_key, root, cache_dir=None, verify=True):
         try:
-            cache = None
-            if cache_dir:
-                from cachecontrol.caches import SeparateBodyFileCache
-                srf_cache_path = os.path.join(cache_dir, "srf_http")
-                os.makedirs(srf_cache_path, exist_ok=True)
-                cache = SeparateBodyFileCache(srf_cache_path)
-            return srf_client.SRFData(
-                api_key=api_key, cache=cache, root=root, verify=verify,
-            )
+            return make_srf_client(
+                cache_dir, api_key=api_key, root=root, verify=verify)
         except Exception as e:
             logger.error("SRF 客户端创建失败: %s", e)
             raise

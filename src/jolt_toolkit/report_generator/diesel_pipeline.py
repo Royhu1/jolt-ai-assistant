@@ -758,7 +758,7 @@ def plot_diesel_leg_validation(
     else:
         plt.savefig(out_path, dpi=_DPI, bbox_inches='tight')
     plt.close(fig)
-    print(f'  fig: {out_path.name}')
+    logger.info('  fig: %s', out_path.name)
 
 
 def _segments_from_df(
