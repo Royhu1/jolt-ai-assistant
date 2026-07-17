@@ -147,8 +147,10 @@ def _load_logger_channel(
                             dfs.append(df_ch[[col]].rename(columns={col: target_col}))
                             break
                     break  # use the first matching channel
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "%s: failed to read a Logger leg's channel data: %s", desc, exc
+            )
     if not dfs:
         return None
     result = pd.concat(dfs).sort_index()
@@ -160,12 +162,12 @@ class JOLTReportGenerator:
 
     def __init__(
         self,
-        report_output_folder="./excel_report_database",
-        overwrite_existing_report=True,
-        debug_mode=False,
-        fast_mode=False,
-        save_figures=True,
-    ):
+        report_output_folder: str = "./excel_report_database",
+        overwrite_existing_report: bool = True,
+        debug_mode: bool = False,
+        fast_mode: bool = False,
+        save_figures: bool = True,
+    ) -> None:
         """
         save_figures
             Only meaningful when ``debug_mode=True``: whether to draw the
@@ -189,7 +191,9 @@ class JOLTReportGenerator:
         self.fast_mode = fast_mode
         self.save_figures = save_figures
 
-    def generate_report(self, vehicle_registration, date_start, date_end):
+    def generate_report(
+        self, vehicle_registration: str, date_start: str, date_end: str
+    ) -> str | None:
         """Generate a JOLT Excel report for the given vehicle and date range. Returns the Excel path or None."""
         time_start = perf_counter()
         logger.info(
@@ -420,8 +424,11 @@ class JOLTReportGenerator:
                             (ct.start_time, ct.end_time, ct.uri, energy_kwh)
                         )
                         charger_objects.append(ct)
-                    except AttributeError:
-                        pass
+                    except AttributeError as exc:
+                        logger.debug(
+                            "Charger transaction missing an expected attribute; skipped: %s",
+                            exc,
+                        )
             except Exception as exc:
                 logger.warning("Charger-event fetch failed: %s", exc)
         return charger_windows, charger_objects
@@ -445,8 +452,11 @@ class JOLTReportGenerator:
                         logger_legs_by_src.setdefault(src, []).append(leg)
                     elif src == "FPS":
                         fps_legs.append(leg)
-                except AttributeError:
-                    pass
+                except AttributeError as exc:
+                    logger.debug(
+                        "Leg missing an expected attribute (trip.source); skipped: %s",
+                        exc,
+                    )
         except Exception as exc:
             logger.warning("Legs fetch failed: %s", exc)
 
@@ -545,8 +555,11 @@ class JOLTReportGenerator:
                             {"time": ts_start, "meter_kwh": ct.start_meter}
                         )
                         meter_rows.append({"time": ts_end, "meter_kwh": ct.end_meter})
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug(
+                        "Charger meter reading unavailable for a transaction; skipped: %s",
+                        exc,
+                    )
             if meter_rows:
                 charger_meter_all = pd.DataFrame(meter_rows).sort_values("time")
                 charger_meter_all = charger_meter_all.set_index("time")
@@ -781,8 +794,11 @@ class JOLTReportGenerator:
                         try:
                             home_point = GeoPoint(float(lat_h), float(lon_h))
                             logger.info("Home point: (%.4f, %.4f)", lat_h, lon_h)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug(
+                                "Home point construction failed for a charge segment: %s",
+                                exc,
+                            )
                         if home_point is not None:
                             break
         return cumulative_km, home_point
@@ -816,8 +832,10 @@ class JOLTReportGenerator:
                     if geodesic(home_point, GeoPoint(lat_f, lon_f)).km < 0.5:
                         row[_ri_leg_type] = lt.replace("Away", "Home")
                         reclassified += 1
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug(
+                        "Home-distance reclassification failed for a row: %s", exc
+                    )
             if reclassified:
                 logger.info(
                     "Charge-segment reclassification: %d rows Away → Home", reclassified

@@ -126,7 +126,7 @@ SOC_FALLBACK_MIN_DSOC_PCT = 10.0
 SOC_FALLBACK_MIN_DEV = 0.30
 
 
-def _resolve_soc_fallback(cfg) -> dict | None:
+def _resolve_soc_fallback(cfg: dict) -> dict | None:
     """Build the per-vehicle SOC-energy-fallback control dict from a vehicle
     config, or ``None`` when the vehicle has not opted in.
 
@@ -150,7 +150,7 @@ def _resolve_soc_fallback(cfg) -> dict | None:
     return {"enabled": True, "min_dsoc_pct": min_dsoc, "min_dev": min_dev}
 
 
-def _cap_is_valid(v) -> bool:
+def _cap_is_valid(v: object) -> bool:
     """Whether a capacity / SOC value is a valid number (not None / not NaN)."""
     if v is None:
         return False
@@ -160,7 +160,7 @@ def _cap_is_valid(v) -> bool:
         return False
 
 
-def _soc_weighted_cap(caps, weights):
+def _soc_weighted_cap(caps, weights) -> float | None:
     """ΔSOC-weighted (combined-ratio) donor effective capacity — replaces the
     plain mean of per-segment implied capacities.
 
@@ -199,7 +199,9 @@ def _soc_weighted_cap(caps, weights):
     return sum(c * w for c, w in zip(caps, ws)) / tot
 
 
-def _period_capacity_from_rows(rows, idx_cap, idx_soc, idx_esrc):
+def _period_capacity_from_rows(
+    rows: list, idx_cap: int, idx_soc: int, idx_esrc: int
+) -> tuple[float | None, int, str]:
     """Replicate ``_correct_effective_capacity``'s donor-based ``avg_eff_cap``
     definition: take the effective capacity from non-``soc_estimate`` segments
     (measured charge / discharge legs) with "charge preferred", using within the
@@ -257,7 +259,9 @@ def _period_capacity_from_rows(rows, idx_cap, idx_soc, idx_esrc):
     return None, 0, "fallback"
 
 
-def _recompute_weighted_capacity(quarterly: dict, min_donors: int = MIN_DONORS):
+def _recompute_weighted_capacity(
+    quarterly: dict, min_donors: int = MIN_DONORS
+) -> tuple[float | None, int, int]:
     """Given ``{period_key: {kwh, n}}``, take the donor-count weighted average over
     the **reliable** quarters (``n >= min_donors``): Σ(kwh·n)/Σn. In place, backfill
     the stored ``kwh`` of sparse quarters (``n < min_donors``) with that average
@@ -296,23 +300,23 @@ def _recompute_weighted_capacity(quarterly: dict, min_donors: int = MIN_DONORS):
 
 
 def _correct_effective_capacity(
-    rows,
-    idx_cap,
-    idx_energy,
-    idx_soc,
-    idx_eperf,
-    idx_dist,
-    idx_esrc,
-    idx_bpower,
-    idx_dur,
-    idx_eperf_corr,
-    idx_elev,
-    idx_mass,
-    fallback_kwh,
-    idx_eperf_kin=None,
-    idx_start=None,
-    soc_fallback=None,
-):
+    rows: list,
+    idx_cap: int,
+    idx_energy: int,
+    idx_soc: int,
+    idx_eperf: int,
+    idx_dist: int,
+    idx_esrc: int,
+    idx_bpower: int,
+    idx_dur: int,
+    idx_eperf_corr: int,
+    idx_elev: int,
+    idx_mass: int,
+    fallback_kwh: float | None,
+    idx_eperf_kin: int | None = None,
+    idx_start: int | None = None,
+    soc_fallback: dict | None = None,
+) -> tuple[list, float | None, str]:
     """
     Post-processing: correct the effective battery capacity and re-derive the related fields.
 
@@ -709,7 +713,9 @@ def _correct_effective_capacity(
     return rows, round(avg_eff_cap, 1), cap_source
 
 
-def _persist_effective_capacity(reg, eff_cap, n_donors, source, period_key):
+def _persist_effective_capacity(
+    reg: str, eff_cap: float | None, n_donors: int, source: str, period_key: str
+) -> None:
     """Merge this report period's effective capacity into vehicles.json (v2.2.6+ merge).
 
     New schema:
