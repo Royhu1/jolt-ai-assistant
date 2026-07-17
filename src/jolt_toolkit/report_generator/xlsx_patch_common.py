@@ -28,7 +28,7 @@ from jolt_toolkit.report_generator.paths import get_cache_dir, get_srf_api_root
 
 def _parse_report_filename(path: Path) -> tuple[str, str, str] | None:
     """Parse (reg, date_start, date_end) from a report file name."""
-    m = re.match(r'jolt_report_(\w+)_(\d{8})_(\d{8})\.xlsx$', path.name)
+    m = re.match(r"jolt_report_(\w+)_(\d{8})_(\d{8})\.xlsx$", path.name)
     if not m:
         return None
     return m.group(1), m.group(2), m.group(3)
@@ -37,25 +37,31 @@ def _parse_report_filename(path: Path) -> tuple[str, str, str] | None:
 def _cell_is_empty(cell) -> bool:
     """Return whether a cell is empty."""
     v = cell.value
-    return v is None or (isinstance(v, str) and v.strip() == '')
+    return v is None or (isinstance(v, str) and v.strip() == "")
 
 
 def _to_timestamp(dt_val):
     """Convert a datetime value read by openpyxl to a pd.Timestamp (UTC)."""
     import pandas as pd
+
     if dt_val is None:
         return None
     try:
         ts = pd.Timestamp(dt_val)
         if ts.tzinfo is None:
-            ts = ts.tz_localize('UTC')
+            ts = ts.tz_localize("UTC")
         return ts
     except Exception:
         return None
 
 
-def make_srf_client(cache_dir: str | None = None, *, api_key: str | None = None,
-                    root: str | None = None, verify: bool = True):
+def make_srf_client(
+    cache_dir: str | None = None,
+    *,
+    api_key: str | None = None,
+    root: str | None = None,
+    verify: bool = True,
+):
     """Build an ``srf_client.SRFData`` with a ``SeparateBodyFileCache`` under
     ``<cache_dir>/srf_http``.
 
@@ -74,9 +80,13 @@ def make_srf_client(cache_dir: str | None = None, *, api_key: str | None = None,
     cache = None
     if cache_dir:
         from cachecontrol.caches import SeparateBodyFileCache
+
         srf_cache_path = os.path.join(cache_dir, "srf_http")
         os.makedirs(srf_cache_path, exist_ok=True)
         cache = SeparateBodyFileCache(srf_cache_path)
     return srf_client.SRFData(
-        api_key=api_key, cache=cache, root=root, verify=verify,
+        api_key=api_key,
+        cache=cache,
+        root=root,
+        verify=verify,
     )

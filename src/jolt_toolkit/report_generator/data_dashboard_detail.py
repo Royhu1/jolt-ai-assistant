@@ -64,13 +64,13 @@ import numpy as np
 import pandas as pd
 
 from jolt_toolkit.report_generator.data_dashboard import (
+    _LOGGER_FNAME_RE,
+    _TELEMATICS_FNAME_RE,
     RAW_CHARGER_CSV,
     RAW_CHARGER_DIR,
     RAW_LOGGER_DIRS,
     RAW_TELEMATICS_DIR,
-    _LOGGER_FNAME_RE,
     _raw_date_sane,
-    _TELEMATICS_FNAME_RE,
     build_day_segments,
 )
 from jolt_toolkit.report_generator.segment_algorithms import (
@@ -90,8 +90,8 @@ LOGGER = "logger"
 CHARGER = "charger"
 SOURCE_COLOURS = {
     TELEMATICS: "#2563EB",  # blue
-    LOGGER: "#16A34A",      # green
-    CHARGER: "#F59E0B",     # amber
+    LOGGER: "#16A34A",  # green
+    CHARGER: "#F59E0B",  # amber
 }
 SOURCE_LABELS = {TELEMATICS: "Telematics", LOGGER: "Logger", CHARGER: "Charger"}
 
@@ -149,18 +149,30 @@ def _cand(col=None, cfg_key=None, transform="id") -> dict:
 CONCEPT_REGISTRY: list[dict] = [
     # ── Motion ────────────────────────────────────────────────────────────────
     {
-        "id": "speed", "name": "Vehicle speed", "unit": "km/h",
-        "group": "Motion", "default": True,
+        "id": "speed",
+        "name": "Vehicle speed",
+        "unit": "km/h",
+        "group": "Motion",
+        "default": True,
         "sources": {
-            TELEMATICS: [_cand(cfg_key="speed_col"), _cand(col="speed"),
-                         _cand(col="wheel_based_speed"), _cand(col="gnss_speed")],
-            LOGGER: [_cand(col="CCVS wheel based vehicle speed"),
-                     _cand(col="2 speed", transform="ms_to_kmh")],
+            TELEMATICS: [
+                _cand(cfg_key="speed_col"),
+                _cand(col="speed"),
+                _cand(col="wheel_based_speed"),
+                _cand(col="gnss_speed"),
+            ],
+            LOGGER: [
+                _cand(col="CCVS wheel based vehicle speed"),
+                _cand(col="2 speed", transform="ms_to_kmh"),
+            ],
         },
     },
     {
-        "id": "distance", "name": "Total distance", "unit": "km",
-        "group": "Motion", "default": False,
+        "id": "distance",
+        "name": "Total distance",
+        "unit": "km",
+        "group": "Motion",
+        "default": False,
         # Cumulative odometer / total-vehicle-distance counter (→ km). Telematics
         # reports ``odometer`` in km (the column the PDF-briefing raw-KPI path
         # reads), with the J1939 high-resolution ``hr_total_vehicle_distance`` (m)
@@ -169,17 +181,21 @@ CONCEPT_REGISTRY: list[dict] = [
         # km — see diesel_pipeline.DEFAULT_DISTANCE_COL), so diesel vehicles get
         # the channel too. A cumulative counter → y autoscales (see _Y_SPECS).
         "sources": {
-            TELEMATICS: [_cand(cfg_key="odometer_col"),
-                         _cand(col="odometer"),
-                         _cand(col="hr_total_vehicle_distance",
-                               transform="m_to_km")],
+            TELEMATICS: [
+                _cand(cfg_key="odometer_col"),
+                _cand(col="odometer"),
+                _cand(col="hr_total_vehicle_distance", transform="m_to_km"),
+            ],
             LOGGER: [_cand(col="VDHR hr total vehicle distance")],
         },
     },
     # ── Battery ───────────────────────────────────────────────────────────────
     {
-        "id": "soc", "name": "State of charge", "unit": "%",
-        "group": "Battery", "default": True,
+        "id": "soc",
+        "name": "State of charge",
+        "unit": "%",
+        "group": "Battery",
+        "default": True,
         # Telematics only. The logger channel "6 charge" is the logger/phone
         # device battery, NOT the vehicle's state-of-charge, so it must never
         # feed this concept (it was previously mislabelled as vehicle SoC).
@@ -189,83 +205,135 @@ CONCEPT_REGISTRY: list[dict] = [
     },
     # ── Weight ────────────────────────────────────────────────────────────────
     {
-        "id": "mass", "name": "Gross combination mass", "unit": "t",
-        "group": "Weight", "default": False,
+        "id": "mass",
+        "name": "Gross combination mass",
+        "unit": "t",
+        "group": "Weight",
+        "default": False,
         "sources": {
-            TELEMATICS: [_cand(cfg_key="mass_col", transform="kg_to_t"),
-                         _cand(col="gross_combination_vehicle_weight",
-                               transform="kg_to_t")],
-            LOGGER: [_cand(col="CVW gross combination vehicle weight",
-                           transform="kg_to_t"),
-                     _cand(col="VW cargo weight", transform="kg_to_t")],
+            TELEMATICS: [
+                _cand(cfg_key="mass_col", transform="kg_to_t"),
+                _cand(col="gross_combination_vehicle_weight", transform="kg_to_t"),
+            ],
+            LOGGER: [
+                _cand(col="CVW gross combination vehicle weight", transform="kg_to_t"),
+                _cand(col="VW cargo weight", transform="kg_to_t"),
+            ],
         },
     },
     # ── Energy counters (telematics, cumulative Wh → kWh) ──────────────────────
     {
-        "id": "energy_total", "name": "Total energy used", "unit": "kWh",
-        "group": "Energy", "default": False,
-        "sources": {TELEMATICS: [
-            _cand(cfg_key="total_energy_col", transform="wh_to_kwh"),
-            _cand(col="total_electric_energy_used_plugged_in_included",
-                  transform="wh_to_kwh"),
-            _cand(col="total_electric_energy_used", transform="wh_to_kwh")]},
+        "id": "energy_total",
+        "name": "Total energy used",
+        "unit": "kWh",
+        "group": "Energy",
+        "default": False,
+        "sources": {
+            TELEMATICS: [
+                _cand(cfg_key="total_energy_col", transform="wh_to_kwh"),
+                _cand(
+                    col="total_electric_energy_used_plugged_in_included",
+                    transform="wh_to_kwh",
+                ),
+                _cand(col="total_electric_energy_used", transform="wh_to_kwh"),
+            ]
+        },
     },
     {
-        "id": "energy_ac", "name": "Energy charged AC", "unit": "kWh",
-        "group": "Energy", "default": False,
-        "sources": {TELEMATICS: [
-            _cand(cfg_key="ac_col", transform="wh_to_kwh"),
-            _cand(col="battery_pack_ac_watthours", transform="wh_to_kwh")]},
+        "id": "energy_ac",
+        "name": "Energy charged AC",
+        "unit": "kWh",
+        "group": "Energy",
+        "default": False,
+        "sources": {
+            TELEMATICS: [
+                _cand(cfg_key="ac_col", transform="wh_to_kwh"),
+                _cand(col="battery_pack_ac_watthours", transform="wh_to_kwh"),
+            ]
+        },
     },
     {
-        "id": "energy_dc", "name": "Energy charged DC", "unit": "kWh",
-        "group": "Energy", "default": False,
-        "sources": {TELEMATICS: [
-            _cand(cfg_key="dc_col", transform="wh_to_kwh"),
-            _cand(col="battery_pack_dc_watthours", transform="wh_to_kwh")]},
+        "id": "energy_dc",
+        "name": "Energy charged DC",
+        "unit": "kWh",
+        "group": "Energy",
+        "default": False,
+        "sources": {
+            TELEMATICS: [
+                _cand(cfg_key="dc_col", transform="wh_to_kwh"),
+                _cand(col="battery_pack_dc_watthours", transform="wh_to_kwh"),
+            ]
+        },
     },
     {
-        "id": "energy_propulsion", "name": "Propulsion energy", "unit": "kWh",
-        "group": "Energy", "default": False,
-        "sources": {TELEMATICS: [
-            _cand(col="electric_energy_propulsion", transform="wh_to_kwh")]},
+        "id": "energy_propulsion",
+        "name": "Propulsion energy",
+        "unit": "kWh",
+        "group": "Energy",
+        "default": False,
+        "sources": {
+            TELEMATICS: [_cand(col="electric_energy_propulsion", transform="wh_to_kwh")]
+        },
     },
     {
-        "id": "energy_recup", "name": "Recuperated energy", "unit": "kWh",
-        "group": "Energy", "default": False,
-        "sources": {TELEMATICS: [
-            _cand(col="electric_energy_recuperation_watthours",
-                  transform="wh_to_kwh")]},
+        "id": "energy_recup",
+        "name": "Recuperated energy",
+        "unit": "kWh",
+        "group": "Energy",
+        "default": False,
+        "sources": {
+            TELEMATICS: [
+                _cand(
+                    col="electric_energy_recuperation_watthours", transform="wh_to_kwh"
+                )
+            ]
+        },
     },
     {
-        "id": "energy_moving", "name": "Energy while moving", "unit": "kWh",
-        "group": "Energy", "default": False,
-        "sources": {TELEMATICS: [
-            _cand(cfg_key="moving_energy_col", transform="wh_to_kwh"),
-            _cand(col="electric_energy_wheelbased_speed_over_zero",
-                  transform="wh_to_kwh")]},
+        "id": "energy_moving",
+        "name": "Energy while moving",
+        "unit": "kWh",
+        "group": "Energy",
+        "default": False,
+        "sources": {
+            TELEMATICS: [
+                _cand(cfg_key="moving_energy_col", transform="wh_to_kwh"),
+                _cand(
+                    col="electric_energy_wheelbased_speed_over_zero",
+                    transform="wh_to_kwh",
+                ),
+            ]
+        },
     },
     # ── Position ──────────────────────────────────────────────────────────────
     {
-        "id": "altitude", "name": "Altitude", "unit": "m",
-        "group": "Position", "default": False,
+        "id": "altitude",
+        "name": "Altitude",
+        "unit": "m",
+        "group": "Position",
+        "default": False,
         "sources": {
-            TELEMATICS: [_cand(cfg_key="altitude_col"),
-                         _cand(col="gnss_altitude")],
+            TELEMATICS: [_cand(cfg_key="altitude_col"), _cand(col="gnss_altitude")],
             LOGGER: [_cand(col="2 altitude")],
         },
     },
     {
-        "id": "latitude", "name": "Latitude", "unit": "°",
-        "group": "Position", "default": False,
+        "id": "latitude",
+        "name": "Latitude",
+        "unit": "°",
+        "group": "Position",
+        "default": False,
         "sources": {
             TELEMATICS: [_cand(col="latitude")],
             LOGGER: [_cand(col="2 latitude")],
         },
     },
     {
-        "id": "longitude", "name": "Longitude", "unit": "°",
-        "group": "Position", "default": False,
+        "id": "longitude",
+        "name": "Longitude",
+        "unit": "°",
+        "group": "Position",
+        "default": False,
         "sources": {
             TELEMATICS: [_cand(col="longitude")],
             LOGGER: [_cand(col="2 longitude")],
@@ -273,41 +341,66 @@ CONCEPT_REGISTRY: list[dict] = [
     },
     # ── Weather (logger channel 7) ────────────────────────────────────────────
     {
-        "id": "weather_temp", "name": "Ambient temperature", "unit": "°C",
-        "group": "Weather", "default": False,
+        "id": "weather_temp",
+        "name": "Ambient temperature",
+        "unit": "°C",
+        "group": "Weather",
+        "default": False,
         "sources": {LOGGER: [_cand(col="7 temperature")]},
     },
     {
-        "id": "weather_pressure", "name": "Air pressure", "unit": "hPa",
-        "group": "Weather", "default": False,
+        "id": "weather_pressure",
+        "name": "Air pressure",
+        "unit": "hPa",
+        "group": "Weather",
+        "default": False,
         "sources": {LOGGER: [_cand(col="7 pressure")]},
     },
     {
-        "id": "weather_humidity", "name": "Humidity", "unit": "%",
-        "group": "Weather", "default": False,
+        "id": "weather_humidity",
+        "name": "Humidity",
+        "unit": "%",
+        "group": "Weather",
+        "default": False,
         "sources": {LOGGER: [_cand(col="7 humidity")]},
     },
     {
-        "id": "weather_wind", "name": "Wind speed", "unit": "m/s",
-        "group": "Weather", "default": False,
+        "id": "weather_wind",
+        "name": "Wind speed",
+        "unit": "m/s",
+        "group": "Weather",
+        "default": False,
         "sources": {LOGGER: [_cand(col="7 wind speed")]},
     },
     # ── Driver inputs (CAN loggers only) ──────────────────────────────────────
     {
-        "id": "pedal_accel", "name": "Accelerator pedal", "unit": "%",
-        "group": "Driver inputs", "default": False,
+        "id": "pedal_accel",
+        "name": "Accelerator pedal",
+        "unit": "%",
+        "group": "Driver inputs",
+        "default": False,
         "sources": {LOGGER: [_cand(col="EEC2 accelerator pedal position 1")]},
     },
     {
-        "id": "pedal_brake", "name": "Brake pedal", "unit": "%",
-        "group": "Driver inputs", "default": False,
+        "id": "pedal_brake",
+        "name": "Brake pedal",
+        "unit": "%",
+        "group": "Driver inputs",
+        "default": False,
         "sources": {LOGGER: [_cand(col="EBC1 brake pedal position")]},
     },
 ]
 
 # Group display order for the left checklist.
-GROUP_ORDER = ["Motion", "Battery", "Weight", "Energy", "Position", "Weather",
-               "Driver inputs"]
+GROUP_ORDER = [
+    "Motion",
+    "Battery",
+    "Weight",
+    "Energy",
+    "Position",
+    "Weather",
+    "Driver inputs",
+]
 
 # ── Per-concept y-axis spec ───────────────────────────────────────────────────
 # ``(y_min, y_max)`` = a FIXED axis range (bounded physical signal — the chart
@@ -317,25 +410,25 @@ GROUP_ORDER = ["Motion", "Battery", "Weight", "Energy", "Position", "Weather",
 # so they autoscale. Fixed bounds for speed (0–90 km/h) and mass (0–45 t) reuse
 # the fleet-wide axis limits in ``report_builder.CHART_SPECS_*`` for consistency.
 _Y_SPECS: dict[str, tuple[float, float] | None] = {
-    "speed": (0, 90),            # km/h  — matches report EP-vs-Speed x-axis
-    "distance": None,            # km    — cumulative odometer counter → AUTO
-    "soc": (0, 100),             # %
-    "mass": (0, 45),             # t     — matches report 0–45000 kg x-axis
-    "energy_total": None,        # kWh   — cumulative counter → AUTO
+    "speed": (0, 90),  # km/h  — matches report EP-vs-Speed x-axis
+    "distance": None,  # km    — cumulative odometer counter → AUTO
+    "soc": (0, 100),  # %
+    "mass": (0, 45),  # t     — matches report 0–45000 kg x-axis
+    "energy_total": None,  # kWh   — cumulative counter → AUTO
     "energy_ac": None,
     "energy_dc": None,
     "energy_propulsion": None,
     "energy_recup": None,
     "energy_moving": None,
-    "altitude": None,            # m     — route-dependent → AUTO
-    "latitude": None,            # °     → AUTO
-    "longitude": None,           # °     → AUTO
-    "weather_temp": (-10, 40),   # °C
+    "altitude": None,  # m     — route-dependent → AUTO
+    "latitude": None,  # °     → AUTO
+    "longitude": None,  # °     → AUTO
+    "weather_temp": (-10, 40),  # °C
     "weather_pressure": (950, 1050),  # hPa
-    "weather_humidity": (0, 100),     # %
-    "weather_wind": (0, 30),     # m/s
-    "pedal_accel": (0, 100),     # %     — J1939 SPN 91 (0–100 %)
-    "pedal_brake": (0, 100),     # %     — J1939 SPN 521 (0–100 %)
+    "weather_humidity": (0, 100),  # %
+    "weather_wind": (0, 30),  # m/s
+    "pedal_accel": (0, 100),  # %     — J1939 SPN 91 (0–100 %)
+    "pedal_brake": (0, 100),  # %     — J1939 SPN 521 (0–100 %)
 }
 
 
@@ -378,13 +471,17 @@ def resolve_vehicle_concepts(
                     resolved[source] = res
                     break
         if resolved:
-            out.append({
-                "id": concept["id"], "name": concept["name"],
-                "unit": concept["unit"], "group": concept["group"],
-                "default": concept["default"],
-                "y": _Y_SPECS.get(concept["id"]),  # fixed (min,max) | None=auto
-                "sources_resolved": resolved,
-            })
+            out.append(
+                {
+                    "id": concept["id"],
+                    "name": concept["name"],
+                    "unit": concept["unit"],
+                    "group": concept["group"],
+                    "default": concept["default"],
+                    "y": _Y_SPECS.get(concept["id"]),  # fixed (min,max) | None=auto
+                    "sources_resolved": resolved,
+                }
+            )
     return out
 
 
@@ -573,8 +670,9 @@ def downsample_minmax(t, v, max_pts: int = LO_MAX_PTS):
         ft = seg_t[finite]
         i_min = int(fv.argmin())
         i_max = int(fv.argmax())
-        pair = sorted(((ft[i_min], fv[i_min]), (ft[i_max], fv[i_max])),
-                      key=lambda p: p[0])
+        pair = sorted(
+            ((ft[i_min], fv[i_min]), (ft[i_max], fv[i_max])), key=lambda p: p[0]
+        )
         for tt, vv in pair:
             out_t.append(tt)
             out_v.append(vv)
@@ -715,9 +813,13 @@ def _merge_catalog(catalog: dict, concept: dict, sources_present: set[str]) -> N
     entry = catalog.get(concept["id"])
     if entry is None:
         catalog[concept["id"]] = {
-            "id": concept["id"], "name": concept["name"], "unit": concept["unit"],
-            "group": concept["group"], "default": concept["default"],
-            "y": concept.get("y"), "sources": set(sources_present),
+            "id": concept["id"],
+            "name": concept["name"],
+            "unit": concept["unit"],
+            "group": concept["group"],
+            "default": concept["default"],
+            "y": concept.get("y"),
+            "sources": set(sources_present),
         }
     else:
         entry["sources"] |= sources_present
@@ -726,7 +828,9 @@ def _merge_catalog(catalog: dict, concept: dict, sources_present: set[str]) -> N
 def _vehicle_fuel(cfg: dict) -> str:
     """Human label for the vehicle's drivetrain (``"Electric"`` / ``"Diesel"``)."""
     pipeline = str(cfg.get("pipeline", "")).lower()
-    is_diesel = str(cfg.get("fuel_type", "")).upper() == "DIESEL" or "diesel" in pipeline
+    is_diesel = (
+        str(cfg.get("fuel_type", "")).upper() == "DIESEL" or "diesel" in pipeline
+    )
     return "Diesel" if is_diesel else "Electric"
 
 
@@ -802,12 +906,14 @@ def _annotate_segment_mean_mass(
         seg_logger.setLevel(logging.WARNING)
         try:
             clustered = cluster_mass_data(
-                tdf, mass_col=mass_col,
+                tdf,
+                mass_col=mass_col,
                 min_cluster_gap_kg=float(
-                    cfg.get("min_cluster_gap_kg", MIN_CLUSTER_GAP_KG)),
+                    cfg.get("min_cluster_gap_kg", MIN_CLUSTER_GAP_KG)
+                ),
                 speed_col=cfg.get("speed_col", "wheel_based_speed"),
                 speed_threshold_kmh=MOVING_SPEED_THRESHOLD_KMH,
-                keep_tractor_only_label=True,   # recover the dropped tractor reads
+                keep_tractor_only_label=True,  # recover the dropped tractor reads
             )
         finally:
             seg_logger.setLevel(prev_level)
@@ -842,8 +948,9 @@ def _annotate_segment_mean_mass(
         w = (sec_arr >= lo) & (sec_arr <= hi)
         if not w.any():
             return float("nan")
-        return _agg_mass(pd.Series(kg_arr[w]), mass_agg,
-                         timestamps=pd.Series(sec_arr[w]))[0]
+        return _agg_mass(
+            pd.Series(kg_arr[w]), mass_agg, timestamps=pd.Series(sec_arr[w])
+        )[0]
 
     for sg in segments:
         s, e = sg["s"], sg["e"]
@@ -934,7 +1041,11 @@ def build_vehicle_payload(
             cobj: dict = {}
             for source, res in concept["sources_resolved"].items():
                 fn = _TRANSFORMS[res["transform"]]
-                if source == TELEMATICS and tdf is not None and res["col"] in tdf.columns:
+                if (
+                    source == TELEMATICS
+                    and tdf is not None
+                    and res["col"] in tdf.columns
+                ):
                     series = fn(pd.to_numeric(tdf[res["col"]], errors="coerce"))
                     enc = _encode_telematics(series, day)
                     if enc is not None:
@@ -965,25 +1076,34 @@ def build_vehicle_payload(
     for cid in sorted(catalog, key=lambda x: order.get(x, 1_000)):
         meta = catalog[cid]
         y_spec = meta.get("y")
-        concepts.append({
-            "id": meta["id"], "name": meta["name"], "unit": meta["unit"],
-            "group": meta["group"], "default": meta["default"],
-            # Fixed [min,max] (bounded signal) or null (autoscale). The frontend
-            # sets scale.range accordingly per chart.
-            "y": list(y_spec) if y_spec is not None else None,
-            "sources": [s for s in (TELEMATICS, LOGGER, CHARGER)
-                        if s in meta["sources"]],
-        })
+        concepts.append(
+            {
+                "id": meta["id"],
+                "name": meta["name"],
+                "unit": meta["unit"],
+                "group": meta["group"],
+                "default": meta["default"],
+                # Fixed [min,max] (bounded signal) or null (autoscale). The frontend
+                # sets scale.range accordingly per chart.
+                "y": list(y_spec) if y_spec is not None else None,
+                "sources": [
+                    s for s in (TELEMATICS, LOGGER, CHARGER) if s in meta["sources"]
+                ],
+            }
+        )
 
     return {
-        "reg": reg, "version": version,
+        "reg": reg,
+        "version": version,
         "fuel": _vehicle_fuel(cfg),
         "make": cfg.get("make") or "",
         "model": cfg.get("model") or "",
         "operator": operator_meta or None,
         "concepts": concepts,
-        "sourceColors": SOURCE_COLOURS, "sourceLabels": SOURCE_LABELS,
-        "groupOrder": GROUP_ORDER, "days": days,
+        "sourceColors": SOURCE_COLOURS,
+        "sourceLabels": SOURCE_LABELS,
+        "groupOrder": GROUP_ORDER,
+        "days": days,
     }
 
 
@@ -1000,8 +1120,10 @@ def _load_uplot_assets() -> tuple[str, str]:
             f"{_UPLOT_DIR} — run `python -m "
             "jolt_toolkit.report_generator.data_dashboard --fetch-uplot` first."
         )
-    return (_UPLOT_JS.read_text(encoding="utf-8"),
-            _UPLOT_CSS.read_text(encoding="utf-8"))
+    return (
+        _UPLOT_JS.read_text(encoding="utf-8"),
+        _UPLOT_CSS.read_text(encoding="utf-8"),
+    )
 
 
 def fetch_uplot(dest: Path | None = None) -> Path:
@@ -1044,9 +1166,9 @@ def render_detail_html(
     model_disp = html.escape(model_bits)
 
     head = (
-        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
-        "<meta charset=\"utf-8\">\n"
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        '<!DOCTYPE html>\n<html lang="en">\n<head>\n'
+        '<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f"<title>JOLT detail — {reg_disp} ({ver_disp})</title>\n"
         "<style>\n" + uplot_css + "\n" + _DETAIL_CSS + "</style>\n"
         "</head>\n<body>\n"
@@ -1185,7 +1307,10 @@ def write_detail_pages(
         size_mb = out_path.stat().st_size / (1024 * 1024)
         LOG.info(
             "detail: %-9s -> %s (%.1f MB, %d days)",
-            reg, out_path, size_mb, len(payload["days"]),
+            reg,
+            out_path,
+            size_mb,
+            len(payload["days"]),
         )
         written[reg] = out_path
     return written

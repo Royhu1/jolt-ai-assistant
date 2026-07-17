@@ -3,6 +3,7 @@ Mass-cluster based trip splitting / merging and energy-anchor recomputation.
 
 Behaviour-preserving split of the former ``segment_algorithms.py`` (v3.0.0).
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,6 +23,7 @@ from .constants import (
 from .timeutil import _to_utc
 
 logger = logging.getLogger(__name__)
+
 
 def cluster_mass_data(
     df_raw: pd.DataFrame,
@@ -76,26 +78,28 @@ def cluster_mass_data(
     ``keep_tractor_only_label=True``).
     """
     df = df_raw.copy()
-    df['mass_cluster'] = np.nan
-    df['mass_moving'] = False
+    df["mass_cluster"] = np.nan
+    df["mass_moving"] = False
     if keep_tractor_only_label:
         # Opt-in marker column: default False everywhere; set True only on the
         # rows step 4 drops as tractor-only. Initialised here so every early-return
         # path (missing / all-invalid mass) still exposes the column.
-        df['mass_tractor_only'] = False
+        df["mass_tractor_only"] = False
 
     if mass_col not in df.columns:
         return df
 
-    mass_numeric = pd.to_numeric(df[mass_col], errors='coerce')
+    mass_numeric = pd.to_numeric(df[mass_col], errors="coerce")
     valid_mask = mass_numeric.notna() & (mass_numeric > 0)
     if valid_mask.sum() == 0:
         return df
 
     # ── Moving mask: speed > threshold (a NaN speed is treated as not moving) ──
     if speed_col is not None and speed_col in df.columns:
-        spd_numeric = pd.to_numeric(df[speed_col], errors='coerce')
-        moving_mask = valid_mask & spd_numeric.notna() & (spd_numeric > speed_threshold_kmh)
+        spd_numeric = pd.to_numeric(df[speed_col], errors="coerce")
+        moving_mask = (
+            valid_mask & spd_numeric.notna() & (spd_numeric > speed_threshold_kmh)
+        )
     else:
         # No speed information: treat all valid readings as "usable for clustering", equivalent to the old behaviour
         moving_mask = valid_mask.copy()
@@ -106,11 +110,14 @@ def cluster_mass_data(
     else:
         cluster_source_vals = mass_numeric[valid_mask].values.astype(float)
         if speed_col is not None and speed_col in df.columns:
-            logger.info('  mass clustering: no moving mass readings anywhere, falling back to clustering on all valid readings '
-                        '(%d readings)', int(valid_mask.sum()))
+            logger.info(
+                "  mass clustering: no moving mass readings anywhere, falling back to clustering on all valid readings "
+                "(%d readings)",
+                int(valid_mask.sum()),
+            )
 
     # mass_moving column: mass valid + moving (just "mass valid" when there is no speed information)
-    df['mass_moving'] = moving_mask
+    df["mass_moving"] = moving_mask
 
     valid_vals = mass_numeric[valid_mask].values.astype(float)
 
@@ -148,20 +155,24 @@ def cluster_mass_data(
     distances = np.abs(valid_vals[:, np.newaxis] - means_arr[np.newaxis, :])
     labels = np.argmin(distances, axis=1).astype(float)
 
-    df.loc[valid_mask, 'mass_cluster'] = labels
+    df.loc[valid_mask, "mass_cluster"] = labels
 
     # ── 4. Tractor-only detection: treat as tractor-only when cluster 0's mean < threshold ──
     #    These rows' mass_cluster is set to NaN so the later merge/split algorithms ignore them
     if merged_means[0] < TRACTOR_ONLY_MAX_KG:
-        tractor_mask = valid_mask & (df['mass_cluster'] == 0)
+        tractor_mask = valid_mask & (df["mass_cluster"] == 0)
         if keep_tractor_only_label:
             # Record which readings we are about to blank, so an opted-in caller
             # can recover them (the dashboard displays them, marked tractor-only).
-            df.loc[tractor_mask, 'mass_tractor_only'] = True
-        df.loc[tractor_mask, 'mass_cluster'] = np.nan
-        logger.info('  mass clustering: cluster 0 mean %.0f kg < %.0f kg, '
-                     'judged tractor-only, %d readings ignored',
-                     merged_means[0], TRACTOR_ONLY_MAX_KG, tractor_mask.sum())
+            df.loc[tractor_mask, "mass_tractor_only"] = True
+        df.loc[tractor_mask, "mass_cluster"] = np.nan
+        logger.info(
+            "  mass clustering: cluster 0 mean %.0f kg < %.0f kg, "
+            "judged tractor-only, %d readings ignored",
+            merged_means[0],
+            TRACTOR_ONLY_MAX_KG,
+            tractor_mask.sum(),
+        )
 
     return df
 
@@ -180,27 +191,29 @@ def _get_seg_dominant_cluster(
     ``mass_moving`` column is missing (legacy data / call path), revert to the
     original behaviour: all valid rows vote together.
     """
-    if 'mass_cluster' not in df_raw.columns:
+    if "mass_cluster" not in df_raw.columns:
         return None
     t_s = _to_utc(t_start)
     t_e = _to_utc(t_end)
-    times = pd.to_datetime(df_raw[TIME_COL], errors='coerce', utc=True)
-    base_mask = (times >= t_s) & (times <= t_e) & df_raw['mass_cluster'].notna()
+    times = pd.to_datetime(df_raw[TIME_COL], errors="coerce", utc=True)
+    base_mask = (times >= t_s) & (times <= t_e) & df_raw["mass_cluster"].notna()
     # Prefer moving mass rows
-    if 'mass_moving' in df_raw.columns:
-        moving_mask = base_mask & df_raw['mass_moving'].astype(bool)
-        moving_vals = df_raw.loc[moving_mask, 'mass_cluster']
+    if "mass_moving" in df_raw.columns:
+        moving_mask = base_mask & df_raw["mass_moving"].astype(bool)
+        moving_vals = df_raw.loc[moving_mask, "mass_cluster"]
         if not moving_vals.empty:
             return float(moving_vals.mode().iloc[0])
         # No moving mass rows in the window → fall back to stationary mass rows
-    vals = df_raw.loc[base_mask, 'mass_cluster']
+    vals = df_raw.loc[base_mask, "mass_cluster"]
     if vals.empty:
         return None
     return float(vals.mode().iloc[0])
 
+
 # =============================================================================
 # Mass-cluster based trip splitting (load/unload detection)
 # =============================================================================
+
 
 def _split_point_has_zero_speed(
     df_raw: pd.DataFrame,
@@ -234,11 +247,11 @@ def _split_point_has_zero_speed(
     half = pd.Timedelta(seconds=window_seconds / 2.0)
     t_lo, t_hi = t - half, t + half
 
-    times = pd.to_datetime(df_raw[TIME_COL], errors='coerce', utc=True)
+    times = pd.to_datetime(df_raw[TIME_COL], errors="coerce", utc=True)
     mask = (times >= t_lo) & (times <= t_hi)
     if not mask.any():
         return False
-    spd = pd.to_numeric(df_raw.loc[mask, speed_col], errors='coerce')
+    spd = pd.to_numeric(df_raw.loc[mask, speed_col], errors="coerce")
     # Strict v == 0 (the same zero-speed criterion as trip_endpoint_anchor=zero_speed)
     return bool((spd == 0).any())
 
@@ -276,13 +289,13 @@ def _detect_cluster_transitions(
 
     Returns: a list of split time points (UTC). An empty list means no split is needed.
     """
-    if 'mass_cluster' not in df_raw.columns:
+    if "mass_cluster" not in df_raw.columns:
         return []
 
     t_s = _to_utc(t_start)
     t_e = _to_utc(t_end)
-    times = pd.to_datetime(df_raw[TIME_COL], errors='coerce', utc=True)
-    mask = (times >= t_s) & (times <= t_e) & df_raw['mass_cluster'].notna()
+    times = pd.to_datetime(df_raw[TIME_COL], errors="coerce", utc=True)
+    mask = (times >= t_s) & (times <= t_e) & df_raw["mass_cluster"].notna()
     # Scan only the "moving" (mass_moving == True) mass readings when detecting
     # cluster-transition split points. A standstill J1939 GCVW broadcast is
     # unreliable (loading/unloading transients, default/last-held values), so a
@@ -293,16 +306,16 @@ def _detect_cluster_transitions(
     # moving-only cluster means (v2.2.4) and _get_seg_dominant_cluster's
     # moving-first voting. If mass_moving is absent (legacy data / call path),
     # fall back to the historical all-valid-readings behaviour.
-    if 'mass_moving' in df_raw.columns:
-        mask = mask & df_raw['mass_moving'].astype(bool)
-    sub = df_raw.loc[mask, [TIME_COL, 'mass_cluster']].copy()
+    if "mass_moving" in df_raw.columns:
+        mask = mask & df_raw["mass_moving"].astype(bool)
+    sub = df_raw.loc[mask, [TIME_COL, "mass_cluster"]].copy()
     sub[TIME_COL] = times[mask]
     sub = sub.sort_values(TIME_COL).reset_index(drop=True)
 
     if len(sub) < 2:
         return []
 
-    clusters = sub['mass_cluster'].values
+    clusters = sub["mass_cluster"].values
     splits: list[pd.Timestamp] = []
     for i in range(1, len(clusters)):
         if clusters[i] != clusters[i - 1]:
@@ -311,9 +324,13 @@ def _detect_cluster_transitions(
     # Scheme B: require a v=0 sample near the split point, otherwise treat it as a CVW noise spike and abandon the split
     if splits and speed_col is not None and zero_speed_window_seconds is not None:
         splits = [
-            t for t in splits
+            t
+            for t in splits
             if _split_point_has_zero_speed(
-                df_raw, t, speed_col, zero_speed_window_seconds,
+                df_raw,
+                t,
+                speed_col,
+                zero_speed_window_seconds,
             )
         ]
 
@@ -342,41 +359,43 @@ def _split_seg_at_times(
     Sub-segments that do not meet min_soc_drop or min_energy_kwh are dropped.
     If there are ultimately no valid sub-segments, returns [seg] (the original segment).
     """
-    t_seg_s = _to_utc(seg['start_time'])
-    t_seg_e = _to_utc(seg['end_time'])
+    t_seg_s = _to_utc(seg["start_time"])
+    t_seg_e = _to_utc(seg["end_time"])
 
-    splits_ok = sorted(_to_utc(t) for t in split_times if t_seg_s < _to_utc(t) < t_seg_e)
+    splits_ok = sorted(
+        _to_utc(t) for t in split_times if t_seg_s < _to_utc(t) < t_seg_e
+    )
     if not splits_ok:
         return [seg]
 
     df_r = df_raw.copy()
-    df_r[TIME_COL] = pd.to_datetime(df_r[TIME_COL], errors='coerce', utc=True)
+    df_r[TIME_COL] = pd.to_datetime(df_r[TIME_COL], errors="coerce", utc=True)
     df_r = df_r.dropna(subset=[TIME_COL]).sort_values(TIME_COL).reset_index(drop=True)
 
     if SOC_COL in df_r.columns:
-        df_r['_soc_n'] = pd.to_numeric(df_r[SOC_COL], errors='coerce')
-        df_r.loc[df_r['_soc_n'] == 0, '_soc_n'] = np.nan
+        df_r["_soc_n"] = pd.to_numeric(df_r[SOC_COL], errors="coerce")
+        df_r.loc[df_r["_soc_n"] == 0, "_soc_n"] = np.nan
     else:
-        df_r['_soc_n'] = np.nan
-    soc_valid = df_r[df_r['_soc_n'].notna()].sort_values(TIME_COL)
+        df_r["_soc_n"] = np.nan
+    soc_valid = df_r[df_r["_soc_n"].notna()].sort_values(TIME_COL)
 
     if ODO_COL in df_r.columns:
-        df_r['_odo_n'] = pd.to_numeric(df_r[ODO_COL], errors='coerce')
-        odo_valid = df_r[df_r['_odo_n'].notna()].sort_values(TIME_COL)
+        df_r["_odo_n"] = pd.to_numeric(df_r[ODO_COL], errors="coerce")
+        odo_valid = df_r[df_r["_odo_n"].notna()].sort_values(TIME_COL)
     else:
         odo_valid = pd.DataFrame()
 
     def _soc_at(t: pd.Timestamp) -> float:
         if soc_valid.empty:
-            return float('nan')
+            return float("nan")
         before = soc_valid[soc_valid[TIME_COL] <= t]
-        after  = soc_valid[soc_valid[TIME_COL] >= t]
+        after = soc_valid[soc_valid[TIME_COL] >= t]
         if before.empty:
-            return float(after.iloc[0]['_soc_n'])
+            return float(after.iloc[0]["_soc_n"])
         if after.empty:
-            return float(before.iloc[-1]['_soc_n'])
-        t0, v0 = before.iloc[-1][TIME_COL], float(before.iloc[-1]['_soc_n'])
-        t1, v1 = after.iloc[0][TIME_COL],   float(after.iloc[0]['_soc_n'])
+            return float(before.iloc[-1]["_soc_n"])
+        t0, v0 = before.iloc[-1][TIME_COL], float(before.iloc[-1]["_soc_n"])
+        t1, v1 = after.iloc[0][TIME_COL], float(after.iloc[0]["_soc_n"])
         if t0 == t1:
             return v0
         frac = max(0.0, min(1.0, (t - t0).total_seconds() / (t1 - t0).total_seconds()))
@@ -384,44 +403,56 @@ def _split_seg_at_times(
 
     def _odo_at(t: pd.Timestamp) -> float:
         if odo_valid.empty:
-            return float('nan')
+            return float("nan")
         before = odo_valid[odo_valid[TIME_COL] <= t]
-        return float(before.iloc[-1]['_odo_n']) if not before.empty else float('nan')
+        return float(before.iloc[-1]["_odo_n"]) if not before.empty else float("nan")
 
     # Precompute the valid lat/lon subset (avoids repeatedly copying the DataFrame in the loop)
     _ll_valid = pd.DataFrame()
-    if 'latitude' in df_r.columns and 'longitude' in df_r.columns:
-        _ll_tmp = df_r[[TIME_COL, 'latitude', 'longitude']].copy()
-        _ll_tmp['_lat'] = pd.to_numeric(_ll_tmp['latitude'], errors='coerce')
-        _ll_tmp['_lon'] = pd.to_numeric(_ll_tmp['longitude'], errors='coerce')
-        _ll_valid = _ll_tmp[_ll_tmp['_lat'].notna() & (_ll_tmp['_lat'] != 0)
-                            & _ll_tmp['_lon'].notna()].sort_values(TIME_COL)
+    if "latitude" in df_r.columns and "longitude" in df_r.columns:
+        _ll_tmp = df_r[[TIME_COL, "latitude", "longitude"]].copy()
+        _ll_tmp["_lat"] = pd.to_numeric(_ll_tmp["latitude"], errors="coerce")
+        _ll_tmp["_lon"] = pd.to_numeric(_ll_tmp["longitude"], errors="coerce")
+        _ll_valid = _ll_tmp[
+            _ll_tmp["_lat"].notna() & (_ll_tmp["_lat"] != 0) & _ll_tmp["_lon"].notna()
+        ].sort_values(TIME_COL)
 
-    def _latlon_at(t: pd.Timestamp, side: str = 'start'):
+    def _latlon_at(t: pd.Timestamp, side: str = "start"):
         if _ll_valid.empty:
             return None, None
-        subset = _ll_valid[_ll_valid[TIME_COL] >= t] if side == 'start' else _ll_valid[_ll_valid[TIME_COL] <= t]
-        row = subset.iloc[0] if (side == 'start' and not subset.empty) else (
-              subset.iloc[-1] if (side == 'end' and not subset.empty) else _ll_valid.iloc[-1 if side == 'end' else 0])
-        return round(float(row['_lat']), 6), round(float(row['_lon']), 6)
+        subset = (
+            _ll_valid[_ll_valid[TIME_COL] >= t]
+            if side == "start"
+            else _ll_valid[_ll_valid[TIME_COL] <= t]
+        )
+        row = (
+            subset.iloc[0]
+            if (side == "start" and not subset.empty)
+            else (
+                subset.iloc[-1]
+                if (side == "end" and not subset.empty)
+                else _ll_valid.iloc[-1 if side == "end" else 0]
+            )
+        )
+        return round(float(row["_lat"]), 6), round(float(row["_lon"]), 6)
 
-    boundaries   = [t_seg_s] + splits_ok + [t_seg_e]
-    orig_dsoc    = float(seg['delta_soc_pct'])    # negative
-    orig_denergy = float(seg['delta_energy_kwh']) # negative
+    boundaries = [t_seg_s] + splits_ok + [t_seg_e]
+    orig_dsoc = float(seg["delta_soc_pct"])  # negative
+    orig_denergy = float(seg["delta_energy_kwh"])  # negative
 
     result: list[dict] = []
     for k in range(len(boundaries) - 1):
-        sub_t_s  = boundaries[k]
-        sub_t_e  = boundaries[k + 1]
-        is_first = (k == 0)
-        is_last  = (k == len(boundaries) - 2)
+        sub_t_s = boundaries[k]
+        sub_t_e = boundaries[k + 1]
+        is_first = k == 0
+        is_last = k == len(boundaries) - 2
 
-        sub_soc_s = float(seg['start_soc']) if is_first else _soc_at(sub_t_s)
-        sub_soc_e = float(seg['end_soc'])   if is_last  else _soc_at(sub_t_e)
+        sub_soc_s = float(seg["start_soc"]) if is_first else _soc_at(sub_t_s)
+        sub_soc_e = float(seg["end_soc"]) if is_last else _soc_at(sub_t_e)
         if np.isnan(sub_soc_s) or np.isnan(sub_soc_e):
             continue
 
-        sub_dsoc = sub_soc_e - sub_soc_s    # should be negative
+        sub_dsoc = sub_soc_e - sub_soc_s  # should be negative
         if -sub_dsoc < min_soc_drop:
             continue
 
@@ -429,43 +460,63 @@ def _split_seg_at_times(
         if orig_dsoc != 0 and np.isfinite(orig_denergy):
             sub_denergy = orig_denergy * (sub_dsoc / orig_dsoc)
         else:
-            sub_denergy = float('nan')
+            sub_denergy = float("nan")
         if np.isnan(sub_denergy) or abs(sub_denergy) < min_energy_kwh:
             continue
 
-        sub_effcap = (abs(sub_denergy) / (abs(sub_dsoc) / 100.0)
-                      if abs(sub_dsoc) > 0 else float('nan'))
+        sub_effcap = (
+            abs(sub_denergy) / (abs(sub_dsoc) / 100.0)
+            if abs(sub_dsoc) > 0
+            else float("nan")
+        )
 
-        sub_odo_s = float(seg.get('odo_start_km') or float('nan')) if is_first else _odo_at(sub_t_s)
-        sub_odo_e = float(seg.get('odo_end_km')   or float('nan')) if is_last  else _odo_at(sub_t_e)
+        sub_odo_s = (
+            float(seg.get("odo_start_km") or float("nan"))
+            if is_first
+            else _odo_at(sub_t_s)
+        )
+        sub_odo_e = (
+            float(seg.get("odo_end_km") or float("nan"))
+            if is_last
+            else _odo_at(sub_t_e)
+        )
 
-        lat_s, lon_s = ((seg.get('lat_start'), seg.get('lon_start')) if is_first
-                        else _latlon_at(sub_t_s, 'start'))
-        lat_e, lon_e = ((seg.get('lat_end'),   seg.get('lon_end'))   if is_last
-                        else _latlon_at(sub_t_e, 'end'))
+        lat_s, lon_s = (
+            (seg.get("lat_start"), seg.get("lon_start"))
+            if is_first
+            else _latlon_at(sub_t_s, "start")
+        )
+        lat_e, lon_e = (
+            (seg.get("lat_end"), seg.get("lon_end"))
+            if is_last
+            else _latlon_at(sub_t_e, "end")
+        )
 
-        result.append({
-            'start_time':             sub_t_s,
-            'end_time':               sub_t_e,
-            'start_soc':              round(sub_soc_s, 2),
-            'end_soc':                round(sub_soc_e, 2),
-            'delta_soc_pct':          round(sub_dsoc, 2),
-            'delta_energy_kwh':       round(sub_denergy, 3),
-            'energy_source':          seg.get('energy_source'),
-            'delta_moving_kwh':       None,
-            'effective_capacity_kwh': (round(sub_effcap, 1)
-                                       if np.isfinite(sub_effcap) else None),
-            'odo_start_km':  round(sub_odo_s, 3) if np.isfinite(sub_odo_s) else None,
-            'odo_end_km':    round(sub_odo_e, 3) if np.isfinite(sub_odo_e) else None,
-            'lat_start':     lat_s,
-            'lon_start':     lon_s,
-            'lat_end':       lat_e,
-            'lon_end':       lon_e,
-            '_anchor_start_time':    None,
-            '_anchor_end_time':      None,
-            '_anchor_start_rel_kwh': float('nan'),
-            '_anchor_end_rel_kwh':   float('nan'),
-        })
+        result.append(
+            {
+                "start_time": sub_t_s,
+                "end_time": sub_t_e,
+                "start_soc": round(sub_soc_s, 2),
+                "end_soc": round(sub_soc_e, 2),
+                "delta_soc_pct": round(sub_dsoc, 2),
+                "delta_energy_kwh": round(sub_denergy, 3),
+                "energy_source": seg.get("energy_source"),
+                "delta_moving_kwh": None,
+                "effective_capacity_kwh": (
+                    round(sub_effcap, 1) if np.isfinite(sub_effcap) else None
+                ),
+                "odo_start_km": round(sub_odo_s, 3) if np.isfinite(sub_odo_s) else None,
+                "odo_end_km": round(sub_odo_e, 3) if np.isfinite(sub_odo_e) else None,
+                "lat_start": lat_s,
+                "lon_start": lon_s,
+                "lat_end": lat_e,
+                "lon_end": lon_e,
+                "_anchor_start_time": None,
+                "_anchor_end_time": None,
+                "_anchor_start_rel_kwh": float("nan"),
+                "_anchor_end_rel_kwh": float("nan"),
+            }
+        )
 
     return result if result else [seg]
 
@@ -511,7 +562,9 @@ def split_discharge_by_mass(
     result: list[dict] = []
     for seg in discharge_segs:
         splits = _detect_cluster_transitions(
-            df_raw, seg['start_time'], seg['end_time'],
+            df_raw,
+            seg["start_time"],
+            seg["end_time"],
             speed_col=speed_col,
             zero_speed_window_seconds=zero_speed_window_seconds,
         )
@@ -519,7 +572,9 @@ def split_discharge_by_mass(
             result.append(seg)
         else:
             sub_segs = _split_seg_at_times(
-                seg, df_raw, splits,
+                seg,
+                df_raw,
+                splits,
                 min_soc_drop=min_soc_drop,
                 min_energy_kwh=min_energy_kwh,
             )
@@ -530,6 +585,7 @@ def split_discharge_by_mass(
 # =============================================================================
 # Recompute missing energy anchors
 # =============================================================================
+
 
 def _recompute_anchors(
     segments: list[dict],
@@ -550,22 +606,22 @@ def _recompute_anchors(
         return
 
     df = df_raw.copy()
-    df[TIME_COL] = pd.to_datetime(df[TIME_COL], errors='coerce', utc=True)
+    df[TIME_COL] = pd.to_datetime(df[TIME_COL], errors="coerce", utc=True)
     df = df.dropna(subset=[TIME_COL]).sort_values(TIME_COL).reset_index(drop=True)
-    times_np = df[TIME_COL].values.astype('datetime64[ns]')
+    times_np = df[TIME_COL].values.astype("datetime64[ns]")
 
     has_total = total_energy_col in df.columns
     has_moving = moving_energy_col in df.columns
 
     tot_base = mov_base = 0.0
     if has_total:
-        df['_tot'] = pd.to_numeric(df[total_energy_col], errors='coerce')
-        _tv = df.loc[df['_tot'].notna(), '_tot']
+        df["_tot"] = pd.to_numeric(df[total_energy_col], errors="coerce")
+        _tv = df.loc[df["_tot"].notna(), "_tot"]
         if len(_tv):
             tot_base = float(_tv.iloc[0])
     if has_moving:
-        df['_mov'] = pd.to_numeric(df[moving_energy_col], errors='coerce')
-        _mv = df.loc[df['_mov'].notna(), '_mov']
+        df["_mov"] = pd.to_numeric(df[moving_energy_col], errors="coerce")
+        _mv = df.loc[df["_mov"].notna(), "_mov"]
         if len(_mv):
             mov_base = float(_mv.iloc[0])
 
@@ -587,85 +643,90 @@ def _recompute_anchors(
 
     for seg in segments:
         # Skip segments that already have valid anchors
-        a_st = seg.get('_anchor_start_time')
-        a_et = seg.get('_anchor_end_time')
-        a_sv = seg.get('_anchor_start_rel_kwh', float('nan'))
-        a_ev = seg.get('_anchor_end_rel_kwh', float('nan'))
-        if (a_st is not None and a_et is not None
-                and not np.isnan(a_sv) and not np.isnan(a_ev)):
+        a_st = seg.get("_anchor_start_time")
+        a_et = seg.get("_anchor_end_time")
+        a_sv = seg.get("_anchor_start_rel_kwh", float("nan"))
+        a_ev = seg.get("_anchor_end_rel_kwh", float("nan"))
+        if (
+            a_st is not None
+            and a_et is not None
+            and not np.isnan(a_sv)
+            and not np.isnan(a_ev)
+        ):
             continue
 
-        t_s = pd.Timestamp(seg['start_time']).asm8.astype('datetime64[ns]')
-        t_e = pd.Timestamp(seg['end_time']).asm8.astype('datetime64[ns]')
-        src = seg.get('energy_source', '')
+        t_s = pd.Timestamp(seg["start_time"]).asm8.astype("datetime64[ns]")
+        t_e = pd.Timestamp(seg["end_time"]).asm8.astype("datetime64[ns]")
+        src = seg.get("energy_source", "")
 
-        if src == 'total_energy' and has_total:
-            e_s, t_es = _nb('_tot', t_s)
-            e_e, t_ee = _na('_tot', t_e)
+        if src == "total_energy" and has_total:
+            e_s, t_es = _nb("_tot", t_s)
+            e_e, t_ee = _na("_tot", t_e)
             if not np.isnan(e_s) and not np.isnan(e_e):
-                seg['_anchor_start_time'] = t_es
-                seg['_anchor_end_time'] = t_ee
-                seg['_anchor_start_rel_kwh'] = round((e_s - tot_base) / 1000.0, 4)
-                seg['_anchor_end_rel_kwh'] = round((e_e - tot_base) / 1000.0, 4)
-        elif src == 'moving_energy' and has_moving:
-            e_s, t_es = _nb('_mov', t_s)
-            e_e, t_ee = _na('_mov', t_e)
+                seg["_anchor_start_time"] = t_es
+                seg["_anchor_end_time"] = t_ee
+                seg["_anchor_start_rel_kwh"] = round((e_s - tot_base) / 1000.0, 4)
+                seg["_anchor_end_rel_kwh"] = round((e_e - tot_base) / 1000.0, 4)
+        elif src == "moving_energy" and has_moving:
+            e_s, t_es = _nb("_mov", t_s)
+            e_e, t_ee = _na("_mov", t_e)
             if not np.isnan(e_s) and not np.isnan(e_e):
-                seg['_anchor_start_time'] = t_es
-                seg['_anchor_end_time'] = t_ee
-                seg['_anchor_start_rel_kwh'] = round((e_s - mov_base) / 1000.0, 4)
-                seg['_anchor_end_rel_kwh'] = round((e_e - mov_base) / 1000.0, 4)
+                seg["_anchor_start_time"] = t_es
+                seg["_anchor_end_time"] = t_ee
+                seg["_anchor_start_rel_kwh"] = round((e_s - mov_base) / 1000.0, 4)
+                seg["_anchor_end_rel_kwh"] = round((e_e - mov_base) / 1000.0, 4)
 
 
 # =============================================================================
 # Merge adjacent discharge segments by mass similarity
 # =============================================================================
 
+
 def _merge_two_discharge_segs(seg_a: dict, seg_b: dict) -> dict:
     """Merge two adjacent discharge segments into one, for internal use by merge_discharge_by_mass."""
-    soc_s = float(seg_a['start_soc'])
-    soc_e = float(seg_b['end_soc'])
-    dsoc  = soc_e - soc_s  # negative
+    soc_s = float(seg_a["start_soc"])
+    soc_e = float(seg_b["end_soc"])
+    dsoc = soc_e - soc_s  # negative
 
     # Sum energies (both negative for discharge)
-    e_a = seg_a.get('delta_energy_kwh')
-    e_b = seg_b.get('delta_energy_kwh')
-    denergy = float('nan')
+    e_a = seg_a.get("delta_energy_kwh")
+    e_b = seg_b.get("delta_energy_kwh")
+    denergy = float("nan")
     if e_a is not None and e_b is not None:
         fa, fb = float(e_a), float(e_b)
         if np.isfinite(fa) and np.isfinite(fb):
             denergy = fa + fb
 
-    effcap = float('nan')
+    effcap = float("nan")
     if np.isfinite(denergy) and abs(dsoc) > 0:
         effcap = abs(denergy) / (abs(dsoc) / 100.0)
 
     # Prefer higher-priority energy source
-    _prio = {'total_energy': 0, 'moving_energy': 1, 'soc_estimate': 2}
-    src_a = seg_a.get('energy_source', 'soc_estimate')
-    src_b = seg_b.get('energy_source', 'soc_estimate')
-    src   = src_a if _prio.get(src_a, 9) <= _prio.get(src_b, 9) else src_b
+    _prio = {"total_energy": 0, "moving_energy": 1, "soc_estimate": 2}
+    src_a = seg_a.get("energy_source", "soc_estimate")
+    src_b = seg_b.get("energy_source", "soc_estimate")
+    src = src_a if _prio.get(src_a, 9) <= _prio.get(src_b, 9) else src_b
 
     return {
-        'start_time':             seg_a['start_time'],
-        'end_time':               seg_b['end_time'],
-        'start_soc':              soc_s,
-        'end_soc':                soc_e,
-        'delta_soc_pct':          round(dsoc, 2),
-        'delta_energy_kwh':       round(denergy, 3) if np.isfinite(denergy) else None,
-        'energy_source':          src,
-        'delta_moving_kwh':       None,
-        'effective_capacity_kwh': round(effcap, 1) if np.isfinite(effcap) else None,
-        'odo_start_km':           seg_a.get('odo_start_km'),
-        'odo_end_km':             seg_b.get('odo_end_km'),
-        'lat_start':              seg_a.get('lat_start'),
-        'lon_start':              seg_a.get('lon_start'),
-        'lat_end':                seg_b.get('lat_end'),
-        'lon_end':                seg_b.get('lon_end'),
-        '_anchor_start_time':     seg_a.get('_anchor_start_time'),
-        '_anchor_end_time':       seg_b.get('_anchor_end_time'),
-        '_anchor_start_rel_kwh':  seg_a.get('_anchor_start_rel_kwh', float('nan')),
-        '_anchor_end_rel_kwh':    seg_b.get('_anchor_end_rel_kwh', float('nan')),
+        "start_time": seg_a["start_time"],
+        "end_time": seg_b["end_time"],
+        "start_soc": soc_s,
+        "end_soc": soc_e,
+        "delta_soc_pct": round(dsoc, 2),
+        "delta_energy_kwh": round(denergy, 3) if np.isfinite(denergy) else None,
+        "energy_source": src,
+        "delta_moving_kwh": None,
+        "effective_capacity_kwh": round(effcap, 1) if np.isfinite(effcap) else None,
+        "odo_start_km": seg_a.get("odo_start_km"),
+        "odo_end_km": seg_b.get("odo_end_km"),
+        "lat_start": seg_a.get("lat_start"),
+        "lon_start": seg_a.get("lon_start"),
+        "lat_end": seg_b.get("lat_end"),
+        "lon_end": seg_b.get("lon_end"),
+        "_anchor_start_time": seg_a.get("_anchor_start_time"),
+        "_anchor_end_time": seg_b.get("_anchor_end_time"),
+        "_anchor_start_rel_kwh": seg_a.get("_anchor_start_rel_kwh", float("nan")),
+        "_anchor_end_rel_kwh": seg_b.get("_anchor_end_rel_kwh", float("nan")),
     }
 
 
@@ -710,7 +771,7 @@ def merge_discharge_by_mass(
                         (default, backward compatible; enabled only for the Nestlé
                         vehicles via vehicles.json ``split_long_stops_min``).
     """
-    if len(discharge_segs) <= 1 or 'mass_cluster' not in df_raw.columns:
+    if len(discharge_segs) <= 1 or "mass_cluster" not in df_raw.columns:
         return discharge_segs
 
     # Pre-convert the charge-segment times
@@ -718,7 +779,9 @@ def merge_discharge_by_mass(
     if charge_segs:
         for c in charge_segs:
             try:
-                charge_intervals.append((_to_utc(c['start_time']), _to_utc(c['end_time'])))
+                charge_intervals.append(
+                    (_to_utc(c["start_time"]), _to_utc(c["end_time"]))
+                )
             except Exception:
                 pass
 
@@ -730,16 +793,16 @@ def merge_discharge_by_mass(
 
     # Dominant mass_cluster of each segment
     seg_clusters = [
-        _get_seg_dominant_cluster(df_raw, s['start_time'], s['end_time'])
+        _get_seg_dominant_cluster(df_raw, s["start_time"], s["end_time"])
         for s in discharge_segs
     ]
 
     result: list[dict] = []
     i = 0
     while i < len(discharge_segs):
-        seg   = discharge_segs[i].copy()
+        seg = discharge_segs[i].copy()
         c_cur = seg_clusters[i]
-        j     = i + 1
+        j = i + 1
 
         while j < len(discharge_segs):
             c_next = seg_clusters[j]
@@ -750,8 +813,8 @@ def merge_discharge_by_mass(
             if c_cur != c_next:
                 break
             # Charge in the gap → do not merge
-            gap_start = _to_utc(seg['end_time'])
-            gap_end   = _to_utc(discharge_segs[j]['start_time'])
+            gap_start = _to_utc(seg["end_time"])
+            gap_end = _to_utc(discharge_segs[j]["start_time"])
             if _has_charge_in_gap(gap_start, gap_end):
                 break
             # Long stationary → trip boundary (opt-in, Nestlé only): even with
@@ -763,7 +826,7 @@ def merge_discharge_by_mass(
                     break
             # Same cluster, no charge, gap not long → merge
             seg = _merge_two_discharge_segs(seg, discharge_segs[j])
-            j  += 1
+            j += 1
 
         result.append(seg)
         i = j
@@ -775,7 +838,8 @@ def merge_discharge_by_mass(
 # Enforce non-overlapping anchors (correct the double-counting of energy between adjacent segments caused by a sparse cumulative counter)
 # =============================================================================
 
-def _enforce_anchor_ordering(discharge_segs: list[dict], reg: str = '') -> int:
+
+def _enforce_anchor_ordering(discharge_segs: list[dict], reg: str = "") -> int:
     """Enforce non-overlapping energy anchors on adjacent discharge segments (previous anchor_end <= next anchor_start).
 
     Background
@@ -810,16 +874,16 @@ def _enforce_anchor_ordering(discharge_segs: list[dict], reg: str = '') -> int:
     # 1. Defensively sort by start_time (only to determine adjacency; the segment
     #    dicts are shared references, so in-place modification propagates back to
     #    discharge_segs without changing the caller list's original order).
-    segs = sorted(discharge_segs, key=lambda s: _to_utc(s['start_time']))
+    segs = sorted(discharge_segs, key=lambda s: _to_utc(s["start_time"]))
 
     def _usable_anchor(s: dict) -> bool:
         # soc_estimate segments have no real counter anchor (rel is NaN) → skip
-        if s.get('energy_source') == 'soc_estimate':
+        if s.get("energy_source") == "soc_estimate":
             return False
-        if s.get('_anchor_start_time') is None or s.get('_anchor_end_time') is None:
+        if s.get("_anchor_start_time") is None or s.get("_anchor_end_time") is None:
             return False
-        a_sv = s.get('_anchor_start_rel_kwh', float('nan'))
-        a_ev = s.get('_anchor_end_rel_kwh', float('nan'))
+        a_sv = s.get("_anchor_start_rel_kwh", float("nan"))
+        a_ev = s.get("_anchor_end_rel_kwh", float("nan"))
         try:
             return bool(np.isfinite(a_sv) and np.isfinite(a_ev))
         except (TypeError, ValueError):
@@ -832,38 +896,46 @@ def _enforce_anchor_ordering(discharge_segs: list[dict], reg: str = '') -> int:
         if not (_usable_anchor(cur) and _usable_anchor(nxt)):
             continue
 
-        cur_end   = _to_utc(cur['_anchor_end_time'])
-        nxt_start = _to_utc(nxt['_anchor_start_time'])
+        cur_end = _to_utc(cur["_anchor_end_time"])
+        nxt_start = _to_utc(nxt["_anchor_start_time"])
         if cur_end <= nxt_start:
             continue  # No overlap → leave unchanged (the normal case where the counter has readings in the gap)
 
         # Overlap → clamp the previous segment's anchor_end to the next segment's anchor_start and recompute energy from the anchor relative values
-        new_end_rel = nxt['_anchor_start_rel_kwh']
-        new_delta   = -(new_end_rel - cur['_anchor_start_rel_kwh'])
+        new_end_rel = nxt["_anchor_start_rel_kwh"]
+        new_delta = -(new_end_rel - cur["_anchor_start_rel_kwh"])
         if not (new_delta < 0):
             # No longer a valid discharge after clamping (anchor collapse / pathological) → keep the original segment unchanged, only warn
             logger.warning(
-                '[%s] anchor overlap clamp skipped (would collapse to '
-                'non-discharge): cur trip start=%s, anchor_end %s > next '
-                'anchor_start %s, new_delta=%.3f',
-                reg, cur.get('start_time'), cur_end, nxt_start, new_delta,
+                "[%s] anchor overlap clamp skipped (would collapse to "
+                "non-discharge): cur trip start=%s, anchor_end %s > next "
+                "anchor_start %s, new_delta=%.3f",
+                reg,
+                cur.get("start_time"),
+                cur_end,
+                nxt_start,
+                new_delta,
             )
             continue
 
-        cur['_anchor_end_time']    = nxt['_anchor_start_time']
-        cur['_anchor_end_rel_kwh'] = new_end_rel
-        cur['delta_energy_kwh']    = round(new_delta, 3)
-        dsoc_abs = abs(cur.get('delta_soc_pct') or 0.0)
+        cur["_anchor_end_time"] = nxt["_anchor_start_time"]
+        cur["_anchor_end_rel_kwh"] = new_end_rel
+        cur["delta_energy_kwh"] = round(new_delta, 3)
+        dsoc_abs = abs(cur.get("delta_soc_pct") or 0.0)
         if dsoc_abs > 0:
-            cur['effective_capacity_kwh'] = round(
+            cur["effective_capacity_kwh"] = round(
                 abs(new_delta) / (dsoc_abs / 100.0), 1
             )
         n_clamped += 1
         logger.info(
-            '[%s] anchor overlap clamped: cur trip start=%s, anchor_end %s → %s '
-            '(next anchor_start); delta_energy_kwh=%s, eff_cap=%s',
-            reg, cur.get('start_time'), cur_end, nxt_start,
-            cur['delta_energy_kwh'], cur.get('effective_capacity_kwh'),
+            "[%s] anchor overlap clamped: cur trip start=%s, anchor_end %s → %s "
+            "(next anchor_start); delta_energy_kwh=%s, eff_cap=%s",
+            reg,
+            cur.get("start_time"),
+            cur_end,
+            nxt_start,
+            cur["delta_energy_kwh"],
+            cur.get("effective_capacity_kwh"),
         )
 
     return n_clamped

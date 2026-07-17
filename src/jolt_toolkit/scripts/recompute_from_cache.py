@@ -92,6 +92,7 @@ This is a migration tool; it does **not** modify any core pipeline code and does
 LOG-ONLY here). The rolled-up + quarterly ΔSOC-weighted effective capacity is
 computed and logged for reference.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -107,61 +108,81 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from jolt_toolkit import __version__
-from jolt_toolkit.report_generator.segment_algorithms import (
-    run_segment_detection,
-    resolve_mass_agg,
-    VEHICLE_CONFIG,
-    PIPELINE_CONFIGS,
-    SOC_COL,
-    _ANCHOR_PRIVATE_KEYS,
-)
-from jolt_toolkit.report_generator.report_builder import (
-    HEADERS,
-    _seg_to_row,
-    _insert_stop_rows,
-    _write_excel_report,
-    _corrected_energy_perf,
-)
 from jolt_toolkit.report_generator._generator import (
+    _IDX_BPOWER,
+    _IDX_CAP,
+    _IDX_DISTANCE,
+    _IDX_DURATION,
+    _IDX_ELEV,
+    _IDX_ENERGY,
+    _IDX_EP_EXCL_AUX,
+    _IDX_EPERF,
+    _IDX_EPERF_CORR,
+    _IDX_EPERF_KIN,
+    _IDX_ESOURCE,
+    _IDX_LEG_TYPE,
+    _IDX_MASS,
+    _IDX_SOC_CHANGE,
+    _IDX_START,
     JOLTReportGenerator,
     _period_capacity_from_rows,
     _recompute_weighted_capacity,
     _resolve_soc_fallback,
-    _IDX_CAP, _IDX_ENERGY, _IDX_SOC_CHANGE, _IDX_EPERF, _IDX_DISTANCE,
-    _IDX_ESOURCE, _IDX_BPOWER, _IDX_DURATION, _IDX_EPERF_CORR, _IDX_ELEV,
-    _IDX_MASS, _IDX_EPERF_KIN, _IDX_START, _IDX_LEG_TYPE, _IDX_EP_EXCL_AUX,
+)
+from jolt_toolkit.report_generator.report_builder import (
+    HEADERS,
+    _corrected_energy_perf,
+    _insert_stop_rows,
+    _seg_to_row,
+    _write_excel_report,
+)
+from jolt_toolkit.report_generator.segment_algorithms import (
+    _ANCHOR_PRIVATE_KEYS,
+    PIPELINE_CONFIGS,
+    SOC_COL,
+    VEHICLE_CONFIG,
+    resolve_mass_agg,
+    run_segment_detection,
 )
 
 logger = logging.getLogger(__name__)
+
 
 # ── row-tuple / xlsx column index helpers ────────────────────────────────────
 # row tuple index = HEADERS.index(name) - 1 (row tuple excludes 'Leg Number').
 def _ri(name: str) -> int:
     return HEADERS.index(name) - 1
 
-_IDX_TELEM_LINK = _ri('Telematics Link')
-_IDX_CHARGER_LINK = _ri('Charger Link')
-_IDX_LOGGER_LINK = _ri('SRF Logger Link')
-_IDX_MASS_CV = _ri('Vehicle Mass CV (reliability)')
-_IDX_CUMDIST = _ri('Cumulative Distance (km)')
+
+_IDX_TELEM_LINK = _ri("Telematics Link")
+_IDX_CHARGER_LINK = _ri("Charger Link")
+_IDX_LOGGER_LINK = _ri("SRF Logger Link")
+_IDX_MASS_CV = _ri("Vehicle Mass CV (reliability)")
+_IDX_CUMDIST = _ri("Cumulative Distance (km)")
 
 # Columns overlaid verbatim from the 2.2.6 report (the no-SRF/no-logger/no-weather
 # recompute cannot reproduce these). All are plain VALUE cells.
 _PRESERVE_VALUE_HEADERS = [
-    'Origin Place', 'Destination Place',
-    'Vehicle Mass (kg)', 'Vehicle Mass CV (reliability)',
-    'Average Temperature (C)', 'Average Pressure (hPa)', 'Average Humidity (%)',
-    'Average Wind Speed (m/s)', 'Average Wind Direction', 'Weather Type',
-    'Histogram of Accelerator Pedal Position',
-    'Histogram of Decelerator Pedal Position',
-    'Operator',
+    "Origin Place",
+    "Destination Place",
+    "Vehicle Mass (kg)",
+    "Vehicle Mass CV (reliability)",
+    "Average Temperature (C)",
+    "Average Pressure (hPa)",
+    "Average Humidity (%)",
+    "Average Wind Speed (m/s)",
+    "Average Wind Direction",
+    "Weather Type",
+    "Histogram of Accelerator Pedal Position",
+    "Histogram of Decelerator Pedal Position",
+    "Operator",
 ]
 # Link columns are HYPERLINK cells (value may be empty; the URL is the hyperlink
 # target). Restored into the row tuple as URLs so _write_excel_report re-renders
 # the blue "Link".
-_PRESERVE_LINK_HEADERS = ['Charger Link', 'SRF Logger Link']
+_PRESERVE_LINK_HEADERS = ["Charger Link", "SRF Logger Link"]
 
-_CHARGE_PREFIX_RE = re.compile(r'^(ac|dc|charge|mix|estimated)', re.I)
+_CHARGE_PREFIX_RE = re.compile(r"^(ac|dc|charge|mix|estimated)", re.I)
 
 
 def _norm_ts(v) -> pd.Timestamp:
@@ -170,7 +191,7 @@ def _norm_ts(v) -> pd.Timestamp:
 
 
 def _ts_key(v) -> str | None:
-    if v is None or v == '':
+    if v is None or v == "":
         return None
     try:
         return str(_norm_ts(v))
@@ -184,8 +205,10 @@ def _ts_key(v) -> str | None:
 # each segment = [q_start, next_q_start - 1 day] (inclusive end, no overlap).
 def _met_quarter_start_on_or_before(ts: pd.Timestamp) -> pd.Timestamp:
     cands = [
-        pd.Timestamp(ts.year - 1, 12, 1), pd.Timestamp(ts.year, 3, 1),
-        pd.Timestamp(ts.year, 6, 1), pd.Timestamp(ts.year, 9, 1),
+        pd.Timestamp(ts.year - 1, 12, 1),
+        pd.Timestamp(ts.year, 3, 1),
+        pd.Timestamp(ts.year, 6, 1),
+        pd.Timestamp(ts.year, 9, 1),
         pd.Timestamp(ts.year, 12, 1),
     ]
     return max(s for s in cands if s <= ts)
@@ -207,7 +230,9 @@ def split_into_meteorological_quarters(date_start: str, date_end: str):
         seg_start = max(qstart, start)
         seg_end = min(nxt - pd.Timedelta(days=1), end)
         if seg_start <= seg_end:
-            periods.append((seg_start.strftime('%Y-%m-%d'), seg_end.strftime('%Y-%m-%d')))
+            periods.append(
+                (seg_start.strftime("%Y-%m-%d"), seg_end.strftime("%Y-%m-%d"))
+            )
         qstart = nxt
     return periods
 
@@ -221,44 +246,77 @@ def replay_rows(reg: str, csv_dir: Path) -> tuple[list, dict]:
     cumulative_km is left 0 here (fixed per quarter in :func:`_recompute_report`).
     """
     cfg = VEHICLE_CONFIG[reg]
-    nominal = cfg.get('nominal_kwh')
+    nominal = cfg.get("nominal_kwh")
     cap_lo = nominal * 0.5 if nominal else None
     cap_hi = nominal * 2.0 if nominal else None
-    speed_col = cfg.get('speed_col', 'wheel_based_speed')
-    altitude_col = cfg.get('altitude_col')
-    mass_agg = resolve_mass_agg(reg, PIPELINE_CONFIGS.get(cfg.get('pipeline', 'default_soc')))
-    files = sorted(glob.glob(str(Path(csv_dir) / 'raw_*.csv')))
+    speed_col = cfg.get("speed_col", "wheel_based_speed")
+    altitude_col = cfg.get("altitude_col")
+    mass_agg = resolve_mass_agg(
+        reg, PIPELINE_CONFIGS.get(cfg.get("pipeline", "default_soc"))
+    )
+    files = sorted(glob.glob(str(Path(csv_dir) / "raw_*.csv")))
     all_rows: list = []
     home_point = None
     for fp in files:
         try:
             df_leg = pd.read_csv(fp, dtype=str)
         except Exception as exc:
-            logger.warning('read fail %s: %s', fp, exc)
+            logger.warning("read fail %s: %s", fp, exc)
             continue
         if df_leg.empty or SOC_COL not in df_leg.columns:
             continue
-        leg_uri = 'https://data.csrf.ac.uk/api/legs/' + Path(fp).stem
+        leg_uri = "https://data.csrf.ac.uk/api/legs/" + Path(fp).stem
         c_segs, d_segs = run_segment_detection(
-            df_leg, reg=reg, suffix=Path(fp).stem, out_dir=None,
-            generate_validation_fig=False, cap_lo=cap_lo, cap_hi=cap_hi)
+            df_leg,
+            reg=reg,
+            suffix=Path(fp).stem,
+            out_dir=None,
+            generate_validation_fig=False,
+            cap_lo=cap_lo,
+            cap_hi=cap_hi,
+        )
         for seg in c_segs:
             sc = {k: v for k, v in seg.items() if k not in _ANCHOR_PRIVATE_KEYS}
-            row, _ = _seg_to_row(sc, 'charge', leg_uri, [], [], df_leg, 0.0,
-                                 home_point, srf_data=None, altitude_col=altitude_col,
-                                 speed_col=speed_col, operator=None, mass_agg=mass_agg)
-            all_rows.append((seg['start_time'], list(row), 'charge'))
+            row, _ = _seg_to_row(
+                sc,
+                "charge",
+                leg_uri,
+                [],
+                [],
+                df_leg,
+                0.0,
+                home_point,
+                srf_data=None,
+                altitude_col=altitude_col,
+                speed_col=speed_col,
+                operator=None,
+                mass_agg=mass_agg,
+            )
+            all_rows.append((seg["start_time"], list(row), "charge"))
         for seg in d_segs:
             sc = {k: v for k, v in seg.items() if k not in _ANCHOR_PRIVATE_KEYS}
-            row, _ = _seg_to_row(sc, 'discharge', leg_uri, [], [], df_leg, 0.0,
-                                 home_point, srf_data=None, altitude_col=altitude_col,
-                                 speed_col=speed_col, has_logger=False, operator=None,
-                                 mass_agg=mass_agg)
-            all_rows.append((seg['start_time'], list(row), 'discharge'))
+            row, _ = _seg_to_row(
+                sc,
+                "discharge",
+                leg_uri,
+                [],
+                [],
+                df_leg,
+                0.0,
+                home_point,
+                srf_data=None,
+                altitude_col=altitude_col,
+                speed_col=speed_col,
+                has_logger=False,
+                operator=None,
+                mass_agg=mass_agg,
+            )
+            all_rows.append((seg["start_time"], list(row), "discharge"))
         if home_point is None and c_segs:
             from geopy import Point as GeoPoint
+
             for s in c_segs:
-                la, lo = s.get('latitude'), s.get('longitude')
+                la, lo = s.get("latitude"), s.get("longitude")
                 if la is not None and lo is not None:
                     try:
                         home_point = GeoPoint(float(la), float(lo))
@@ -277,8 +335,8 @@ def build_preserved_lookup(reg: str, src_dir: Path) -> dict:
     be reconstructed via the energy-independent ``ke_per_d`` term.
     """
     lookup: dict = {}
-    kin_corr = 'Energy Performance Corrected by Elevation Difference (kWh/km)'
-    kin_kin = 'Energy Performance Kinetics Corrected (kWh/km)'
+    kin_corr = "Energy Performance Corrected by Elevation Difference (kWh/km)"
+    kin_kin = "Energy Performance Kinetics Corrected (kWh/km)"
 
     def _val(cell):
         """Cell value, but treat ``=NA()`` (and any formula) as None.
@@ -290,19 +348,19 @@ def build_preserved_lookup(reg: str, src_dir: Path) -> dict:
         and skipping formula cells (``data_type == 'f'``) yields the real value
         for populated cells and None for ``=NA()`` blanks.
         """
-        return cell.value if cell.data_type != 'f' else None
+        return cell.value if cell.data_type != "f" else None
 
-    for xlsx in sorted(src_dir.glob(f'jolt_report_{reg}_*.xlsx')):
+    for xlsx in sorted(src_dir.glob(f"jolt_report_{reg}_*.xlsx")):
         # data_only=False so =NA() surfaces as a formula (skipped), not cached 0;
         # non-read-only so hyperlink targets (Charger/Logger Link) survive.
         wb = load_workbook(str(xlsx), data_only=False)
-        ws = wb['Report']
+        ws = wb["Report"]
         hdr = [c.value for c in ws[1]]
         col = {h: i + 1 for i, h in enumerate(hdr)}  # 1-based
-        i_start = col.get('Start Time (UTC)')
+        i_start = col.get("Start Time (UTC)")
         for r in range(2, ws.max_row + 1):
             leg_no = ws.cell(r, 1).value
-            if leg_no in (None, ''):
+            if leg_no in (None, ""):
                 continue
             k = _ts_key(ws.cell(r, i_start).value)
             if k is None:
@@ -314,11 +372,13 @@ def build_preserved_lookup(reg: str, src_dir: Path) -> dict:
             for h in _PRESERVE_LINK_HEADERS:
                 if h in col:
                     cell = ws.cell(r, col[h])
-                    rec[h] = cell.hyperlink.target if cell.hyperlink is not None else None
+                    rec[h] = (
+                        cell.hyperlink.target if cell.hyperlink is not None else None
+                    )
             # kinetics reconstruction inputs
             if kin_corr in col and kin_kin in col:
-                rec['_ep_corr226'] = _val(ws.cell(r, col[kin_corr]))
-                rec['_ep_kin226'] = _val(ws.cell(r, col[kin_kin]))
+                rec["_ep_corr226"] = _val(ws.cell(r, col[kin_corr]))
+                rec["_ep_kin226"] = _val(ws.cell(r, col[kin_kin]))
             # first writer wins (boundary-day legs appear in two 2.2.6 reports
             # with identical preserved values, so this is deterministic).
             lookup.setdefault(k, rec)
@@ -355,14 +415,16 @@ def _recompute_report(reg, all_rows, cfg, qstart, qend, lookup, out_path):
         if not (qs <= t <= qe):
             continue
         e = row[_IDX_ENERGY]
-        ekey = round(float(e), 3) if isinstance(e, (int, float)) and _is_valid(e) else None
+        ekey = (
+            round(float(e), 3) if isinstance(e, (int, float)) and _is_valid(e) else None
+        )
         key = (mode, str(t), str(row[_IDX_LEG_TYPE]), ekey)
         if key in seen:
             continue
         seen.add(key)
         rows.append(row)
     if not rows:
-        return 0, None, 0, 'empty'
+        return 0, None, 0, "empty"
 
     # overlay Vehicle Mass + CV from 2.2.6 BEFORE the correction so the
     # elevation-corrected EP recompute uses the authoritative (logger-filled) mass.
@@ -371,38 +433,55 @@ def _recompute_report(reg, all_rows, cfg, qstart, qend, lookup, out_path):
         rec = lookup.get(k) if k else None
         if rec is None:
             continue
-        if 'Vehicle Mass (kg)' in rec:
-            mv = _num(rec['Vehicle Mass (kg)'])
-            row[_IDX_MASS] = mv if mv is not None else float('nan')
-        if 'Vehicle Mass CV (reliability)' in rec:
-            cvv = _num(rec['Vehicle Mass CV (reliability)'])
-            row[_IDX_MASS_CV] = cvv if cvv is not None else float('nan')
+        if "Vehicle Mass (kg)" in rec:
+            mv = _num(rec["Vehicle Mass (kg)"])
+            row[_IDX_MASS] = mv if mv is not None else float("nan")
+        if "Vehicle Mass CV (reliability)" in rec:
+            cvv = _num(rec["Vehicle Mass CV (reliability)"])
+            row[_IDX_MASS_CV] = cvv if cvv is not None else float("nan")
 
     # effective-capacity correction (MODE A gate + ΔSOC-weighted donors); v2.2.8
     # additionally applies the per-vehicle SOC-energy fallback resolved from cfg
     # (opt-in via vehicles.json 'soc_energy_fallback'; None → unchanged MODE A).
-    soc_est_cap = (cfg.get('effective_capacity_kwh') or cfg.get('srf_capacity_kwh')
-                   or cfg.get('nominal_kwh'))
+    soc_est_cap = (
+        cfg.get("effective_capacity_kwh")
+        or cfg.get("srf_capacity_kwh")
+        or cfg.get("nominal_kwh")
+    )
     rows2, _eff, _src = JOLTReportGenerator._correct_effective_capacity(
-        rows, _IDX_CAP, _IDX_ENERGY, _IDX_SOC_CHANGE, _IDX_EPERF, _IDX_DISTANCE,
-        _IDX_ESOURCE, _IDX_BPOWER, _IDX_DURATION, _IDX_EPERF_CORR, _IDX_ELEV,
-        _IDX_MASS, soc_est_cap, _IDX_EPERF_KIN, idx_start=_IDX_START,
-        soc_fallback=_resolve_soc_fallback(cfg))
+        rows,
+        _IDX_CAP,
+        _IDX_ENERGY,
+        _IDX_SOC_CHANGE,
+        _IDX_EPERF,
+        _IDX_DISTANCE,
+        _IDX_ESOURCE,
+        _IDX_BPOWER,
+        _IDX_DURATION,
+        _IDX_EPERF_CORR,
+        _IDX_ELEV,
+        _IDX_MASS,
+        soc_est_cap,
+        _IDX_EPERF_KIN,
+        idx_start=_IDX_START,
+        soc_fallback=_resolve_soc_fallback(cfg),
+    )
 
     # EP fallback pass (mirror _generate_report): non-discharge rows → NaN EP cols
     for row in rows2:
         lt = row[_IDX_LEG_TYPE]
         if isinstance(lt, str):
             ll = lt.strip().lower()
-            if ll == 'stop' or _CHARGE_PREFIX_RE.match(ll):
-                row[_IDX_EPERF] = float('nan')
-                row[_IDX_EPERF_CORR] = float('nan')
-                row[_IDX_EPERF_KIN] = float('nan')
-                row[_IDX_EP_EXCL_AUX] = float('nan')
+            if ll == "stop" or _CHARGE_PREFIX_RE.match(ll):
+                row[_IDX_EPERF] = float("nan")
+                row[_IDX_EPERF_CORR] = float("nan")
+                row[_IDX_EPERF_KIN] = float("nan")
+                row[_IDX_EP_EXCL_AUX] = float("nan")
 
     # period ΔSOC-weighted donor capacity (same convention as live + backfill)
     pcap, pn, psrc = _period_capacity_from_rows(
-        rows2, _IDX_CAP, _IDX_SOC_CHANGE, _IDX_ESOURCE)
+        rows2, _IDX_CAP, _IDX_SOC_CHANGE, _IDX_ESOURCE
+    )
 
     # discharge post-pass: re-derive EP + EP-corrected from the FINAL
     # (energy, distance, elevation, overlaid-mass); reconstruct kinetics EP from
@@ -412,9 +491,14 @@ def _recompute_report(reg, all_rows, cfg, qstart, qend, lookup, out_path):
         if not isinstance(lt, str):
             continue
         ll = lt.strip().lower()
-        if ll == 'stop' or _CHARGE_PREFIX_RE.match(ll):
+        if ll == "stop" or _CHARGE_PREFIX_RE.match(ll):
             continue
-        e, d, h, m = row[_IDX_ENERGY], row[_IDX_DISTANCE], row[_IDX_ELEV], row[_IDX_MASS]
+        e, d, h, m = (
+            row[_IDX_ENERGY],
+            row[_IDX_DISTANCE],
+            row[_IDX_ELEV],
+            row[_IDX_MASS],
+        )
         if _is_valid(e) and _is_valid(d) and d > 0:
             row[_IDX_EPERF] = round(abs(e) / d, 4)
             if _is_valid(h) and _is_valid(m):
@@ -423,8 +507,12 @@ def _recompute_report(reg, all_rows, cfg, qstart, qend, lookup, out_path):
         k = _ts_key(row[_IDX_START])
         rec = lookup.get(k) if k else None
         if rec is not None:
-            c226, kin226 = _num(rec.get('_ep_corr226')), _num(rec.get('_ep_kin226'))
-            if c226 is not None and kin226 is not None and _is_valid(row[_IDX_EPERF_CORR]):
+            c226, kin226 = _num(rec.get("_ep_corr226")), _num(rec.get("_ep_kin226"))
+            if (
+                c226 is not None
+                and kin226 is not None
+                and _is_valid(row[_IDX_EPERF_CORR])
+            ):
                 ke_per_d = c226 - kin226
                 row[_IDX_EPERF_KIN] = round(row[_IDX_EPERF_CORR] - ke_per_d, 4)
 
@@ -434,18 +522,22 @@ def _recompute_report(reg, all_rows, cfg, qstart, qend, lookup, out_path):
     for row in rows2:
         lt = row[_IDX_LEG_TYPE]
         is_disch = isinstance(lt, str) and not (
-            lt.strip().lower() == 'stop' or _CHARGE_PREFIX_RE.match(lt.strip().lower()))
+            lt.strip().lower() == "stop" or _CHARGE_PREFIX_RE.match(lt.strip().lower())
+        )
         d = row[_IDX_DISTANCE]
         if is_disch and _is_valid(d) and d > 0:
             running += float(d)
             row[_IDX_CUMDIST] = round(running, 3)
         else:
-            row[_IDX_CUMDIST] = float('nan')
+            row[_IDX_CUMDIST] = float("nan")
 
     # overlay preserved VALUE + LINK columns from 2.2.6 (weather / operator /
     # place / links / pedal histograms). Mass already overlaid above.
-    idx_map_val = {h: _ri(h) for h in _PRESERVE_VALUE_HEADERS
-                   if h not in ('Vehicle Mass (kg)', 'Vehicle Mass CV (reliability)')}
+    idx_map_val = {
+        h: _ri(h)
+        for h in _PRESERVE_VALUE_HEADERS
+        if h not in ("Vehicle Mass (kg)", "Vehicle Mass CV (reliability)")
+    }
     idx_map_link = {h: _ri(h) for h in _PRESERVE_LINK_HEADERS}
     for row in rows2:
         k = _ts_key(row[_IDX_START])
@@ -463,13 +555,18 @@ def _recompute_report(reg, all_rows, cfg, qstart, qend, lookup, out_path):
     rows3 = _insert_stop_rows(rows2, headers=HEADERS)
 
     # overlay weather onto Stop rows (best-effort by start_time)
-    weather_headers = ['Average Temperature (C)', 'Average Pressure (hPa)',
-                       'Average Humidity (%)', 'Average Wind Speed (m/s)',
-                       'Average Wind Direction', 'Weather Type']
+    weather_headers = [
+        "Average Temperature (C)",
+        "Average Pressure (hPa)",
+        "Average Humidity (%)",
+        "Average Wind Speed (m/s)",
+        "Average Wind Direction",
+        "Weather Type",
+    ]
     w_idx = {h: _ri(h) for h in weather_headers}
     for row in rows3:
         lt = row[_IDX_LEG_TYPE]
-        if isinstance(lt, str) and lt.strip().lower() == 'stop':
+        if isinstance(lt, str) and lt.strip().lower() == "stop":
             k = _ts_key(row[_IDX_START])
             rec = lookup.get(k) if k else None
             if rec is not None:
@@ -479,14 +576,16 @@ def _recompute_report(reg, all_rows, cfg, qstart, qend, lookup, out_path):
 
     ps = pd.Timestamp(qstart).date()
     pe = pd.Timestamp(qend).date()
-    _write_excel_report([tuple(r) for r in rows3], reg, ps, pe, out_path, headers=HEADERS)
+    _write_excel_report(
+        [tuple(r) for r in rows3], reg, ps, pe, out_path, headers=HEADERS
+    )
     return len(rows3), pcap, pn, psrc
 
 
 # Non-recomputable per-vehicle artefact directories carried forward verbatim from
 # the src version dir (the SRF-free recompute writes only the .xlsx). raw_logger*
 # variants are discovered dynamically. See :func:`_copy_forward_artifacts`.
-_AUX_COPY_DIRS_STATIC = ['raw_telematics', 'validation_figures', 'raw_charger']
+_AUX_COPY_DIRS_STATIC = ["raw_telematics", "validation_figures", "raw_charger"]
 
 
 def _same_size(src: Path, dst: Path) -> bool:
@@ -514,12 +613,13 @@ def _safe_copy_file(src: Path, dst: Path) -> None:
         return
     except OSError:
         pass
-    with open(src, 'rb') as fi, open(dst, 'wb') as fo:
+    with open(src, "rb") as fi, open(dst, "wb") as fo:
         shutil.copyfileobj(fi, fo)
 
 
-def _copy_dir_content(src_dir: Path, dst_dir: Path,
-                      overwrite: bool = False) -> tuple[int, int, int]:
+def _copy_dir_content(
+    src_dir: Path, dst_dir: Path, overwrite: bool = False
+) -> tuple[int, int, int]:
     """Recursively copy ``src_dir`` → ``dst_dir`` with content-only, per-file-
     tolerant semantics (see :func:`_safe_copy_file`). Skips files that already
     exist at the same size (unless ``overwrite``), so a re-run resumes a partially
@@ -533,7 +633,7 @@ def _copy_dir_content(src_dir: Path, dst_dir: Path,
             target_root.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             n_failed += len(files)
-            logger.warning('copy-forward: cannot mkdir %s (%s)', target_root, exc)
+            logger.warning("copy-forward: cannot mkdir %s (%s)", target_root, exc)
             continue
         for fn in files:
             s = Path(root) / fn
@@ -546,12 +646,13 @@ def _copy_dir_content(src_dir: Path, dst_dir: Path,
                 n_copied += 1
             except OSError as exc:
                 n_failed += 1
-                logger.warning('copy-forward: skip %s (%s)', s, exc)
+                logger.warning("copy-forward: skip %s (%s)", s, exc)
     return n_copied, n_skipped, n_failed
 
 
-def _copy_forward_artifacts(src_dir: Path, dst_dir: Path,
-                            overwrite: bool = False) -> tuple[list[str], int]:
+def _copy_forward_artifacts(
+    src_dir: Path, dst_dir: Path, overwrite: bool = False
+) -> tuple[list[str], int]:
     """Copy the non-recomputable per-vehicle artefact dirs + inspect HTML forward
     from the src version dir to the dst version dir.
 
@@ -585,17 +686,17 @@ def _copy_forward_artifacts(src_dir: Path, dst_dir: Path,
     copied: list[str] = []
     total_failed = 0
     dir_names = list(_AUX_COPY_DIRS_STATIC)
-    dir_names += sorted(p.name for p in src_dir.glob('raw_logger*') if p.is_dir())
+    dir_names += sorted(p.name for p in src_dir.glob("raw_logger*") if p.is_dir())
     for name in dir_names:
         s = src_dir / name
         if not s.is_dir():
             continue
         nc, ns, nf = _copy_dir_content(s, dst_dir / name, overwrite)
         total_failed += nf
-        summary = f'{name}/ ({nc} copied, {ns} skipped'
-        summary += f', {nf} FAILED)' if nf else ')'
+        summary = f"{name}/ ({nc} copied, {ns} skipped"
+        summary += f", {nf} FAILED)" if nf else ")"
         copied.append(summary)
-    for html in sorted(src_dir.glob('inspect_*.html')):
+    for html in sorted(src_dir.glob("inspect_*.html")):
         d = dst_dir / html.name
         if not overwrite and _same_size(html, d):
             continue
@@ -604,10 +705,13 @@ def _copy_forward_artifacts(src_dir: Path, dst_dir: Path,
             copied.append(html.name)
         except OSError as exc:
             total_failed += 1
-            logger.warning('copy-forward: skip %s (%s)', html, exc)
+            logger.warning("copy-forward: skip %s (%s)", html, exc)
     if total_failed:
-        logger.warning('copy-forward [%s]: %d file(s) could not be copied '
-                       '(see warnings above)', dst_dir.name, total_failed)
+        logger.warning(
+            "copy-forward [%s]: %d file(s) could not be copied " "(see warnings above)",
+            dst_dir.name,
+            total_failed,
+        )
     return copied, total_failed
 
 
@@ -618,8 +722,9 @@ def _count_files(d: Path) -> int:
     return sum(len(files) for _root, _dirs, files in os.walk(d))
 
 
-def _verify_copy_forward(reg: str, src_dir: Path, dst_dir: Path,
-                         n_failed: int) -> list[str]:
+def _verify_copy_forward(
+    reg: str, src_dir: Path, dst_dir: Path, n_failed: int
+) -> list[str]:
     """Assert the dst version dir ended up at least as complete as src for every
     carried-forward artefact, and surface any per-file copy failure.
 
@@ -641,7 +746,7 @@ def _verify_copy_forward(reg: str, src_dir: Path, dst_dir: Path,
     """
     problems: list[str] = []
     dir_names = list(_AUX_COPY_DIRS_STATIC)
-    dir_names += sorted(p.name for p in src_dir.glob('raw_logger*') if p.is_dir())
+    dir_names += sorted(p.name for p in src_dir.glob("raw_logger*") if p.is_dir())
     for name in dir_names:
         s = src_dir / name
         if not s.is_dir():
@@ -649,74 +754,93 @@ def _verify_copy_forward(reg: str, src_dir: Path, dst_dir: Path,
         n_src = _count_files(s)
         n_dst = _count_files(dst_dir / name)
         if n_dst < n_src:
-            msg = f'{name}/ INCOMPLETE: dst {n_dst} file(s) < src {n_src}'
+            msg = f"{name}/ INCOMPLETE: dst {n_dst} file(s) < src {n_src}"
             problems.append(msg)
-            logger.error('copy-verify [%s]: %s (%s -> %s)', reg, msg, s,
-                         dst_dir / name)
-    n_src_html = len(list(src_dir.glob('inspect_*.html')))
-    n_dst_html = len(list(dst_dir.glob('inspect_*.html')))
+            logger.error("copy-verify [%s]: %s (%s -> %s)", reg, msg, s, dst_dir / name)
+    n_src_html = len(list(src_dir.glob("inspect_*.html")))
+    n_dst_html = len(list(dst_dir.glob("inspect_*.html")))
     if n_dst_html < n_src_html:
-        msg = f'inspect_*.html INCOMPLETE: dst {n_dst_html} < src {n_src_html}'
+        msg = f"inspect_*.html INCOMPLETE: dst {n_dst_html} < src {n_src_html}"
         problems.append(msg)
-        logger.error('copy-verify [%s]: %s', reg, msg)
+        logger.error("copy-verify [%s]: %s", reg, msg)
     if n_failed:
-        msg = f'{n_failed} file(s) FAILED to copy (possible truncated dst files)'
+        msg = f"{n_failed} file(s) FAILED to copy (possible truncated dst files)"
         problems.append(msg)
-        logger.error('copy-verify [%s]: %s', reg, msg)
+        logger.error("copy-verify [%s]: %s", reg, msg)
     return problems
 
 
-def recompute_vehicle(reg: str, db_root: Path, src_ver: str, dst_ver: str,
-                      overwrite: bool = False) -> dict:
+def recompute_vehicle(
+    reg: str, db_root: Path, src_ver: str, dst_ver: str, overwrite: bool = False
+) -> dict:
     """Recompute all meteorological-quarter reports for one EV, then carry the
     non-recomputable artefact dirs (raw_*/validation_figures/inspect HTML) forward."""
     src_dir = db_root / src_ver / reg
     dst_dir = db_root / dst_ver / reg
     dst_dir.mkdir(parents=True, exist_ok=True)
-    csv_dir = src_dir / 'raw_telematics'
-    logger.info('[%s] replaying segmentation from %s', reg, csv_dir)
+    csv_dir = src_dir / "raw_telematics"
+    logger.info("[%s] replaying segmentation from %s", reg, csv_dir)
     all_rows, cfg = replay_rows(reg, csv_dir)
     lookup = build_preserved_lookup(reg, src_dir)
     # target period list: met-quarters spanning the 2.2.6 report range
-    srcs = sorted(src_dir.glob(f'jolt_report_{reg}_*.xlsx'))
-    starts = [p.stem.split('_')[-2] for p in srcs]
-    ends = [p.stem.split('_')[-1] for p in srcs]
+    srcs = sorted(src_dir.glob(f"jolt_report_{reg}_*.xlsx"))
+    starts = [p.stem.split("_")[-2] for p in srcs]
+    ends = [p.stem.split("_")[-1] for p in srcs]
     lo = min(starts)
     hi = max(ends)
-    ds = f'{lo[:4]}-{lo[4:6]}-{lo[6:]}'
-    de = f'{hi[:4]}-{hi[4:6]}-{hi[6:]}'
+    ds = f"{lo[:4]}-{lo[4:6]}-{lo[6:]}"
+    de = f"{hi[:4]}-{hi[4:6]}-{hi[6:]}"
     periods = split_into_meteorological_quarters(ds, de)
     quarterly = {}
     made = []
     for qs, qe in periods:
-        out_path = dst_dir / f'jolt_report_{reg}_{qs.replace("-", "")}_{qe.replace("-", "")}.xlsx'
+        out_path = (
+            dst_dir
+            / f'jolt_report_{reg}_{qs.replace("-", "")}_{qe.replace("-", "")}.xlsx'
+        )
         if out_path.exists() and not overwrite:
-            logger.info('  [%s] exists, skip: %s', reg, out_path.name)
+            logger.info("  [%s] exists, skip: %s", reg, out_path.name)
             continue
-        n, pcap, pn, psrc = _recompute_report(reg, all_rows, cfg, qs, qe, lookup, out_path)
+        n, pcap, pn, psrc = _recompute_report(
+            reg, all_rows, cfg, qs, qe, lookup, out_path
+        )
         if n == 0:
-            logger.info('  [%s] %s..%s : no rows, skipped', reg, qs, qe)
+            logger.info("  [%s] %s..%s : no rows, skipped", reg, qs, qe)
             continue
         pk = f'{qs.replace("-", "")}_{qe.replace("-", "")}'
         if pcap is not None and pn:
-            quarterly[pk] = {'kwh': round(float(pcap), 2), 'n': int(pn)}
+            quarterly[pk] = {"kwh": round(float(pcap), 2), "n": int(pn)}
         made.append(out_path.name)
-        logger.info('  [%s] %s : %d rows, periodcap=%s n=%s src=%s',
-                    reg, out_path.name, n,
-                    None if pcap is None else round(pcap, 2), pn, psrc)
+        logger.info(
+            "  [%s] %s : %d rows, periodcap=%s n=%s src=%s",
+            reg,
+            out_path.name,
+            n,
+            None if pcap is None else round(pcap, 2),
+            pn,
+            psrc,
+        )
     aux, n_failed = _copy_forward_artifacts(src_dir, dst_dir, overwrite)
     if aux:
-        logger.info('  [%s] carried forward %d artefact(s): %s',
-                    reg, len(aux), ', '.join(aux))
+        logger.info(
+            "  [%s] carried forward %d artefact(s): %s", reg, len(aux), ", ".join(aux)
+        )
     problems = _verify_copy_forward(reg, src_dir, dst_dir, n_failed)
     wavg, n_rel, n_sparse = _recompute_weighted_capacity(dict(quarterly))
-    return {'reg': reg, 'reports': made, 'quarterly': quarterly,
-            'rolled_up_kwh': wavg, 'n_reliable_q': n_rel, 'aux_copied': aux,
-            'copy_problems': problems}
+    return {
+        "reg": reg,
+        "reports": made,
+        "quarterly": quarterly,
+        "rolled_up_kwh": wavg,
+        "n_reliable_q": n_rel,
+        "aux_copied": aux,
+        "copy_problems": problems,
+    }
 
 
-def copy_verbatim(reg: str, db_root: Path, src_ver: str, dst_ver: str,
-                  overwrite: bool = False) -> dict:
+def copy_verbatim(
+    reg: str, db_root: Path, src_ver: str, dst_ver: str, overwrite: bool = False
+) -> dict:
     """dst == unchanged copy of src: copy every ``jolt_report_*.xlsx`` plus all
     non-recomputable artefact dirs (raw_*/validation_figures) and inspect HTML.
 
@@ -735,7 +859,7 @@ def copy_verbatim(reg: str, db_root: Path, src_ver: str, dst_ver: str,
     dst_dir = db_root / dst_ver / reg
     dst_dir.mkdir(parents=True, exist_ok=True)
     copied = []
-    for xlsx in sorted(src_dir.glob(f'jolt_report_{reg}_*.xlsx')):
+    for xlsx in sorted(src_dir.glob(f"jolt_report_{reg}_*.xlsx")):
         dst = dst_dir / xlsx.name
         if not overwrite and _same_size(xlsx, dst):
             continue
@@ -745,8 +869,7 @@ def copy_verbatim(reg: str, db_root: Path, src_ver: str, dst_ver: str,
     # carry forward artefact dirs + inspect HTML.
     aux, n_failed = _copy_forward_artifacts(src_dir, dst_dir, overwrite)
     problems = _verify_copy_forward(reg, src_dir, dst_dir, n_failed)
-    return {'reg': reg, 'copied': copied, 'aux_copied': aux,
-            'copy_problems': problems}
+    return {"reg": reg, "copied": copied, "aux_copied": aux, "copy_problems": problems}
 
 
 # Backwards-compatible alias (the verbatim-copy path was originally diesel-only).
@@ -756,23 +879,38 @@ copy_diesel = copy_verbatim
 # All 15 EV present in the report DB (the 3 Knowles AV24LX* were full-regen'd for
 # 2.2.7 rather than recompute'd, so the original list omitted them; for the
 # 2.2.7→2.2.8 recompute they must be covered too). + 2 diesel = 17 vehicles.
-EV_FLEET = ['AV24LXJ', 'AV24LXK', 'AV24LXL', 'CMZ6260', 'EV73SAL', 'EX74JXW',
-            'EX74JXY', 'KY24LHT', 'LN25NKE', 'N88GNW', 'T88RNW', 'TA70WTL',
-            'YK73WFN', 'YN25RSY', 'YN75NMA']
-DIESEL_FLEET = ['WU70GLV', 'YT21EFD']
+EV_FLEET = [
+    "AV24LXJ",
+    "AV24LXK",
+    "AV24LXL",
+    "CMZ6260",
+    "EV73SAL",
+    "EX74JXW",
+    "EX74JXY",
+    "KY24LHT",
+    "LN25NKE",
+    "N88GNW",
+    "T88RNW",
+    "TA70WTL",
+    "YK73WFN",
+    "YN25RSY",
+    "YN75NMA",
+]
+DIESEL_FLEET = ["WU70GLV", "YT21EFD"]
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(
-        description='Fast SRF-free cached recompute for a post-segmentation release '
-                    '(e.g. 2.2.7 -> 2.2.8). Reads src version dir, writes dst.')
-    ap.add_argument('--db-root', default='./excel_report_database')
-    ap.add_argument('--src-ver', default='2.2.7')
-    ap.add_argument('--dst-ver', default='2.2.8')
-    ap.add_argument('--veh', nargs='*', help='vehicles (default: 15 EV + 2 diesel)')
-    ap.add_argument('--overwrite', action='store_true')
+        description="Fast SRF-free cached recompute for a post-segmentation release "
+        "(e.g. 2.2.7 -> 2.2.8). Reads src version dir, writes dst."
+    )
+    ap.add_argument("--db-root", default="./excel_report_database")
+    ap.add_argument("--src-ver", default="2.2.7")
+    ap.add_argument("--dst-ver", default="2.2.8")
+    ap.add_argument("--veh", nargs="*", help="vehicles (default: 15 EV + 2 diesel)")
+    ap.add_argument("--overwrite", action="store_true")
     args = ap.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format='%(message)s')
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     db_root = Path(args.db_root)
     regs = args.veh or (EV_FLEET + DIESEL_FLEET)
     results = []
@@ -783,48 +921,74 @@ def main(argv=None):
     for reg in regs:
         try:
             cfg = VEHICLE_CONFIG.get(reg, {})
-            is_diesel = str(cfg.get('fuel_type', '')).upper() == 'DIESEL'
+            is_diesel = str(cfg.get("fuel_type", "")).upper() == "DIESEL"
             # Vehicles whose segmentation runs on SRF-Logger speed cannot be replayed
             # from raw_telematics (logger speed is not cached), so their replay would
             # diverge from canonical — copy the canonical report verbatim instead.
-            prefer_logger = bool(cfg.get('prefer_logger_speed'))
+            prefer_logger = bool(cfg.get("prefer_logger_speed"))
             if is_diesel or prefer_logger:
-                res = copy_verbatim(reg, db_root, args.src_ver, args.dst_ver, args.overwrite)
-                reason = ('DIESEL' if is_diesel else
-                          'prefer_logger_speed (logger-speed segmentation cannot be '
-                          'replayed from raw telematics)')
-                logger.info('[%s] verbatim copy [%s]: %d reports', reg, reason,
-                            len(res['copied']))
+                res = copy_verbatim(
+                    reg, db_root, args.src_ver, args.dst_ver, args.overwrite
+                )
+                reason = (
+                    "DIESEL"
+                    if is_diesel
+                    else "prefer_logger_speed (logger-speed segmentation cannot be "
+                    "replayed from raw telematics)"
+                )
+                logger.info(
+                    "[%s] verbatim copy [%s]: %d reports",
+                    reg,
+                    reason,
+                    len(res["copied"]),
+                )
             else:
-                res = recompute_vehicle(reg, db_root, args.src_ver, args.dst_ver, args.overwrite)
-                logger.info('[%s] EV done: %d reports, rolled-up eff_cap=%s kWh',
-                            reg, len(res['reports']), res.get('rolled_up_kwh'))
+                res = recompute_vehicle(
+                    reg, db_root, args.src_ver, args.dst_ver, args.overwrite
+                )
+                logger.info(
+                    "[%s] EV done: %d reports, rolled-up eff_cap=%s kWh",
+                    reg,
+                    len(res["reports"]),
+                    res.get("rolled_up_kwh"),
+                )
             results.append(res)
             ok.append(reg)
         except Exception as exc:  # noqa: BLE001 — isolate one vehicle's failure
-            logger.error('[%s] FAILED: %s', reg, exc, exc_info=True)
+            logger.error("[%s] FAILED: %s", reg, exc, exc_info=True)
             failed.append(reg)
-    logger.info('=== recompute summary: %d OK, %d FAILED (of %d) ===',
-                len(ok), len(failed), len(regs))
+    logger.info(
+        "=== recompute summary: %d OK, %d FAILED (of %d) ===",
+        len(ok),
+        len(failed),
+        len(regs),
+    )
     if ok:
-        logger.info('  OK: %s', ', '.join(ok))
+        logger.info("  OK: %s", ", ".join(ok))
     if failed:
-        logger.warning('  FAILED: %s', ', '.join(failed))
+        logger.warning("  FAILED: %s", ", ".join(failed))
 
     # Aggregate the per-vehicle copy-forward verification problems. A migration
     # that dropped artefacts (or failed a per-file copy) MUST NOT end green — this
     # is the guard against the silent 2.2.7 raw_charger/raw_logger loss recurring.
-    copy_problems = [(res['reg'], p) for res in results
-                     for p in res.get('copy_problems', [])]
+    copy_problems = [
+        (res["reg"], p) for res in results for p in res.get("copy_problems", [])
+    ]
     if copy_problems:
         n_veh = len({r for r, _ in copy_problems})
-        logger.error('=== ARTEFACT COPY-FORWARD VERIFICATION FAILED: %d problem(s) '
-                     'across %d vehicle(s) ===', len(copy_problems), n_veh)
+        logger.error(
+            "=== ARTEFACT COPY-FORWARD VERIFICATION FAILED: %d problem(s) "
+            "across %d vehicle(s) ===",
+            len(copy_problems),
+            n_veh,
+        )
         for reg, p in copy_problems:
-            logger.error('  [%s] %s', reg, p)
-        logger.error('The dst version dir is LESS complete than src — artefacts '
-                     'were lost. Fix the copy and re-run before treating this '
-                     'migration as done.')
+            logger.error("  [%s] %s", reg, p)
+        logger.error(
+            "The dst version dir is LESS complete than src — artefacts "
+            "were lost. Fix the copy and re-run before treating this "
+            "migration as done."
+        )
 
     # Non-zero exit if EVERY vehicle failed (a partial run is still useful), or if
     # any artefact was lost / failed to copy (completeness is not optional).
@@ -835,5 +999,5 @@ def main(argv=None):
     return results
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

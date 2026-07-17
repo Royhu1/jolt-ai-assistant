@@ -27,6 +27,7 @@ from jolt_toolkit.report_generator.segment_algorithms import VEHICLE_CONFIG
 
 logger = logging.getLogger(__name__)
 
+
 # ── row-tuple column indices (derived dynamically from HEADERS, excluding the leading Leg Number column) ──
 # These constants are used only by the EV branch's effective-capacity
 # post-processing; diesel vehicles use the separate DIESEL_HEADERS and do not go
@@ -42,21 +43,23 @@ def _row_idx(header_name: str) -> int:
 assert HEADERS[0] == "Leg Number"
 
 
-_IDX_LEG_TYPE   = _row_idx('Leg Type')
-_IDX_SOC_CHANGE = _row_idx('SOC Change (%)')
-_IDX_ENERGY     = _row_idx('Energy Change (kWh)')
-_IDX_DISTANCE   = _row_idx('Distance (km)')
-_IDX_EPERF      = _row_idx('Energy Performance (kWh/km)')
-_IDX_CAP        = _row_idx('Battery Capacity (kWh)')
-_IDX_ESOURCE    = _row_idx('Energy Source')
-_IDX_BPOWER     = _row_idx('Battery Power (kW)')
-_IDX_DURATION   = _row_idx('Duration (HH:MM:SS)')
-_IDX_ELEV       = _row_idx('Elevation Difference (m)')
-_IDX_MASS       = _row_idx('Vehicle Mass (kg)')
-_IDX_EPERF_CORR = _row_idx('Energy Performance Corrected by Elevation Difference (kWh/km)')
-_IDX_EPERF_KIN  = _row_idx('Energy Performance Kinetics Corrected (kWh/km)')
-_IDX_EP_EXCL_AUX = _row_idx('EP_exclude_aux')
-_IDX_START      = _row_idx('Start Time (UTC)')
+_IDX_LEG_TYPE = _row_idx("Leg Type")
+_IDX_SOC_CHANGE = _row_idx("SOC Change (%)")
+_IDX_ENERGY = _row_idx("Energy Change (kWh)")
+_IDX_DISTANCE = _row_idx("Distance (km)")
+_IDX_EPERF = _row_idx("Energy Performance (kWh/km)")
+_IDX_CAP = _row_idx("Battery Capacity (kWh)")
+_IDX_ESOURCE = _row_idx("Energy Source")
+_IDX_BPOWER = _row_idx("Battery Power (kW)")
+_IDX_DURATION = _row_idx("Duration (HH:MM:SS)")
+_IDX_ELEV = _row_idx("Elevation Difference (m)")
+_IDX_MASS = _row_idx("Vehicle Mass (kg)")
+_IDX_EPERF_CORR = _row_idx(
+    "Energy Performance Corrected by Elevation Difference (kWh/km)"
+)
+_IDX_EPERF_KIN = _row_idx("Energy Performance Kinetics Corrected (kWh/km)")
+_IDX_EP_EXCL_AUX = _row_idx("EP_exclude_aux")
+_IDX_START = _row_idx("Start Time (UTC)")
 
 # ── v2.2.4: time-local (~1-month) effective-capacity window ──────────────────
 # A soc_estimate segment's capacity is instead inferred from the non-soc_estimate
@@ -69,7 +72,7 @@ _IDX_START      = _row_idx('Start Time (UTC)')
 # then to fallback_kwh. Short reports (≤3 months) have a small period span so the
 # window soon covers the whole period, with behaviour almost identical to the old
 # version. Adjusting this constant tunes the window width overall.
-CAP_WINDOW_HALF_DAYS = 15   # half window width (days); total window ≈ 1 month
+CAP_WINDOW_HALF_DAYS = 15  # half window width (days); total window ≈ 1 month
 _DAY_NS = 86_400 * 1_000_000_000
 
 
@@ -132,18 +135,19 @@ def _resolve_soc_fallback(cfg) -> dict | None:
     overrides ``soc_fallback_min_dsoc_pct`` / ``soc_fallback_min_dev``; otherwise
     ``None`` (callers then run the default MODE A gate unchanged).
     """
-    if not cfg or not cfg.get('soc_energy_fallback'):
+    if not cfg or not cfg.get("soc_energy_fallback"):
         return None
     try:
-        min_dsoc = float(cfg.get('soc_fallback_min_dsoc_pct',
-                                 SOC_FALLBACK_MIN_DSOC_PCT))
+        min_dsoc = float(
+            cfg.get("soc_fallback_min_dsoc_pct", SOC_FALLBACK_MIN_DSOC_PCT)
+        )
     except (TypeError, ValueError):
         min_dsoc = SOC_FALLBACK_MIN_DSOC_PCT
     try:
-        min_dev = float(cfg.get('soc_fallback_min_dev', SOC_FALLBACK_MIN_DEV))
+        min_dev = float(cfg.get("soc_fallback_min_dev", SOC_FALLBACK_MIN_DEV))
     except (TypeError, ValueError):
         min_dev = SOC_FALLBACK_MIN_DEV
-    return {'enabled': True, 'min_dsoc_pct': min_dsoc, 'min_dev': min_dev}
+    return {"enabled": True, "min_dsoc_pct": min_dsoc, "min_dev": min_dev}
 
 
 def _cap_is_valid(v) -> bool:
@@ -185,8 +189,10 @@ def _soc_weighted_cap(caps, weights):
     caps = [float(c) for c in caps]
     if not caps:
         return None
-    ws = [abs(float(w)) if (_cap_is_valid(w) and float(w) != 0.0) else 0.0
-          for w in weights]
+    ws = [
+        abs(float(w)) if (_cap_is_valid(w) and float(w) != 0.0) else 0.0
+        for w in weights
+    ]
     tot = sum(ws)
     if tot <= 0.0:
         return float(np.mean(caps))
@@ -223,7 +229,7 @@ def _period_capacity_from_rows(rows, idx_cap, idx_soc, idx_esrc):
     (effective capacity is physically always positive; a real donor is always > 0,
     so it likewise does not affect the live values).
     """
-    charge, discharge = [], []   # list[(cap, |ΔSOC|)]
+    charge, discharge = [], []  # list[(cap, |ΔSOC|)]
     for row in rows:
         cap = row[idx_cap]
         src = row[idx_esrc]
@@ -231,19 +237,24 @@ def _period_capacity_from_rows(rows, idx_cap, idx_soc, idx_esrc):
         # measured donor := real energy counter (NOT SOC-derived). Exclude both
         # 'soc_estimate' (SOC × nominal) and 'soc_fallback' (v2.2.8 SOC-rewritten
         # stale-anchor legs) — neither is a measured capacity donor.
-        if (isinstance(src, str) and src not in ('soc_estimate', 'soc_fallback')
-                and _cap_is_valid(cap) and cap > 0 and _cap_is_valid(soc)):
+        if (
+            isinstance(src, str)
+            and src not in ("soc_estimate", "soc_fallback")
+            and _cap_is_valid(cap)
+            and cap > 0
+            and _cap_is_valid(soc)
+        ):
             if soc > 0:
                 charge.append((float(cap), abs(float(soc))))
             elif soc < 0:
                 discharge.append((float(cap), abs(float(soc))))
     if charge:
         caps, ws = zip(*charge)
-        return _soc_weighted_cap(caps, ws), len(charge), 'charge'
+        return _soc_weighted_cap(caps, ws), len(charge), "charge"
     if discharge:
         caps, ws = zip(*discharge)
-        return _soc_weighted_cap(caps, ws), len(discharge), 'discharge'
-    return None, 0, 'fallback'
+        return _soc_weighted_cap(caps, ws), len(discharge), "discharge"
+    return None, 0, "fallback"
 
 
 def _recompute_weighted_capacity(quarterly: dict, min_donors: int = MIN_DONORS):
@@ -258,29 +269,50 @@ def _recompute_weighted_capacity(quarterly: dict, min_donors: int = MIN_DONORS):
     go blank). No donor quarter at all → return ``(None, 0, 0)`` and the caller
     leaves the existing scalar unchanged.
     """
-    reliable = [(v['kwh'], v['n']) for v in quarterly.values()
-                if v.get('kwh') is not None and v.get('n', 0) >= min_donors]
-    n_sparse = sum(1 for v in quarterly.values()
-                   if v.get('kwh') is not None and 0 < v.get('n', 0) < min_donors)
-    pool = reliable or [(v['kwh'], v['n']) for v in quarterly.values()
-                        if v.get('kwh') is not None and v.get('n', 0) > 0]
+    reliable = [
+        (v["kwh"], v["n"])
+        for v in quarterly.values()
+        if v.get("kwh") is not None and v.get("n", 0) >= min_donors
+    ]
+    n_sparse = sum(
+        1
+        for v in quarterly.values()
+        if v.get("kwh") is not None and 0 < v.get("n", 0) < min_donors
+    )
+    pool = reliable or [
+        (v["kwh"], v["n"])
+        for v in quarterly.values()
+        if v.get("kwh") is not None and v.get("n", 0) > 0
+    ]
     if not pool:
         return None, 0, n_sparse
     total_n = sum(n for _, n in pool)
     wavg = round(sum(k * n for k, n in pool) / total_n, 1)
     # A sparse quarter's stored kwh falls back to the weighted average (n kept for identification)
     for v in quarterly.values():
-        if v.get('n', 0) < min_donors:
-            v['kwh'] = wavg
+        if v.get("n", 0) < min_donors:
+            v["kwh"] = wavg
     return wavg, len(reliable), n_sparse
 
 
-def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
-                                 idx_eperf, idx_dist, idx_esrc,
-                                 idx_bpower, idx_dur,
-                                 idx_eperf_corr, idx_elev, idx_mass,
-                                 fallback_kwh, idx_eperf_kin=None,
-                                 idx_start=None, soc_fallback=None):
+def _correct_effective_capacity(
+    rows,
+    idx_cap,
+    idx_energy,
+    idx_soc,
+    idx_eperf,
+    idx_dist,
+    idx_esrc,
+    idx_bpower,
+    idx_dur,
+    idx_eperf_corr,
+    idx_elev,
+    idx_mass,
+    fallback_kwh,
+    idx_eperf_kin=None,
+    idx_start=None,
+    soc_fallback=None,
+):
     """
     Post-processing: correct the effective battery capacity and re-derive the related fields.
 
@@ -360,11 +392,11 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
     history / changelogs / pending_issues.)
     """
     # v2.2.8 per-vehicle SOC-energy fallback control (None = MODE A only).
-    fb_enabled = bool(soc_fallback and soc_fallback.get('enabled'))
-    fb_min_dsoc = float((soc_fallback or {}).get('min_dsoc_pct',
-                                                 SOC_FALLBACK_MIN_DSOC_PCT))
-    fb_min_dev = float((soc_fallback or {}).get('min_dev',
-                                                SOC_FALLBACK_MIN_DEV))
+    fb_enabled = bool(soc_fallback and soc_fallback.get("enabled"))
+    fb_min_dsoc = float(
+        (soc_fallback or {}).get("min_dsoc_pct", SOC_FALLBACK_MIN_DSOC_PCT)
+    )
+    fb_min_dev = float((soc_fallback or {}).get("min_dev", SOC_FALLBACK_MIN_DEV))
 
     def _apply_soc_energy(row, soc_chg, cap):
         """Re-derive energy from ``ΔSOC/100 × cap`` (signed) and recompute the
@@ -438,8 +470,9 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
     else:
         row_ns = [None] * len(rows)
     valid_ns = [n for n in row_ns if n is not None]
-    period_span_days = ((max(valid_ns) - min(valid_ns)) / _DAY_NS
-                        if len(valid_ns) >= 2 else 0.0)
+    period_span_days = (
+        (max(valid_ns) - min(valid_ns)) / _DAY_NS if len(valid_ns) >= 2 else 0.0
+    )
     # Upper bound for doubling the half-width: covering the whole period is equivalent to the old global behaviour
     max_half_days = max(float(CAP_WINDOW_HALF_DAYS), period_span_days)
 
@@ -468,8 +501,11 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
                 # order (and skips the invalid-weight filtering, unreachable for
                 # window donors) from the Python-level helper, so routing through it
                 # could perturb the byte-identical output — deliberately not shared.
-                m = (float((caps_w * ws_w).sum() / tot) if tot > 0.0
-                     else float(caps_w.mean()))
+                m = (
+                    float((caps_w * ws_w).sum() / tot)
+                    if tot > 0.0
+                    else float(caps_w.mean())
+                )
                 return m, int(mask.sum()), half
             if half >= max_half_days:
                 return None, 0, half
@@ -480,9 +516,9 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
     # Donors carry |ΔSOC| as the combined-ratio weight (charge/discharge capacities
     # use a ΔSOC-weighted mean within the set, removing the integer-% quantisation
     # upward bias of small-ΔSOC segments; see _soc_weighted_cap).
-    charge_donors = []      # list[(ns, cap, w)] ; w = |ΔSOC|
+    charge_donors = []  # list[(ns, cap, w)] ; w = |ΔSOC|
     discharge_donors = []
-    charge_caps = []        # list[(cap, w)]  whole period (does not require a timestamp)
+    charge_caps = []  # list[(cap, w)]  whole period (does not require a timestamp)
     discharge_caps = []
     for row, n in zip(rows, row_ns):
         cap = row[idx_cap]
@@ -491,8 +527,11 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
         # measured donor := NOT SOC-derived. On fresh generation 'soc_fallback'
         # cannot yet appear here (it is assigned later, in step 2); the check is
         # defensive for replay paths that might feed already-corrected rows.
-        if (_cap_is_valid(cap) and src not in ('soc_estimate', 'soc_fallback')
-                and _cap_is_valid(soc)):
+        if (
+            _cap_is_valid(cap)
+            and src not in ("soc_estimate", "soc_fallback")
+            and _cap_is_valid(soc)
+        ):
             w = abs(float(soc))
             if soc > 0:
                 charge_caps.append((cap, w))
@@ -511,34 +550,34 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
     if charge_caps:
         caps, ws = zip(*charge_caps)
         avg_eff_cap = _soc_weighted_cap(caps, ws)
-        cap_source = 'charge'
+        cap_source = "charge"
     elif discharge_caps:
         caps, ws = zip(*discharge_caps)
         avg_eff_cap = _soc_weighted_cap(caps, ws)
-        cap_source = 'discharge'
+        cap_source = "discharge"
     else:
         avg_eff_cap = fallback_kwh
-        cap_source = 'fallback'
+        cap_source = "fallback"
 
     def _local_cap_for(t_ns):
         """Charge-preferred time-local effective capacity. Returns (cap|None, src, half)."""
         m, _, half = _window_mean(charge_donors, t_ns, CAP_WINDOW_HALF_DAYS)
         if m is not None:
-            return m, 'charge', half
+            return m, "charge", half
         m, _, half = _window_mean(discharge_donors, t_ns, CAP_WINDOW_HALF_DAYS)
         if m is not None:
-            return m, 'discharge', half
+            return m, "discharge", half
         return None, cap_source, half
 
     n_local = n_widened = n_global = n_fallback = 0
     widened_half_max = 0.0
     for row, t_ns in zip(rows, row_ns):
-        if row[idx_esrc] == 'soc_estimate' and _cap_is_valid(row[idx_soc]):
+        if row[idx_esrc] == "soc_estimate" and _cap_is_valid(row[idx_soc]):
             cap, _src, half = _local_cap_for(t_ns)
             if cap is None:
                 # The row lacks a timestamp or the whole period has no donor → global mean (or fallback_kwh)
                 cap = avg_eff_cap
-                if cap_source == 'fallback':
+                if cap_source == "fallback":
                     n_fallback += 1
                 else:
                     n_global += 1
@@ -554,15 +593,24 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
         "Step 1 (time-local ±%d days, period span=%.0f days): soc_estimate replacement — "
         "local=%d, widened=%d(max half-width %.0f days), global fallback=%d, fallback=%d; "
         "donor(charge=%d, discharge=%d), global mean=%.1f kWh(source=%s)",
-        CAP_WINDOW_HALF_DAYS, period_span_days, n_local, n_widened,
-        widened_half_max, n_global, n_fallback,
-        len(charge_donors), len(discharge_donors), avg_eff_cap, cap_source)
+        CAP_WINDOW_HALF_DAYS,
+        period_span_days,
+        n_local,
+        n_widened,
+        widened_half_max,
+        n_global,
+        n_fallback,
+        len(charge_donors),
+        len(discharge_donors),
+        avg_eff_cap,
+        cap_source,
+    )
 
     # ── Step 2: global ±1σ detection + time-local inlier mean replacement ────
     all_caps = [row[idx_cap] for row in rows if _cap_is_valid(row[idx_cap])]
     if len(all_caps) >= 3:
         cap_mean = float(np.mean(all_caps))
-        cap_std  = float(np.std(all_caps))
+        cap_std = float(np.std(all_caps))
         lo = cap_mean - cap_std
         hi = cap_mean + cap_std
         # inlier donors (within ±1σ) together with the timestamp + |ΔSOC| weight,
@@ -577,16 +625,24 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
         # corrected rows. soc_estimate rows are intentionally KEPT here — after
         # step 1 they carry a donor-derived cap, matching pre-v2.2.8 behaviour.)
         inlier_donors = [
-            (n, row[idx_cap],
-             abs(float(row[idx_soc])) if _cap_is_valid(row[idx_soc]) else 0.0)
+            (
+                n,
+                row[idx_cap],
+                abs(float(row[idx_soc])) if _cap_is_valid(row[idx_soc]) else 0.0,
+            )
             for row, n in zip(rows, row_ns)
-            if n is not None and _cap_is_valid(row[idx_cap])
-            and lo <= row[idx_cap] <= hi and row[idx_esrc] != 'soc_fallback'
+            if n is not None
+            and _cap_is_valid(row[idx_cap])
+            and lo <= row[idx_cap] <= hi
+            and row[idx_esrc] != "soc_fallback"
         ]
         inlier_global_mean = (
-            _soc_weighted_cap([c for _, c, _ in inlier_donors],
-                              [w for _, _, w in inlier_donors])
-            if inlier_donors else cap_mean)
+            _soc_weighted_cap(
+                [c for _, c, _ in inlier_donors], [w for _, _, w in inlier_donors]
+            )
+            if inlier_donors
+            else cap_mean
+        )
         corrected = n_repl_local = n_energy_kept = n_soc_fallback = 0
         for row, t_ns in zip(rows, row_ns):
             cap = row[idx_cap]
@@ -594,8 +650,7 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
                 # Original IMPLIED capacity (the value **before** the capacity
                 # column is replaced), used for the SOC-fallback deviation gate.
                 original_cap = cap
-                repl, _, _ = _window_mean(inlier_donors, t_ns,
-                                          CAP_WINDOW_HALF_DAYS)
+                repl, _, _ = _window_mean(inlier_donors, t_ns, CAP_WINDOW_HALF_DAYS)
                 if repl is not None:
                     n_repl_local += 1
                 else:
@@ -615,7 +670,7 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
                 # corrected / kinetics must be kept and never overwritten by a SOC
                 # re-derivation (otherwise short legs would get a spuriously low EP,
                 # forming a false low band).
-                if row[idx_esrc] == 'soc_estimate':
+                if row[idx_esrc] == "soc_estimate":
                     soc_chg = row[idx_soc]
                     if _cap_is_valid(soc_chg) and soc_chg != 0:
                         _apply_soc_energy(row, soc_chg, repl)
@@ -626,7 +681,7 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
                     # severely deviating — judged to be a stale counter anchor, so
                     # re-derive from SOC to replace the untrustworthy counter energy.
                     _apply_soc_energy(row, row[idx_soc], repl)
-                    row[idx_esrc] = 'soc_fallback'
+                    row[idx_esrc] = "soc_fallback"
                     n_soc_fallback += 1
                 else:
                     n_energy_kept += 1
@@ -636,8 +691,16 @@ def _correct_effective_capacity(rows, idx_cap, idx_energy, idx_soc,
             "capacity (of which %d rows used a local window mean; counter-sourced: %d rows SOC "
             "fallback re-derivation(soc_fallback), %d rows corrected the capacity column only and kept the counter energy; "
             "global mean=%.1f, σ=%.1f, range=[%.1f, %.1f], inlier donor=%d)",
-            corrected, n_repl_local, n_soc_fallback, n_energy_kept,
-            cap_mean, cap_std, lo, hi, len(inlier_donors))
+            corrected,
+            n_repl_local,
+            n_soc_fallback,
+            n_energy_kept,
+            cap_mean,
+            cap_std,
+            lo,
+            hi,
+            len(inlier_donors),
+        )
         # The whole-period mean after step 2 is the final persisted effective capacity (semantics unchanged)
         final_caps = [row[idx_cap] for row in rows if _cap_is_valid(row[idx_cap])]
         if final_caps:
@@ -665,44 +728,58 @@ def _persist_effective_capacity(reg, eff_cap, n_donors, source, period_key):
     not write and does not touch the existing scalar. This also fixes the capacity
     drift bug caused by the old implementation's "single-period mean overwrite".
     """
-    if source == 'fallback' or eff_cap is None:
-        logger.info("effective capacity source is fallback (no donor), "
-                    "not updating vehicles.json: %s %s", reg, period_key)
+    if source == "fallback" or eff_cap is None:
+        logger.info(
+            "effective capacity source is fallback (no donor), "
+            "not updating vehicles.json: %s %s",
+            reg,
+            period_key,
+        )
         return
 
     import json
+
     from filelock import FileLock
+
     from jolt_toolkit.configs import get_config_path
-    path = get_config_path('vehicles.json')
+
+    path = get_config_path("vehicles.json")
     # Guard the read-modify-write so parallel report runs cannot clobber
     # each other's capacity ledger entries (values/timing unchanged).
-    with FileLock(str(path) + '.lock'):
-        with open(path, 'r', encoding='utf-8') as f:
+    with FileLock(str(path) + ".lock"):
+        with open(path, "r", encoding="utf-8") as f:
             all_cfg = json.load(f)
         if reg not in all_cfg:
             return
 
         entry = all_cfg[reg]
-        old_val = entry.get('effective_capacity_kwh')
-        quarterly = entry.get('effective_capacity_quarterly') or {}
-        quarterly[period_key] = {'kwh': round(float(eff_cap), 1), 'n': int(n_donors)}
+        old_val = entry.get("effective_capacity_kwh")
+        quarterly = entry.get("effective_capacity_quarterly") or {}
+        quarterly[period_key] = {"kwh": round(float(eff_cap), 1), "n": int(n_donors)}
 
         wavg, n_rel, n_sparse = _recompute_weighted_capacity(quarterly)
-        entry['effective_capacity_quarterly'] = quarterly
+        entry["effective_capacity_quarterly"] = quarterly
         if wavg is not None:
-            entry['effective_capacity_kwh'] = wavg
+            entry["effective_capacity_kwh"] = wavg
 
-        with open(path, 'w', encoding='utf-8') as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(all_cfg, f, indent=2, ensure_ascii=False)
-            f.write('\n')
+            f.write("\n")
     # Sync the in-memory VEHICLE_CONFIG
     VEHICLE_CONFIG.setdefault(reg, {})
-    VEHICLE_CONFIG[reg]['effective_capacity_quarterly'] = quarterly
+    VEHICLE_CONFIG[reg]["effective_capacity_quarterly"] = quarterly
     if wavg is not None:
-        VEHICLE_CONFIG[reg]['effective_capacity_kwh'] = wavg
+        VEHICLE_CONFIG[reg]["effective_capacity_kwh"] = wavg
     logger.info(
         "effective_capacity updated: %s  %.1f → %.1f kWh "
         "(this period %s: kwh=%.1f n=%d source=%s; reliable quarters=%d, sparse=%d)",
-        reg, old_val or 0, wavg if wavg is not None else (old_val or 0),
-        period_key, round(float(eff_cap), 1), int(n_donors), source,
-        n_rel, n_sparse)
+        reg,
+        old_val or 0,
+        wavg if wavg is not None else (old_val or 0),
+        period_key,
+        round(float(eff_cap), 1),
+        int(n_donors),
+        source,
+        n_rel,
+        n_sparse,
+    )

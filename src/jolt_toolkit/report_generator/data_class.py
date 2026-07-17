@@ -8,6 +8,7 @@ import srf_client
 @dataclasses.dataclass
 class ServerData:
     """Container for data retrieved from SRF API."""
+
     vehicle: srf_client.model.Vehicle
     legs: srf_client.model.Leg
     charging_events: srf_client.model.ChargerTransaction

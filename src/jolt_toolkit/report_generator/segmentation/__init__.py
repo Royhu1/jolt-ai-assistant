@@ -19,9 +19,11 @@ Module map:
                       set on import) and overlay sidecar export
   detection           run_segment_detection orchestrator
 """
+
 from __future__ import annotations
 
 from .constants import (
+    _ANCHOR_PRIVATE_KEYS,
     AC_COL,
     DC_COL,
     MASS_COL,
@@ -36,10 +38,9 @@ from .constants import (
     TOTAL_ENERGY_COL,
     TRACTOR_ONLY_MAX_KG,
     VEHICLE_CONFIG,
-    _ANCHOR_PRIVATE_KEYS,
     _load_json,
 )
-from .timeutil import _to_utc
+from .detection import run_segment_detection
 from .mass_aggregation import (
     _MAD_K,
     _MASS_AGG_METHODS,
@@ -53,15 +54,6 @@ from .mass_aggregation import (
     _trimmed_inliers,
     resolve_mass_agg,
 )
-from .soc_detection import (
-    find_charge_segments_by_soc,
-    find_discharge_segments_by_soc,
-)
-from .speed_detection import (
-    _extend_trip_endpoint_to_zero,
-    find_discharge_segments_by_speed,
-    find_speed_trips,
-)
 from .mass_clustering import (
     _detect_cluster_transitions,
     _enforce_anchor_ordering,
@@ -74,8 +66,20 @@ from .mass_clustering import (
     merge_discharge_by_mass,
     split_discharge_by_mass,
 )
+from .soc_detection import (
+    find_charge_segments_by_soc,
+    find_discharge_segments_by_soc,
+)
+from .speed_detection import (
+    _extend_trip_endpoint_to_zero,
+    find_discharge_segments_by_speed,
+    find_speed_trips,
+)
+from .timeutil import _to_utc
 from .validation_figure import (
+    _CHARGE_COLOR,
     _DATE_FMT,
+    _DISCHARGE_COLOR,
     _DPI,
     _DSOC_FONT,
     _FIGURE_SIZE,
@@ -84,8 +88,6 @@ from .validation_figure import (
     _LEGEND_FONT,
     _TEXT_BBOX,
     _TICK_FONT,
-    _CHARGE_COLOR,
-    _DISCHARGE_COLOR,
     _annotate_overlay_energy_delta,
     _build_energy_series,
     _export_overlay_boxes,
@@ -94,7 +96,6 @@ from .validation_figure import (
     _parse_box_gid,
     plot_leg_validation,
 )
-from .detection import run_segment_detection
 
 __all__ = [
     # constants

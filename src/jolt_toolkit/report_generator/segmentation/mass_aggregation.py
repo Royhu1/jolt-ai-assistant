@@ -3,6 +3,7 @@ Per-segment vehicle-mass aggregation (configurable, robust).
 
 Behaviour-preserving split of the former ``segment_algorithms.py`` (v3.0.0).
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,8 +26,14 @@ logger = logging.getLogger(__name__)
 # the value. The default ``"mean"`` preserves the legacy behaviour bit-for-bit.
 
 _MASS_AGG_METHODS = (
-    'mean', 'median', 'iqr_median', 'mad_median',
-    'iqr_mean', 'mad_mean', 'mad_tw_mean', 'trimmed_mean',
+    "mean",
+    "median",
+    "iqr_median",
+    "mad_median",
+    "iqr_mean",
+    "mad_mean",
+    "mad_tw_mean",
+    "trimmed_mean",
 )
 
 # ``mad_median`` / ``mad_mean`` fence width as a multiple of the MAD (median
@@ -43,7 +50,7 @@ _MAD_K = 3.0
 _TRIM_FRAC = 0.20
 
 
-def _iqr_inliers(sel: 'pd.Series') -> 'pd.Series':
+def _iqr_inliers(sel: "pd.Series") -> "pd.Series":
     """Tukey 1.5·IQR inlier subset of ``sel`` (shared by ``iqr_median`` /
     ``iqr_mean`` so they fence identically).
 
@@ -62,7 +69,7 @@ def _iqr_inliers(sel: 'pd.Series') -> 'pd.Series':
     return sel
 
 
-def _mad_inliers(sel: 'pd.Series') -> 'pd.Series':
+def _mad_inliers(sel: "pd.Series") -> "pd.Series":
     """Median ± ``_MAD_K``·MAD inlier subset of ``sel`` (shared by ``mad_median`` /
     ``mad_mean`` so they fence identically).
 
@@ -83,7 +90,7 @@ def _mad_inliers(sel: 'pd.Series') -> 'pd.Series':
     return sel
 
 
-def _trimmed_inliers(sel: 'pd.Series', frac: float = _TRIM_FRAC) -> 'pd.Series':
+def _trimmed_inliers(sel: "pd.Series", frac: float = _TRIM_FRAC) -> "pd.Series":
     """Symmetric trimmed subset of ``sel``: drop the lowest & highest ``frac``.
 
     ``k = int(len * frac)`` samples are dropped from each tail (matching
@@ -96,10 +103,10 @@ def _trimmed_inliers(sel: 'pd.Series', frac: float = _TRIM_FRAC) -> 'pd.Series':
     if k <= 0 or n - 2 * k < 1:
         return sel
     ordered = sel.sort_values()
-    return ordered.iloc[k:n - k]
+    return ordered.iloc[k : n - k]
 
 
-def _coerce_seconds(ts: 'pd.Series') -> 'np.ndarray | None':
+def _coerce_seconds(ts: "pd.Series") -> "np.ndarray | None":
     """Coerce ``ts`` (a per-sample time axis aligned to a kept mass set) into a
     1-D float array of seconds, or ``None`` when it cannot be used.
 
@@ -113,15 +120,15 @@ def _coerce_seconds(ts: 'pd.Series') -> 'np.ndarray | None':
         return None
     s = ts if isinstance(ts, pd.Series) else pd.Series(list(ts))
     if pd.api.types.is_numeric_dtype(s):
-        n = pd.to_numeric(s, errors='coerce')
-        return n.to_numpy('float64') if bool(n.notna().all()) else None
-    t = pd.to_datetime(s, errors='coerce', utc=True)
+        n = pd.to_numeric(s, errors="coerce")
+        return n.to_numpy("float64") if bool(n.notna().all()) else None
+    t = pd.to_datetime(s, errors="coerce", utc=True)
     if not bool(t.notna().all()):
         return None
-    return (t - t.iloc[0]).dt.total_seconds().to_numpy('float64')
+    return (t - t.iloc[0]).dt.total_seconds().to_numpy("float64")
 
 
-def _time_weighted_mean(values: 'np.ndarray', seconds: 'np.ndarray') -> float:
+def _time_weighted_mean(values: "np.ndarray", seconds: "np.ndarray") -> float:
     """Trapezoidal time-weighted mean of ``values`` sampled at ``seconds``.
 
     Each sample's weight is the time interval it represents (trapezoidal rule:
@@ -133,11 +140,11 @@ def _time_weighted_mean(values: 'np.ndarray', seconds: 'np.ndarray') -> float:
     any non-finite second, or a zero span — e.g. all-duplicate timestamps), which
     makes ``mad_tw_mean`` degrade exactly to ``mad_mean``.
     """
-    v = np.asarray(values, dtype='float64')
-    s = np.asarray(seconds, dtype='float64')
+    v = np.asarray(values, dtype="float64")
+    s = np.asarray(seconds, dtype="float64")
     if v.size < 2 or s.size != v.size or not np.isfinite(s).all():
         return float(v.mean())
-    order = np.argsort(s, kind='mergesort')
+    order = np.argsort(s, kind="mergesort")
     s = s[order]
     v = v[order]
     if (s[-1] - s[0]) <= 0:
@@ -152,8 +159,9 @@ def _time_weighted_mean(values: 'np.ndarray', seconds: 'np.ndarray') -> float:
     return float(np.dot(w, v) / wsum)
 
 
-def _mad_tw_value(sel: 'pd.Series', kept: 'pd.Series',
-                  timestamps: 'pd.Series | None') -> float:
+def _mad_tw_value(
+    sel: "pd.Series", kept: "pd.Series", timestamps: "pd.Series | None"
+) -> float:
     """Time-weighted mean of the MAD-fenced ``kept`` set, aligned to ``timestamps``.
 
     ``timestamps`` is expected to be index-aligned to ``sel`` (the pre-fence
@@ -166,14 +174,15 @@ def _mad_tw_value(sel: 'pd.Series', kept: 'pd.Series',
         try:
             secs = _coerce_seconds(timestamps.reindex(kept.index))
             if secs is not None and len(secs) == len(kept):
-                return _time_weighted_mean(kept.to_numpy('float64'), secs)
+                return _time_weighted_mean(kept.to_numpy("float64"), secs)
         except Exception:  # pragma: no cover - defensive; degrade to mad_mean
             pass
     return float(kept.mean())
 
 
-def _agg_mass(sel: 'pd.Series', method: str = 'mean',
-              timestamps: 'pd.Series | None' = None) -> tuple[float, float]:
+def _agg_mass(
+    sel: "pd.Series", method: str = "mean", timestamps: "pd.Series | None" = None
+) -> tuple[float, float]:
     """Aggregate an already-filtered mass-sample series into ``(mass_kg, cv)``.
 
     ``sel`` is expected to already be positive (> 0) and, where applicable,
@@ -232,28 +241,28 @@ def _agg_mass(sel: 'pd.Series', method: str = 'mean',
     """
     if sel is None or len(sel) < 2:
         return np.nan, np.nan
-    m = (method or 'mean').lower()
+    m = (method or "mean").lower()
     if m not in _MASS_AGG_METHODS:
         logger.warning("Unknown mass_agg method %r; falling back to 'mean'", method)
-        m = 'mean'
+        m = "mean"
 
     # Step 1 — outlier fence (the kept inlier set). ``mean`` / ``median`` use the
     # full window; each ``*_median`` and ``*_mean`` pair shares one fence helper,
     # so the median and mean variants of a fence keep BYTE-IDENTICAL inlier sets
     # (only the Step-2 estimator differs).
-    if m in ('iqr_median', 'iqr_mean'):
+    if m in ("iqr_median", "iqr_mean"):
         kept = _iqr_inliers(sel)
-    elif m in ('mad_median', 'mad_mean', 'mad_tw_mean'):
+    elif m in ("mad_median", "mad_mean", "mad_tw_mean"):
         kept = _mad_inliers(sel)
-    elif m == 'trimmed_mean':
+    elif m == "trimmed_mean":
         kept = _trimmed_inliers(sel)
     else:  # 'mean', 'median'
         kept = sel
 
     # Step 2 — central estimator over the kept set.
-    if m in ('median', 'iqr_median', 'mad_median'):
+    if m in ("median", "iqr_median", "mad_median"):
         value = float(kept.median())
-    elif m == 'mad_tw_mean':
+    elif m == "mad_tw_mean":
         # Time-weighted mean of the (shared) MAD fence; falls back to the plain
         # mean of the kept set when no usable time axis is supplied (== mad_mean).
         value = _mad_tw_value(sel, kept, timestamps)
@@ -277,14 +286,14 @@ def resolve_mass_agg(reg: str, pipeline_cfg: dict | None = None) -> str:
     ``resolve_mass_agg(reg)`` still honours a pipeline-level setting.
     """
     veh = VEHICLE_CONFIG.get(reg, {})
-    m = veh.get('mass_agg')
+    m = veh.get("mass_agg")
     if m:
         return str(m)
     if pipeline_cfg is None:
-        pname = veh.get('pipeline', 'default_soc')
+        pname = veh.get("pipeline", "default_soc")
         pipeline_cfg = PIPELINE_CONFIGS.get(pname)
     if pipeline_cfg:
-        m = pipeline_cfg.get('mass_agg')
+        m = pipeline_cfg.get("mass_agg")
         if m:
             return str(m)
-    return 'mean'
+    return "mean"

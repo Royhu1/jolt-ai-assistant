@@ -21,8 +21,8 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # ── Logger EEC2 / EBC1 channel column names ────────────────────────────────
-EEC2_COL = 'EEC2 accelerator pedal position 1'
-EBC1_COL = 'EBC1 brake pedal position'
+EEC2_COL = "EEC2 accelerator pedal position 1"
+EBC1_COL = "EBC1 brake pedal position"
 
 # Compute the pedal histogram only for discharge segments with a driving distance > 10 km
 MIN_DISTANCE_FOR_PEDAL_KM = 10.0
@@ -72,12 +72,14 @@ def extract_pedal_events_by_rise_fall(
 
     # Optional denoising (usually unnecessary for 1 Hz data; 3 or 5 recommended when there are spikes)
     if smooth_window and smooth_window >= 3 and smooth_window % 2 == 1:
-        y = (pd.Series(y)
-             .rolling(smooth_window, center=True)
-             .median()
-             .bfill()
-             .ffill()
-             .values)
+        y = (
+            pd.Series(y)
+            .rolling(smooth_window, center=True)
+            .median()
+            .bfill()
+            .ffill()
+            .values
+        )
 
     # State machine
     SEEK_RISE, IN_EVENT = 0, 1
@@ -88,7 +90,7 @@ def extract_pedal_events_by_rise_fall(
     last_min_idx = 0
     peak_val = y[0]
     peak_idx = 0
-    last_event_end_idx = -(10 ** 9)
+    last_event_end_idx = -(10**9)
 
     events = []
     for i in range(1, len(y)):
@@ -115,8 +117,9 @@ def extract_pedal_events_by_rise_fall(
             # Whether the fall threshold is met (relative to this event's peak)
             if peak_val - val >= delta_down:
                 # Minimum-width & event-separation checks
-                if ((peak_idx - last_min_idx + 1) >= min_width
-                        and (i - last_event_end_idx) >= min_separation):
+                if (peak_idx - last_min_idx + 1) >= min_width and (
+                    i - last_event_end_idx
+                ) >= min_separation:
                     events.append((peak_idx, peak_val))
                     last_event_end_idx = i
 
@@ -152,11 +155,11 @@ def peaks_histogram_string(peaks: dict, bins: int = 10) -> str | None:
     bin_width = 100.0 / bins
 
     for event in peaks.values():
-        if event and 'value' in event:
-            bin_index = min(int(event['value'] / bin_width), bins - 1)
+        if event and "value" in event:
+            bin_index = min(int(event["value"] / bin_width), bins - 1)
             v[bin_index] += 1
 
-    return ','.join(map(str, v))
+    return ",".join(map(str, v))
 
 
 def compute_pedal_histogram(
@@ -183,14 +186,14 @@ def compute_pedal_histogram(
     # Normalise to DataFrame format
     if isinstance(pedal_series, pd.Series):
         df = pedal_series.dropna().reset_index()
-        df.columns = ['Time', 'value']
-        col = 'value'
+        df.columns = ["Time", "value"]
+        col = "value"
     elif isinstance(pedal_series, pd.DataFrame):
         if value_col is None:
             # Take the first non-index column
             value_col = pedal_series.columns[0]
         df = pedal_series[[value_col]].dropna().reset_index()
-        df.columns = ['Time', value_col]
+        df.columns = ["Time", value_col]
         col = value_col
     else:
         return None
@@ -198,5 +201,5 @@ def compute_pedal_histogram(
     if len(df) < MIN_SAMPLES:
         return None
 
-    peaks = extract_pedal_events_by_rise_fall(df, time_col='Time', value_col=col)
+    peaks = extract_pedal_events_by_rise_fall(df, time_col="Time", value_col=col)
     return peaks_histogram_string(peaks)

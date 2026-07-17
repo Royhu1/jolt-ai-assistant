@@ -19,22 +19,21 @@ import logging
 import os
 from pathlib import Path
 
+import pandas as pd
 import srf_client
-from srf_client import paging
 from openpyxl import load_workbook
 from openpyxl.styles import Font
-
-import pandas as pd
+from srf_client import paging
 
 from jolt_toolkit.report_generator.paths import get_cache_dir
-from jolt_toolkit.report_generator.segment_algorithms import VEHICLE_CONFIG
 from jolt_toolkit.report_generator.report_builder import (
     HEADERS,
     _build_charger_url,
 )
+from jolt_toolkit.report_generator.segment_algorithms import VEHICLE_CONFIG
 from jolt_toolkit.report_generator.xlsx_patch_common import (
-    _parse_report_filename,
     _cell_is_empty,
+    _parse_report_filename,
     _to_timestamp,
     make_srf_client,
 )
@@ -42,10 +41,10 @@ from jolt_toolkit.report_generator.xlsx_patch_common import (
 logger = logging.getLogger(__name__)
 
 # ── Excel column indices (1-based, openpyxl convention) ─────────────────
-_COL_LEG_TYPE       = 2
-_COL_CHARGER        = 4   # Charger Link
-_COL_START_TIME     = 6
-_COL_END_TIME       = 9
+_COL_LEG_TYPE = 2
+_COL_CHARGER = 4  # Charger Link
+_COL_START_TIME = 6
+_COL_END_TIME = 9
 _COL_CHARGER_ENERGY = 33  # Energy Output from Charger (kWh)
 
 # Cheap sanity check: the hard-coded 1-based Excel columns above must stay in
@@ -92,20 +91,20 @@ def _find_charger_matches(windows: list, t_start, t_end, tol_min: float = 4) -> 
     t_s = pd.Timestamp(t_start)
     t_e = pd.Timestamp(t_end)
     if t_s.tzinfo is None:
-        t_s = t_s.tz_localize('UTC')
+        t_s = t_s.tz_localize("UTC")
     if t_e.tzinfo is None:
-        t_e = t_e.tz_localize('UTC')
+        t_e = t_e.tz_localize("UTC")
     ext_s = t_s - tol
     ext_e = t_e + tol
     matches = []
-    for (ws, we, uri, energy_kwh) in windows:
+    for ws, we, uri, energy_kwh in windows:
         try:
             ws = pd.Timestamp(ws)
             we = pd.Timestamp(we)
             if ws.tzinfo is None:
-                ws = ws.tz_localize('UTC')
+                ws = ws.tz_localize("UTC")
             if we.tzinfo is None:
-                we = we.tz_localize('UTC')
+                we = we.tz_localize("UTC")
             if ws <= ext_e and we >= ext_s:
                 matches.append((ws, we, uri, energy_kwh))
         except Exception:
@@ -115,6 +114,7 @@ def _find_charger_matches(windows: list, t_start, t_end, tol_min: float = 4) -> 
 
 
 # ── raw_charger CSV persistence (shared by _generator + the backfill CLI) ──────
+
 
 def _charger_transaction_to_row(ct) -> dict:
     """Build one CSV row from a ``ChargerTransaction`` (schema unchanged since v2.2).
@@ -127,17 +127,17 @@ def _charger_transaction_to_row(ct) -> dict:
         energy_kwh = round(ct.end_meter - ct.start_meter, 3)
     charger = ct.charger
     return {
-        'start_time': str(ct.start_time),
-        'end_time': str(ct.end_time),
-        'uri': ct.uri,
-        'start_meter_kwh': ct.start_meter,
-        'end_meter_kwh': ct.end_meter,
-        'energy_delivered_kwh': energy_kwh,
-        'charger_label': getattr(charger, 'label', None),
-        'charger_make': getattr(charger, 'make', None),
-        'charger_model': getattr(charger, 'model', None),
-        'charger_max_power_kw': getattr(charger, 'max_power', None),
-        'charger_dc': getattr(charger, 'dc', None),
+        "start_time": str(ct.start_time),
+        "end_time": str(ct.end_time),
+        "uri": ct.uri,
+        "start_meter_kwh": ct.start_meter,
+        "end_meter_kwh": ct.end_meter,
+        "energy_delivered_kwh": energy_kwh,
+        "charger_label": getattr(charger, "label", None),
+        "charger_make": getattr(charger, "make", None),
+        "charger_model": getattr(charger, "model", None),
+        "charger_max_power_kw": getattr(charger, "max_power", None),
+        "charger_dc": getattr(charger, "dc", None),
     }
 
 
@@ -160,7 +160,7 @@ def merge_save_charger_transactions(charger_objects, out_dir) -> int:
     if not charger_objects:
         return 0
     out_dir = Path(out_dir)
-    charger_dir = out_dir / 'raw_charger'
+    charger_dir = out_dir / "raw_charger"
     charger_dir.mkdir(exist_ok=True)
 
     rows = []
@@ -181,17 +181,20 @@ def merge_save_charger_transactions(charger_objects, out_dir) -> int:
             # still merge cleanly (new schema wins).
             df_new = pd.concat([df_old, df_new], ignore_index=True)
         except Exception as exc:
-            logger.warning("Existing charger CSV read failed, overwriting instead: %s", exc)
+            logger.warning(
+                "Existing charger CSV read failed, overwriting instead: %s", exc
+            )
 
     # New rows are appended last → keep='last' retains the freshest copy of a uri.
-    df_new = df_new.drop_duplicates(subset='uri', keep='last')
-    df_new = df_new.sort_values('start_time').reset_index(drop=True)
+    df_new = df_new.drop_duplicates(subset="uri", keep="last")
+    df_new = df_new.sort_values("start_time").reset_index(drop=True)
     df_new.to_csv(csv_path, index=False)
     logger.info("Saved charger transactions: %d rows -> %s", len(df_new), csv_path.name)
     return len(df_new)
 
 
 # ── Main class ────────────────────────────────────────────────────────────
+
 
 class ChargerPatcher:
     """
@@ -218,8 +221,9 @@ class ChargerPatcher:
 
     # ── Public interface ──────────────────────────────────────────────────
 
-    def patch_file(self, xlsx_path: str | Path, *,
-                   charger_windows: list | None = None) -> int:
+    def patch_file(
+        self, xlsx_path: str | Path, *, charger_windows: list | None = None
+    ) -> int:
         """
         Backfill a single xlsx report's Charger Link.
 
@@ -243,17 +247,19 @@ class ChargerPatcher:
                 return 0
 
         if not charger_windows:
-            logger.info("ChargerPatcher: no charger events, skipping %s", xlsx_path.name)
+            logger.info(
+                "ChargerPatcher: no charger events, skipping %s", xlsx_path.name
+            )
             return 0
 
         # 2. Open the xlsx
         logger.info("ChargerPatcher: backfilling %s", xlsx_path.name)
         wb = load_workbook(str(xlsx_path))
-        if 'Report' not in wb.sheetnames:
+        if "Report" not in wb.sheetnames:
             logger.error("  'Report' worksheet not found: %s", xlsx_path.name)
             wb.close()
             return 0
-        ws = wb['Report']
+        ws = wb["Report"]
 
         # 3. Iterate rows, matching charge segments
         patched = 0
@@ -270,7 +276,7 @@ class ChargerPatcher:
             leg_type = ws.cell(row_idx, _COL_LEG_TYPE).value
             if not isinstance(leg_type, str):
                 continue
-            if not any(kw in leg_type for kw in ('AC', 'DC', 'Charge')):
+            if not any(kw in leg_type for kw in ("AC", "DC", "Charge")):
                 continue
 
             t_s = _to_timestamp(ws.cell(row_idx, _COL_START_TIME).value)
@@ -292,9 +298,9 @@ class ChargerPatcher:
             url = _build_charger_url(uri, t_s, t_e)
             if url:
                 cell = ws.cell(row_idx, _COL_CHARGER)
-                cell.value = 'Link'
+                cell.value = "Link"
                 cell.hyperlink = url
-                cell.font = Font(color='0000FF', underline='single')
+                cell.font = Font(color="0000FF", underline="single")
             if total_energy is not None:
                 ws.cell(row_idx, _COL_CHARGER_ENERGY).value = round(total_energy, 3)
             patched += 1
@@ -315,7 +321,7 @@ class ChargerPatcher:
             logger.error("Folder does not exist: %s", folder)
             return {}
 
-        xlsx_files = sorted(folder.glob('jolt_report_*.xlsx'))
+        xlsx_files = sorted(folder.glob("jolt_report_*.xlsx"))
         if not xlsx_files:
             logger.info("ChargerPatcher: no report files under %s", folder)
             return {}
@@ -331,7 +337,9 @@ class ChargerPatcher:
         """Fetch the list of charger-event windows from the SRF API (for patch_file's auto-fetch path)."""
         parsed = _parse_report_filename(xlsx_path)
         if parsed is None:
-            logger.error("  Cannot parse vehicle info from the file name: %s", xlsx_path.name)
+            logger.error(
+                "  Cannot parse vehicle info from the file name: %s", xlsx_path.name
+            )
             return None
 
         reg, ds_str, de_str = parsed
@@ -357,8 +365,12 @@ class ChargerPatcher:
         an outright API failure. ``ds``/``de`` are dates (or datetimes); the query
         range is the full ``[ds 00:00, de 23:59:59]`` UTC day span.
         """
-        logger.info("  Fetching charger events from the SRF API: %s  %s ~ %s",
-                    reg_srf, ds.strftime("%Y%m%d"), de.strftime("%Y%m%d"))
+        logger.info(
+            "  Fetching charger events from the SRF API: %s  %s ~ %s",
+            reg_srf,
+            ds.strftime("%Y%m%d"),
+            de.strftime("%Y%m%d"),
+        )
         params = {
             "start_time": srf_client.filter.between(
                 datetime.datetime.combine(ds, datetime.time.min, datetime.timezone.utc),
@@ -401,6 +413,7 @@ class ChargerPatcher:
 
 # ── .env loading (dependency-free, a fallback for the CLI when the environment variable is missing) ──
 
+
 def _load_srf_key_from_dotenv() -> None:
     """Populate ``SRF_API_KEY`` from the repo-root ``.env`` if it is unset.
 
@@ -432,6 +445,7 @@ def _load_srf_key_from_dotenv() -> None:
 
 # ── Backfill CLI ─────────────────────────────────────────────────────────────
 
+
 def _collect_report_files(target: Path) -> list:
     """Resolve a CLI target into the list of report xlsx files to patch.
 
@@ -447,7 +461,7 @@ def _collect_report_files(target: Path) -> list:
 
     def _reports_in(d: Path) -> list:
         return sorted(
-            p for p in d.glob('jolt_report_*.xlsx') if '_finetuned' not in p.name
+            p for p in d.glob("jolt_report_*.xlsx") if "_finetuned" not in p.name
         )
 
     direct = _reports_in(target)
@@ -457,7 +471,7 @@ def _collect_report_files(target: Path) -> list:
     # version directory: iterate vehicle sub-directories
     reports = []
     for sub in sorted(target.iterdir()):
-        if not sub.is_dir() or sub.name == 'dashboard':
+        if not sub.is_dir() or sub.name == "dashboard":
             continue
         reports.extend(_reports_in(sub))
     return reports
@@ -477,18 +491,19 @@ def main(argv: list | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m jolt_toolkit.report_generator.charger_patcher",
         description="Backfill Charger Links into already-generated JOLT reports by "
-                    "fetching SRF charger transactions for each report period. Only "
-                    "empty Charger Link cells are filled (idempotent).",
+        "fetching SRF charger transactions for each report period. Only "
+        "empty Charger Link cells are filled (idempotent).",
     )
     parser.add_argument(
         "target",
         help="A single jolt_report_*.xlsx, a vehicle directory, or a version "
-             "directory (e.g. excel_report_database/2.2.7).",
+        "directory (e.g. excel_report_database/2.2.7).",
     )
     parser.add_argument(
-        "--persist-raw", action="store_true",
+        "--persist-raw",
+        action="store_true",
         help="Also merge each vehicle's fetched transactions into its "
-             "raw_charger/charger_transactions.csv (accumulating, deduped by uri).",
+        "raw_charger/charger_transactions.csv (accumulating, deduped by uri).",
     )
     args = parser.parse_args(argv)
 
@@ -512,7 +527,9 @@ def main(argv: list | None = None) -> int:
         reg, ds_str, de_str = parsed
         cfg = VEHICLE_CONFIG.get(reg)
         if cfg is None:
-            logger.warning("Skipping (%s not registered in vehicles.json): %s", reg, xlsx_path.name)
+            logger.warning(
+                "Skipping (%s not registered in vehicles.json): %s", reg, xlsx_path.name
+            )
             continue
         if str(cfg.get("fuel_type", "")).upper() == "DIESEL":
             logger.info("Skipping diesel vehicle %s: %s", reg, xlsx_path.name)
@@ -533,7 +550,11 @@ def main(argv: list | None = None) -> int:
         if args.persist_raw and objects:
             merge_save_charger_transactions(objects, xlsx_path.parent)
 
-    logger.info("Done: %d reports, %d Charger Links backfilled in total", n_reports, total_patched)
+    logger.info(
+        "Done: %d reports, %d Charger Links backfilled in total",
+        n_reports,
+        total_patched,
+    )
     return 0
 
 

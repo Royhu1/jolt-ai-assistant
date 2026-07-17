@@ -14,37 +14,35 @@ from __future__ import annotations
 
 import json
 from math import nan
+from urllib.parse import urlencode, urljoin
 
 import numpy as np
 import pandas as pd
-
-from srf_client import paging
-from srf_client import filter as srf_filter
 from geopy import Point as GeoPoint
 from geopy.distance import Distance, geodesic
-from urllib.parse import urlencode, urljoin
+from srf_client import filter as srf_filter
+from srf_client import paging
 
-from jolt_toolkit.report_generator.paths import get_cache_dir
-from jolt_toolkit.report_generator.segment_algorithms import (
-    TIME_COL,
-    MOVING_SPEED_THRESHOLD_KMH,
-    _agg_mass,
-)
-from jolt_toolkit.report_generator.pedal_histogram import (
-    compute_pedal_histogram,
-    MIN_DISTANCE_FOR_PEDAL_KM,
-    EEC2_COL,
-    EBC1_COL,
-)
 from jolt_toolkit.report_generator.columns import (
-    HEADERS,
-    _WEIGHT_COL,
-    _SPEED_COL,
-    _RECUP_COL,
     _PROPULSION_COL,
+    _RECUP_COL,
+    _SPEED_COL,
+    _WEIGHT_COL,
+    HEADERS,
     _row_col_index,
 )
-
+from jolt_toolkit.report_generator.paths import get_cache_dir
+from jolt_toolkit.report_generator.pedal_histogram import (
+    EBC1_COL,
+    EEC2_COL,
+    MIN_DISTANCE_FOR_PEDAL_KM,
+    compute_pedal_histogram,
+)
+from jolt_toolkit.report_generator.segment_algorithms import (
+    MOVING_SPEED_THRESHOLD_KMH,
+    TIME_COL,
+    _agg_mass,
+)
 
 # =============================================================================
 # URL-building utilities
@@ -290,7 +288,9 @@ def _get_propulsion_energy(df: pd.DataFrame, t_start, t_end) -> float:
         v_s = _propulsion_at(t_s, times, values)
         v_e = _propulsion_at(t_e, times, values)
         delta_wh = v_e - v_s
-        if delta_wh < 0:  # a cumulative counter is theoretically monotonic increasing, treat a negative as noise
+        if (
+            delta_wh < 0
+        ):  # a cumulative counter is theoretically monotonic increasing, treat a negative as noise
             return nan
         return round(delta_wh / 1000.0, 3)
 
@@ -368,8 +368,12 @@ def _corrected_energy_perf(
 
 
 ETA_DT = 0.90  # drivetrain efficiency η (battery→wheels, motor 0.95 × gearbox 0.95)
-ETA_REGEN = 0.90  # regenerative-braking efficiency η (wheels→battery, symmetric with η_dt)
-_V_MAX_KMH = 100.0  # GPS speed upper-bound clamp (km/h); UK HGV speed limit 56 mph ≈ 90 km/h
+ETA_REGEN = (
+    0.90  # regenerative-braking efficiency η (wheels→battery, symmetric with η_dt)
+)
+_V_MAX_KMH = (
+    100.0  # GPS speed upper-bound clamp (km/h); UK HGV speed limit 56 mph ≈ 90 km/h
+)
 
 
 def _kinetics_corrected_energy_perf(

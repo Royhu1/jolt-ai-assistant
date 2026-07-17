@@ -30,6 +30,7 @@ Usage (jolt env, run from the repo root)::
         -m jolt_toolkit.report_generator.capacity_backfill \\
         --report-db excel_report_database/2.2.6 [--dry-run]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -51,7 +52,7 @@ from jolt_toolkit.report_generator._generator import (
 # Only match the standard report naming (ending exactly in _<8digit>_<8digit>.xlsx);
 # finetuned / other suffixes naturally do not match and are skipped.
 _REPORT_RE = re.compile(
-    r'^jolt_report_(?P<reg>[A-Z0-9]+)_(?P<start>\d{8})_(?P<end>\d{8})\.xlsx$'
+    r"^jolt_report_(?P<reg>[A-Z0-9]+)_(?P<start>\d{8})_(?P<end>\d{8})\.xlsx$"
 )
 
 
@@ -65,19 +66,19 @@ def _read_report_donor_capacity(xlsx_path: Path):
     """
     wb = load_workbook(xlsx_path, read_only=True, data_only=True)
     try:
-        ws = wb['Report'] if 'Report' in wb.sheetnames else wb.worksheets[0]
+        ws = wb["Report"] if "Report" in wb.sheetnames else wb.worksheets[0]
         rows_iter = ws.iter_rows(values_only=True)
         try:
             header = list(next(rows_iter))
         except StopIteration:
-            return None, 0, 'fallback'
+            return None, 0, "fallback"
         try:
-            i_cap = header.index('Battery Capacity (kWh)')
-            i_soc = header.index('SOC Change (%)')
-            i_src = header.index('Energy Source')
+            i_cap = header.index("Battery Capacity (kWh)")
+            i_soc = header.index("SOC Change (%)")
+            i_src = header.index("Energy Source")
         except ValueError:
             # Diesel / old column layouts do not have these columns
-            return None, 0, 'fallback'
+            return None, 0, "fallback"
         triples = []
         for r in rows_iter:
             if r is None:
@@ -91,85 +92,107 @@ def _read_report_donor_capacity(xlsx_path: Path):
     return _period_capacity_from_rows(triples, 0, 1, 2)
 
 
-def backfill_vehicle(reg: str, report_dir: Path, entry: dict,
-                     min_donors: int = MIN_DONORS) -> dict:
+def backfill_vehicle(
+    reg: str, report_dir: Path, entry: dict, min_donors: int = MIN_DONORS
+) -> dict:
     """Backfill a single vehicle's quarterly + weighted average (mutates ``entry`` in place). Returns a summary dict."""
     quarterly: dict = {}
-    per_period = []  # [(period_key, kwh|None, n, source)], includes fallback periods for display
-    for xp in sorted(report_dir.glob(f'jolt_report_{reg}_*.xlsx')):
+    per_period = (
+        []
+    )  # [(period_key, kwh|None, n, source)], includes fallback periods for display
+    for xp in sorted(report_dir.glob(f"jolt_report_{reg}_*.xlsx")):
         m = _REPORT_RE.match(xp.name)
         if not m:
             continue  # skip non-standard names such as *_finetuned*
         period_key = f"{m.group('start')}_{m.group('end')}"
         kwh, n, src = _read_report_donor_capacity(xp)
         per_period.append((period_key, kwh, n, src))
-        if src == 'fallback' or kwh is None:
+        if src == "fallback" or kwh is None:
             continue  # periods with no donor do not enter quarterly
-        quarterly[period_key] = {'kwh': round(float(kwh), 1), 'n': int(n)}
+        quarterly[period_key] = {"kwh": round(float(kwh), 1), "n": int(n)}
 
     summary = {
-        'reg': reg,
-        'per_period': per_period,
-        'old_kwh': entry.get('effective_capacity_kwh'),
-        'quarterly': quarterly,
-        'new_kwh': entry.get('effective_capacity_kwh'),
-        'n_reliable': 0,
-        'n_sparse': 0,
-        'wrote': False,
+        "reg": reg,
+        "per_period": per_period,
+        "old_kwh": entry.get("effective_capacity_kwh"),
+        "quarterly": quarterly,
+        "new_kwh": entry.get("effective_capacity_kwh"),
+        "n_reliable": 0,
+        "n_sparse": 0,
+        "wrote": False,
     }
     if not quarterly:
         return summary
 
     wavg, n_rel, n_sparse = _recompute_weighted_capacity(quarterly, min_donors)
-    entry['effective_capacity_quarterly'] = quarterly
+    entry["effective_capacity_quarterly"] = quarterly
     if wavg is not None:
-        entry['effective_capacity_kwh'] = wavg
-    summary.update(new_kwh=entry.get('effective_capacity_kwh'),
-                   n_reliable=n_rel, n_sparse=n_sparse, wrote=wavg is not None)
+        entry["effective_capacity_kwh"] = wavg
+    summary.update(
+        new_kwh=entry.get("effective_capacity_kwh"),
+        n_reliable=n_rel,
+        n_sparse=n_sparse,
+        wrote=wavg is not None,
+    )
     return summary
 
 
 def _print_summary(s: dict, min_donors: int) -> None:
-    reg = s['reg']
-    if not s['per_period']:
+    reg = s["reg"]
+    if not s["per_period"]:
         print(f"[no reports]  {reg}")
         return
     arrow = f"{s['old_kwh']} -> {s['new_kwh']}"
-    print(f"\n== {reg} ==  effective_capacity_kwh: {arrow}  "
-          f"(reliable={s['n_reliable']}, sparse={s['n_sparse']})")
-    for period_key, kwh, n, src in s['per_period']:
-        if src == 'fallback' or kwh is None:
+    print(
+        f"\n== {reg} ==  effective_capacity_kwh: {arrow}  "
+        f"(reliable={s['n_reliable']}, sparse={s['n_sparse']})"
+    )
+    for period_key, kwh, n, src in s["per_period"]:
+        if src == "fallback" or kwh is None:
             print(f"    {period_key}  (no donor, src=fallback)  -- skipped")
             continue
-        stored = s['quarterly'].get(period_key, {})
-        tag = 'SPARSE->avg' if n < min_donors else 'reliable'
-        print(f"    {period_key}  raw_kwh={round(float(kwh),1):>6}  n={n:>3}  "
-              f"src={src:<9}  stored_kwh={stored.get('kwh'):>6}  [{tag}]")
+        stored = s["quarterly"].get(period_key, {})
+        tag = "SPARSE->avg" if n < min_donors else "reliable"
+        print(
+            f"    {period_key}  raw_kwh={round(float(kwh),1):>6}  n={n:>3}  "
+            f"src={src:<9}  stored_kwh={stored.get('kwh'):>6}  [{tag}]"
+        )
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(
-        description="Backfill effective_capacity_quarterly from existing xlsx reports")
-    ap.add_argument('--report-db', required=True,
-                    help="report database version dir, e.g. excel_report_database/2.2.6")
-    ap.add_argument('--min-donors', type=int, default=MIN_DONORS,
-                    help=f"reliability threshold on donor count (default {MIN_DONORS})")
-    ap.add_argument('--dry-run', action='store_true',
-                    help="compute + print, but do NOT write vehicles.json")
+        description="Backfill effective_capacity_quarterly from existing xlsx reports"
+    )
+    ap.add_argument(
+        "--report-db",
+        required=True,
+        help="report database version dir, e.g. excel_report_database/2.2.6",
+    )
+    ap.add_argument(
+        "--min-donors",
+        type=int,
+        default=MIN_DONORS,
+        help=f"reliability threshold on donor count (default {MIN_DONORS})",
+    )
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="compute + print, but do NOT write vehicles.json",
+    )
     args = ap.parse_args(argv)
-    logging.basicConfig(level=logging.WARNING, format='%(message)s')
+    logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
     db = Path(args.report_db)
-    path = get_config_path('vehicles.json')
+    path = get_config_path("vehicles.json")
     # Guard the read-modify-write against a concurrent report-gen capacity
     # write-back (same lock file as _persist_effective_capacity).
-    with FileLock(str(path) + '.lock'):
-        with open(path, encoding='utf-8') as f:
+    with FileLock(str(path) + ".lock"):
+        with open(path, encoding="utf-8") as f:
             all_cfg = json.load(f)
 
         summaries = []
         for reg, cfg in all_cfg.items():
-            if str(cfg.get('fuel_type', '')).upper() == 'DIESEL':
+            if str(cfg.get("fuel_type", "")).upper() == "DIESEL":
                 print(f"[skip diesel] {reg}")
                 continue
             rdir = db / reg
@@ -183,12 +206,12 @@ def main(argv=None):
         if args.dry_run:
             print("\n[dry-run] vehicles.json NOT written")
         else:
-            with open(path, 'w', encoding='utf-8') as f:
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(all_cfg, f, indent=2, ensure_ascii=False)
-                f.write('\n')
+                f.write("\n")
             print(f"\nvehicles.json written: {path}")
     return summaries
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

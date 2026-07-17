@@ -94,9 +94,7 @@ def _compute_active_dates_from_xlsx(xlsx_path: Path) -> set[str]:
             pass
 
 
-def _group_paths_by_date(
-    paths, date_re: "re.Pattern[str]"
-) -> dict[str, list[Path]]:
+def _group_paths_by_date(paths, date_re: "re.Pattern[str]") -> dict[str, list[Path]]:
     """Group per-leg raw-CSV paths by the ``YYYY-MM-DD`` captured by ``date_re``.
 
     Both regenerate paths (EV ``raw_<date>_<idx>.csv`` and diesel
@@ -166,9 +164,7 @@ def _write_html_viewer(
     # one-figure-per-day ``validation_<reg>_<date>.png`` (extension ``.`` directly
     # after the date) and the historical / finetuned per-leg
     # ``validation_<reg>_<date>_<NNNN>.png`` (``_`` after the date).
-    _date_re = re.compile(
-        r"validation_" + re.escape(reg) + r"_(\d{4}-\d{2}-\d{2})[._]"
-    )
+    _date_re = re.compile(r"validation_" + re.escape(reg) + r"_(\d{4}-\d{2}-\d{2})[._]")
     ds_str = str(period_start)
     de_str = str(period_end)
     figs = []

@@ -20,7 +20,6 @@ from jolt_toolkit.report_generator.columns import (
     _leg_is_stop,
 )
 
-
 # =============================================================================
 # Graphs worksheet chart specifications (single source of truth)
 # =============================================================================

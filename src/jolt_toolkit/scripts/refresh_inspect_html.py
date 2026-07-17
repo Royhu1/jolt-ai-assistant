@@ -33,10 +33,9 @@ from datetime import date
 from pathlib import Path
 
 from jolt_toolkit.report_generator.report_builder import (
-    _write_html_viewer,
     _compute_active_dates_from_xlsx,
+    _write_html_viewer,
 )
-
 
 LOG = logging.getLogger("refresh_inspect_html")
 
@@ -90,9 +89,7 @@ def refresh_one(xlsx: Path) -> dict:
     # ``[._]`` accepts both the one-figure-per-day ``validation_<reg>_<date>.png`` and
     # the legacy per-leg ``validation_<reg>_<date>_<NNNN>.png`` (kept in lock-step with
     # _write_html_viewer so the counts here match what the viewer actually lists).
-    _date_re = re.compile(
-        r"validation_" + re.escape(reg) + r"_(\d{4}-\d{2}-\d{2})[._]"
-    )
+    _date_re = re.compile(r"validation_" + re.escape(reg) + r"_(\d{4}-\d{2}-\d{2})[._]")
     figs_in_period: list[str] = []
     if fig_dir.exists():
         ds_s, de_s = ds.isoformat(), de.isoformat()

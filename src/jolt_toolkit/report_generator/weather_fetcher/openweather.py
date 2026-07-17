@@ -54,10 +54,11 @@ class KeyManager:
     """
 
     def __init__(self, label: str):
-        keys_str = os.environ.get('OPENWEATHER_API_KEYS', '')
+        keys_str = os.environ.get("OPENWEATHER_API_KEYS", "")
         self._keys = {
-            k.strip(): {'active': True, 'usage': 0}
-            for k in keys_str.split(',') if k.strip()
+            k.strip(): {"active": True, "usage": 0}
+            for k in keys_str.split(",")
+            if k.strip()
         }
         if self._keys:
             logger.info(f"{label}: {len(self._keys)} API key(s) loaded")
@@ -66,24 +67,24 @@ class KeyManager:
 
     def get_key(self) -> str | None:
         for k, v in self._keys.items():
-            if v['active']:
+            if v["active"]:
                 return k
         return None
 
     def increment(self, key: str):
         if key in self._keys:
-            self._keys[key]['usage'] += 1
+            self._keys[key]["usage"] += 1
 
     def disable(self, key: str):
-        if key in self._keys and self._keys[key]['active']:
-            self._keys[key]['active'] = False
+        if key in self._keys and self._keys[key]["active"]:
+            self._keys[key]["active"] = False
             masked = f"...{key[-8:]}" if len(key) > 8 else "***"
             logger.warning(f"Disabled API key: {masked}")
 
     def summary(self) -> dict:
-        total = sum(v['usage'] for v in self._keys.values())
-        active = sum(1 for v in self._keys.values() if v['active'])
-        return {'total_keys': len(self._keys), 'active': active, 'total_usage': total}
+        total = sum(v["usage"] for v in self._keys.values())
+        active = sum(1 for v in self._keys.values() if v["active"])
+        return {"total_keys": len(self._keys), "active": active, "total_usage": total}
 
 
 class WeatherCache:
@@ -101,16 +102,21 @@ class WeatherCache:
     keeps each patcher's prior on-disk format byte-for-byte.
     """
 
-    def __init__(self, cache_file: str | Path, precision: int = 2,
-                 time_bucket_s: int = 3600, metadata: dict | None = None,
-                 init_log: str | None = None):
+    def __init__(
+        self,
+        cache_file: str | Path,
+        precision: int = 2,
+        time_bucket_s: int = 3600,
+        metadata: dict | None = None,
+        init_log: str | None = None,
+    ):
         self._path = Path(cache_file)
-        self._lock_path = Path(str(cache_file) + '.lock')
+        self._lock_path = Path(str(cache_file) + ".lock")
         self._precision = precision
         self._time_bucket_s = max(int(time_bucket_s), 1)
         if not self._path.exists():
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._path, 'w', encoding='utf-8') as f:
+            with open(self._path, "w", encoding="utf-8") as f:
                 if metadata is None:
                     json.dump({"cache": {}}, f)
                 else:
@@ -128,7 +134,7 @@ class WeatherCache:
     def get_batch(self, locations: list[tuple]) -> tuple[dict, list]:
         """Return (hit_map, miss_list). hit_map: {loc: weather_tuple}."""
         with FileLock(self._lock_path, timeout=10):
-            with open(self._path, 'r', encoding='utf-8') as f:
+            with open(self._path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         cache = data.get("cache", {})
         hit_map: dict = {}
@@ -144,19 +150,19 @@ class WeatherCache:
     def put_batch(self, results: dict):
         """results: {(lat, lon, dt): (temp, press, humid, wind_s, wind_d, weather_type)}."""
         with FileLock(self._lock_path, timeout=10):
-            with open(self._path, 'r', encoding='utf-8') as f:
+            with open(self._path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             cache = data.get("cache", {})
             for loc, weather in results.items():
                 cache[self._key(*loc)] = list(weather)
             data["cache"] = cache
-            with open(self._path, 'w', encoding='utf-8') as f:
+            with open(self._path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
 
     @property
     def size(self) -> int:
         with FileLock(self._lock_path, timeout=10):
-            with open(self._path, 'r', encoding='utf-8') as f:
+            with open(self._path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         return len(data.get("cache", {}))
 
@@ -196,9 +202,11 @@ class WeatherFetcher:
                 self.failures += 1
             return loc, None
         try:
-            resp = requests.get(self.API_URL, params={
-                'lat': lat, 'lon': lon, 'dt': dt, 'appid': api_key
-            }, timeout=10)
+            resp = requests.get(
+                self.API_URL,
+                params={"lat": lat, "lon": lon, "dt": dt, "appid": api_key},
+                timeout=10,
+            )
 
             if resp.status_code == 429:
                 with self._lock:
@@ -207,28 +215,30 @@ class WeatherFetcher:
                 return loc, None
 
             if resp.status_code != 200:
-                logger.debug(f"  HTTP {resp.status_code} for ({lat:.4f}, {lon:.4f}, dt={dt})")
+                logger.debug(
+                    f"  HTTP {resp.status_code} for ({lat:.4f}, {lon:.4f}, dt={dt})"
+                )
                 with self._lock:
                     self.failures += 1
                 return loc, None
 
-            w = resp.json()['data'][0]
+            w = resp.json()["data"][0]
             with self._lock:
                 self._keys.increment(api_key)
                 self.api_calls += 1
 
             # Extract the weather type (e.g. Clear, Clouds, Rain)
             weather_type = None
-            if 'weather' in w and w['weather']:
-                weather_type = w['weather'][0].get('main')
+            if "weather" in w and w["weather"]:
+                weather_type = w["weather"][0].get("main")
 
             return loc, (
-                round(w['temp'] - 273.15, 1),  # K → C
-                w['pressure'],                  # hPa
-                w['humidity'],                  # %
-                w['wind_speed'],                # m/s
-                w['wind_deg'],                  # degrees
-                weather_type,                   # weather type
+                round(w["temp"] - 273.15, 1),  # K → C
+                w["pressure"],  # hPa
+                w["humidity"],  # %
+                w["wind_speed"],  # m/s
+                w["wind_deg"],  # degrees
+                weather_type,  # weather type
             )
         except Exception as e:
             logger.debug(f"  API error for ({lat:.4f}, {lon:.4f}): {e}")
@@ -236,18 +246,21 @@ class WeatherFetcher:
                 self.failures += 1
             return loc, None
 
-    def fetch_batch(self, locations: list[tuple], *, desc: str,
-                    warn_on_failure: bool) -> dict:
+    def fetch_batch(
+        self, locations: list[tuple], *, desc: str, warn_on_failure: bool
+    ) -> dict:
         """Fetch weather data for multiple locations concurrently."""
         results: dict = {}
-        logger.info(f"  Fetching {len(locations)} locations "
-                    f"({self._max_workers} workers)...")
+        logger.info(
+            f"  Fetching {len(locations)} locations "
+            f"({self._max_workers} workers)..."
+        )
 
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-            futures = {pool.submit(self.fetch_single, loc): loc
-                       for loc in locations}
-            for f in tqdm(as_completed(futures), desc=desc,
-                          total=len(futures), leave=False):
+            futures = {pool.submit(self.fetch_single, loc): loc for loc in locations}
+            for f in tqdm(
+                as_completed(futures), desc=desc, total=len(futures), leave=False
+            ):
                 loc, weather = f.result()
                 if weather is not None:
                     results[loc] = weather

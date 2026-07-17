@@ -45,6 +45,7 @@ _ANCHOR_PRIVATE_KEYS
     Set of temporary field names in the segment dict used only for plotting;
     must be filtered out before saving to CSV.
 """
+
 # =============================================================================
 # Backward-compatibility facade (v3.0.0)
 # -----------------------------------------------------------------------------
@@ -72,6 +73,7 @@ logger = logging.getLogger(__name__)
 
 # ── constants ────────────────────────────────────────────────────────────────
 from jolt_toolkit.report_generator.segmentation.constants import (  # noqa: F401
+    _ANCHOR_PRIVATE_KEYS,
     AC_COL,
     DC_COL,
     MASS_COL,
@@ -86,13 +88,12 @@ from jolt_toolkit.report_generator.segmentation.constants import (  # noqa: F401
     TOTAL_ENERGY_COL,
     TRACTOR_ONLY_MAX_KG,
     VEHICLE_CONFIG,
-    _ANCHOR_PRIVATE_KEYS,
     _load_json,
 )
 
-# ── timeutil ─────────────────────────────────────────────────────────────────
-from jolt_toolkit.report_generator.segmentation.timeutil import (  # noqa: F401
-    _to_utc,
+# ── top-level orchestrator ───────────────────────────────────────────────────
+from jolt_toolkit.report_generator.segmentation.detection import (  # noqa: F401
+    run_segment_detection,
 )
 
 # ── mass aggregation ─────────────────────────────────────────────────────────
@@ -110,6 +111,20 @@ from jolt_toolkit.report_generator.segmentation.mass_aggregation import (  # noq
     resolve_mass_agg,
 )
 
+# ── mass clustering / split / merge / anchors ────────────────────────────────
+from jolt_toolkit.report_generator.segmentation.mass_clustering import (  # noqa: F401
+    _detect_cluster_transitions,
+    _enforce_anchor_ordering,
+    _get_seg_dominant_cluster,
+    _merge_two_discharge_segs,
+    _recompute_anchors,
+    _split_point_has_zero_speed,
+    _split_seg_at_times,
+    cluster_mass_data,
+    merge_discharge_by_mass,
+    split_discharge_by_mass,
+)
+
 # ── SOC-based detection ──────────────────────────────────────────────────────
 from jolt_toolkit.report_generator.segmentation.soc_detection import (  # noqa: F401
     find_charge_segments_by_soc,
@@ -123,18 +138,9 @@ from jolt_toolkit.report_generator.segmentation.speed_detection import (  # noqa
     find_speed_trips,
 )
 
-# ── mass clustering / split / merge / anchors ────────────────────────────────
-from jolt_toolkit.report_generator.segmentation.mass_clustering import (  # noqa: F401
-    _detect_cluster_transitions,
-    _enforce_anchor_ordering,
-    _get_seg_dominant_cluster,
-    _merge_two_discharge_segs,
-    _recompute_anchors,
-    _split_point_has_zero_speed,
-    _split_seg_at_times,
-    cluster_mass_data,
-    merge_discharge_by_mass,
-    split_discharge_by_mass,
+# ── timeutil ─────────────────────────────────────────────────────────────────
+from jolt_toolkit.report_generator.segmentation.timeutil import (  # noqa: F401
+    _to_utc,
 )
 
 # ── validation figure (sets matplotlib Agg backend on import) ────────────────
@@ -157,9 +163,4 @@ from jolt_toolkit.report_generator.segmentation.validation_figure import (  # no
     _overlay,
     _parse_box_gid,
     plot_leg_validation,
-)
-
-# ── top-level orchestrator ───────────────────────────────────────────────────
-from jolt_toolkit.report_generator.segmentation.detection import (  # noqa: F401
-    run_segment_detection,
 )

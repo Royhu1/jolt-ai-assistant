@@ -10,5 +10,5 @@ the retired ``deprecated/`` per-make processors).
 from .fine_grained_patcher import FineGrainedWeatherPatcher
 
 __all__ = [
-    'FineGrainedWeatherPatcher',
+    "FineGrainedWeatherPatcher",
 ]

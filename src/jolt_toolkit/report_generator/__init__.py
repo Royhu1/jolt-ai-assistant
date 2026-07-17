@@ -27,6 +27,7 @@ def generate_report(
     CLI's ``--raw-only``).
     """
     from jolt_toolkit import __version__
+
     gen = JOLTReportGenerator(
         report_output_folder=f"./{outputfolder}/{__version__}",
         overwrite_existing_report=True,
@@ -50,5 +51,6 @@ def patch_logger(
 ) -> None:
     """Convenience function: backfill weather data from the Logger."""
     from jolt_toolkit.report_generator.logger_patcher import LoggerPatcher
+
     patcher = LoggerPatcher()
     patcher.patch(vehicle_registration, date_start, date_end, debug=debug)

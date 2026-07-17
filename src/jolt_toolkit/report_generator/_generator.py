@@ -6,11 +6,11 @@ Uses segment_algorithms for the unified charge/discharge segmentation, and
 report_builder to generate the Excel report and optional validation figures.
 """
 
+import datetime
 import io
+import logging
 import os
 import re
-import datetime
-import logging
 from pathlib import Path
 from time import perf_counter
 
@@ -19,42 +19,61 @@ from srf_client import paging
 from tqdm import tqdm
 
 from jolt_toolkit import __version__
-from jolt_toolkit.report_generator.paths import get_cache_dir, get_srf_api_root
+from jolt_toolkit.report_generator.capacity import (  # noqa: F401
+    _DAY_NS,
+    _IDX_BPOWER,
+    _IDX_CAP,
+    _IDX_DISTANCE,
+    _IDX_DURATION,
+    _IDX_ELEV,
+    _IDX_ENERGY,
+    _IDX_EP_EXCL_AUX,
+    _IDX_EPERF,
+    _IDX_EPERF_CORR,
+    _IDX_EPERF_KIN,
+    _IDX_ESOURCE,
+    _IDX_LEG_TYPE,
+    _IDX_MASS,
+    _IDX_SOC_CHANGE,
+    _IDX_START,
+    CAP_WINDOW_HALF_DAYS,
+    MIN_DONORS,
+    SOC_FALLBACK_MIN_DEV,
+    SOC_FALLBACK_MIN_DSOC_PCT,
+    _cap_is_valid,
+    _correct_effective_capacity,
+    _period_capacity_from_rows,
+    _persist_effective_capacity,
+    _recompute_weighted_capacity,
+    _resolve_soc_fallback,
+    _row_idx,
+    _soc_weighted_cap,
+)
 from jolt_toolkit.report_generator.data_class import ServerData
 from jolt_toolkit.report_generator.data_fetcher import fetch_events
-from jolt_toolkit.report_generator.segment_algorithms import (
-    run_segment_detection,
-    resolve_mass_agg,
-    VEHICLE_CONFIG,
-    PIPELINE_CONFIGS,
-    SOC_COL,
-    TIME_COL,
-    _ANCHOR_PRIVATE_KEYS,
-)
-from jolt_toolkit.report_generator.report_builder import (
-    HEADERS,
-    DIESEL_HEADERS,
-    _seg_to_row,
-    _insert_stop_rows,
-    _write_excel_report,
-    _write_html_viewer,
-)
 from jolt_toolkit.report_generator.diesel_pipeline import (
     process_diesel_leg,
 )
 from jolt_toolkit.report_generator.operators import derive_leg_operator
-from jolt_toolkit.report_generator.xlsx_patch_common import make_srf_client
-from jolt_toolkit.report_generator.capacity import (  # noqa: F401
-    _row_idx,
-    _IDX_LEG_TYPE, _IDX_SOC_CHANGE, _IDX_ENERGY, _IDX_DISTANCE, _IDX_EPERF,
-    _IDX_CAP, _IDX_ESOURCE, _IDX_BPOWER, _IDX_DURATION, _IDX_ELEV, _IDX_MASS,
-    _IDX_EPERF_CORR, _IDX_EPERF_KIN, _IDX_EP_EXCL_AUX, _IDX_START,
-    CAP_WINDOW_HALF_DAYS, _DAY_NS, MIN_DONORS,
-    SOC_FALLBACK_MIN_DSOC_PCT, SOC_FALLBACK_MIN_DEV,
-    _resolve_soc_fallback, _cap_is_valid, _soc_weighted_cap,
-    _period_capacity_from_rows, _recompute_weighted_capacity,
-    _correct_effective_capacity, _persist_effective_capacity,
+from jolt_toolkit.report_generator.paths import get_cache_dir, get_srf_api_root
+from jolt_toolkit.report_generator.report_builder import (
+    DIESEL_HEADERS,
+    HEADERS,
+    _insert_stop_rows,
+    _seg_to_row,
+    _write_excel_report,
+    _write_html_viewer,
 )
+from jolt_toolkit.report_generator.segment_algorithms import (
+    _ANCHOR_PRIVATE_KEYS,
+    PIPELINE_CONFIGS,
+    SOC_COL,
+    TIME_COL,
+    VEHICLE_CONFIG,
+    resolve_mass_agg,
+    run_segment_detection,
+)
+from jolt_toolkit.report_generator.xlsx_patch_common import make_srf_client
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +85,14 @@ logger = logging.getLogger(__name__)
 # columns to be entirely lost in the Logger CSV. Here the boolean strings are
 # mapped to 0/1 while the original behaviour for other values is preserved — a
 # strict superset.
-_LOGGER_BOOL_TRUE = frozenset({'true', 'True', 'TRUE'})
-_LOGGER_BOOL_FALSE = frozenset({'false', 'False', 'FALSE'})
+_LOGGER_BOOL_TRUE = frozenset({"true", "True", "TRUE"})
+_LOGGER_BOOL_FALSE = frozenset({"false", "False", "FALSE"})
 
 
 def _logger_to_numeric(v: str):
     """Boolean-aware numeric converter, for leg.get_data_frame(conversion=...)."""
     import math
+
     if v in _LOGGER_BOOL_TRUE:
         return 1
     if v in _LOGGER_BOOL_FALSE:
@@ -89,9 +109,9 @@ def _logger_to_numeric(v: str):
 def _ensure_utc_index(df: pd.DataFrame) -> pd.DataFrame:
     """Ensure the DataFrame index is in the UTC time zone."""
     if df.index.tz is None:
-        df.index = df.index.tz_localize('UTC')
+        df.index = df.index.tz_localize("UTC")
     else:
-        df.index = df.index.tz_convert('UTC')
+        df.index = df.index.tz_convert("UTC")
     return df
 
 
@@ -119,7 +139,7 @@ def _load_logger_channel(
             avail = lg.types
             for channel, col_spec in channels:
                 if channel in avail:
-                    df_ch = lg.get_data_frame(channel, resolution='1s')
+                    df_ch = lg.get_data_frame(channel, resolution="1s")
                     # col_spec supports a single column name or multiple candidate column names
                     candidates = (col_spec,) if isinstance(col_spec, str) else col_spec
                     for col in candidates:
@@ -172,7 +192,12 @@ class JOLTReportGenerator:
     def generate_report(self, vehicle_registration, date_start, date_end):
         """Generate a JOLT Excel report for the given vehicle and date range. Returns the Excel path or None."""
         time_start = perf_counter()
-        logger.info("Starting report generation: %s  %s ~ %s", vehicle_registration, date_start, date_end)
+        logger.info(
+            "Starting report generation: %s  %s ~ %s",
+            vehicle_registration,
+            date_start,
+            date_end,
+        )
 
         reg = vehicle_registration.replace(" ", "")
         cfg = VEHICLE_CONFIG.get(reg)
@@ -200,8 +225,11 @@ class JOLTReportGenerator:
         # donor at all, not the measured-leg values).
         quarterly_cfg = cfg.get("effective_capacity_quarterly") or {}
         this_q = quarterly_cfg.get(period_key)
-        if (this_q and this_q.get("n", 0) >= MIN_DONORS
-                and this_q.get("kwh") is not None):
+        if (
+            this_q
+            and this_q.get("n", 0) >= MIN_DONORS
+            and this_q.get("kwh") is not None
+        ):
             soc_est_cap = this_q["kwh"]
         else:
             soc_est_cap = eff_cap_kwh or srf_capacity_kwh or nominal_kwh
@@ -226,26 +254,31 @@ class JOLTReportGenerator:
         ds = datetime.datetime.strptime(date_start, "%Y-%m-%d")
         de = datetime.datetime.strptime(date_end, "%Y-%m-%d")
         server_data = fetch_events(
-            vehicle_registration=reg_srf, date_start=ds,
-            date_end=de, srf_data=self.srf_data,
+            vehicle_registration=reg_srf,
+            date_start=ds,
+            date_end=de,
+            srf_data=self.srf_data,
         )
         time_fetch = perf_counter()
         logger.info("Data fetch complete, took %.2f seconds", time_fetch - time_start)
 
-        charger_windows, charger_objects = self._collect_charger_windows(
-            server_data)
+        charger_windows, charger_objects = self._collect_charger_windows(server_data)
 
-        (logger_windows, logger_legs, logger_legs_by_src,
-         fps_legs) = self._collect_legs(server_data, is_diesel, charger_windows)
+        logger_windows, logger_legs, logger_legs_by_src, fps_legs = self._collect_legs(
+            server_data, is_diesel, charger_windows
+        )
 
         if self.debug_mode:
             self._save_charger_data(charger_objects, out_dir)
             for src_name, src_legs in logger_legs_by_src.items():
                 self._save_logger_data(src_legs, out_dir, source=src_name)
 
-        (logger_speed_all, logger_mass_all, logger_acc_pedal_all,
-         logger_dec_pedal_all) = self._preload_logger_channels(
-            logger_legs, is_diesel)
+        (
+            logger_speed_all,
+            logger_mass_all,
+            logger_acc_pedal_all,
+            logger_dec_pedal_all,
+        ) = self._preload_logger_channels(logger_legs, is_diesel)
 
         charger_meter_all = self._preload_charger_meter(charger_objects)
 
@@ -269,28 +302,58 @@ class JOLTReportGenerator:
         # ── Diesel branch: use the SRFLOGGER_V1 legs as the main loop source ────
         if is_diesel:
             cumulative_km = self._process_diesel_legs(
-                logger_legs, cfg, reg, out_dir, cumulative_km,
-                srf_org_raw, trial_cache, op_acc, all_rows)
+                logger_legs,
+                cfg,
+                reg,
+                out_dir,
+                cumulative_km,
+                srf_org_raw,
+                trial_cache,
+                op_acc,
+                all_rows,
+            )
             # Skip the FPS main loop and home_point / charger reclassification
             fps_legs = []
 
         cumulative_km, home_point = self._process_fps_legs(
-            fps_legs, reg, out_dir, raw_dir, cap_lo, cap_hi,
-            logger_speed_all, logger_mass_all, logger_acc_pedal_all,
-            logger_dec_pedal_all, charger_meter_all, logger_legs,
-            altitude_col, speed_col, mass_agg, srf_org_raw, trial_cache,
-            op_acc, home_point, cumulative_km, all_rows)
+            fps_legs,
+            reg,
+            out_dir,
+            raw_dir,
+            cap_lo,
+            cap_hi,
+            logger_speed_all,
+            logger_mass_all,
+            logger_acc_pedal_all,
+            logger_dec_pedal_all,
+            charger_meter_all,
+            logger_legs,
+            altitude_col,
+            speed_col,
+            mass_agg,
+            srf_org_raw,
+            trial_cache,
+            op_acc,
+            home_point,
+            cumulative_km,
+            all_rows,
+        )
 
         self._reclassify_home_charging(all_rows, home_point)
 
         time_process = perf_counter()
-        logger.info("Segmentation processing complete, took %.2f seconds", time_process - time_fetch)
+        logger.info(
+            "Segmentation processing complete, took %.2f seconds",
+            time_process - time_fetch,
+        )
 
-        all_rows.sort(key=lambda x: (
-            pd.Timestamp(x[0]).tz_convert(None)
-            if pd.Timestamp(x[0]).tzinfo is not None
-            else pd.Timestamp(x[0])
-        ))
+        all_rows.sort(
+            key=lambda x: (
+                pd.Timestamp(x[0]).tz_convert(None)
+                if pd.Timestamp(x[0]).tzinfo is not None
+                else pd.Timestamp(x[0])
+            )
+        )
         sorted_rows = [r for _, r in all_rows]
 
         if not sorted_rows:
@@ -310,17 +373,36 @@ class JOLTReportGenerator:
             logger.info("Operator resolution (counted by leg): %s", dist or "none")
             bad = {c for c in unknown if c is not None}
             if bad:
-                logger.warning("Operator codes not in KNOWN_OPERATOR_CODES: %s", ", ".join(sorted(bad)))
+                logger.warning(
+                    "Operator codes not in KNOWN_OPERATOR_CODES: %s",
+                    ", ".join(sorted(bad)),
+                )
             if None in op_acc:
-                logger.warning("%d legs could not have their operator determined", op_acc[None])
+                logger.warning(
+                    "%d legs could not have their operator determined", op_acc[None]
+                )
 
         sorted_rows, period_cap_kwh, period_n, period_src = self._finalize_rows(
-            sorted_rows, out_headers, is_diesel, cfg, soc_est_cap)
+            sorted_rows, out_headers, is_diesel, cfg, soc_est_cap
+        )
 
         return self._write_outputs(
-            sorted_rows, out_headers, reg, ds, de, out_dir, is_diesel,
-            period_cap_kwh, period_n, period_src, period_key,
-            charger_windows, logger_legs, logger_windows, time_start)
+            sorted_rows,
+            out_headers,
+            reg,
+            ds,
+            de,
+            out_dir,
+            is_diesel,
+            period_cap_kwh,
+            period_n,
+            period_src,
+            period_key,
+            charger_windows,
+            logger_legs,
+            logger_windows,
+            time_start,
+        )
 
     def _collect_charger_windows(self, server_data):
         """Collect charger transactions into (start, end, uri, energy_kwh) windows
@@ -334,7 +416,9 @@ class JOLTReportGenerator:
                         energy_kwh = None
                         if ct.start_meter is not None and ct.end_meter is not None:
                             energy_kwh = ct.end_meter - ct.start_meter
-                        charger_windows.append((ct.start_time, ct.end_time, ct.uri, energy_kwh))
+                        charger_windows.append(
+                            (ct.start_time, ct.end_time, ct.uri, energy_kwh)
+                        )
                         charger_objects.append(ct)
                     except AttributeError:
                         pass
@@ -346,8 +430,8 @@ class JOLTReportGenerator:
         """Split legs into SRFLOGGER (logger) and FPS; fast_mode still collects the
         logger legs for diesel. Logs the per-source counts."""
         logger_windows = []
-        logger_legs = []          # all logger legs
-        logger_legs_by_src = {}   # {source_str: [legs]} grouped by version
+        logger_legs = []  # all logger legs
+        logger_legs_by_src = {}  # {source_str: [legs]} grouped by version
         fps_legs = []
         # A diesel vehicle's legs all come from SRFLOGGER_V1, so fast_mode must still collect them
         _collect_logger = (not self.fast_mode) or is_diesel
@@ -367,12 +451,17 @@ class JOLTReportGenerator:
             logger.warning("Legs fetch failed: %s", exc)
 
         if self.fast_mode:
-            logger.info("Fast mode: skipping Charger/Logger data. FPS legs: %d", len(fps_legs))
+            logger.info(
+                "Fast mode: skipping Charger/Logger data. FPS legs: %d", len(fps_legs)
+            )
         else:
             logger.info(
                 "FPS legs: %d  Chargers: %d  Logger: %d (%s)",
-                len(fps_legs), len(charger_windows), len(logger_windows),
-                ", ".join(f"{k}={len(v)}" for k, v in logger_legs_by_src.items()) or "none",
+                len(fps_legs),
+                len(charger_windows),
+                len(logger_windows),
+                ", ".join(f"{k}={len(v)}" for k, v in logger_legs_by_src.items())
+                or "none",
             )
         return logger_windows, logger_legs, logger_legs_by_src, fps_legs
 
@@ -388,9 +477,8 @@ class JOLTReportGenerator:
         if logger_legs and not is_diesel:
             logger_speed_all = _load_logger_channel(
                 logger_legs,
-                [('CCVS', 'CCVS wheel based vehicle speed'),
-                 ('2', '2 speed')],
-                target_col='logger_speed',
+                [("CCVS", "CCVS wheel based vehicle speed"), ("2", "2 speed")],
+                target_col="logger_speed",
                 desc="Loading Logger speed",
             )
             if logger_speed_all is not None:
@@ -398,9 +486,11 @@ class JOLTReportGenerator:
 
             logger_mass_all = _load_logger_channel(
                 logger_legs,
-                [('CVW', 'CVW gross combination vehicle weight'),
-                 ('VW', ('VW axle weight', 'VW cargo weight'))],
-                target_col='logger_mass',
+                [
+                    ("CVW", "CVW gross combination vehicle weight"),
+                    ("VW", ("VW axle weight", "VW cargo weight")),
+                ],
+                target_col="logger_mass",
                 desc="Loading Logger mass",
             )
             if logger_mass_all is not None:
@@ -408,23 +498,32 @@ class JOLTReportGenerator:
 
             logger_acc_pedal_all = _load_logger_channel(
                 logger_legs,
-                [('EEC2', 'EEC2 accelerator pedal position 1')],
-                target_col='EEC2 accelerator pedal position 1',
+                [("EEC2", "EEC2 accelerator pedal position 1")],
+                target_col="EEC2 accelerator pedal position 1",
                 desc="Loading Logger EEC2",
             )
             if logger_acc_pedal_all is not None:
-                logger.info("Logger EEC2 accelerator-pedal data: %d rows", len(logger_acc_pedal_all))
+                logger.info(
+                    "Logger EEC2 accelerator-pedal data: %d rows",
+                    len(logger_acc_pedal_all),
+                )
 
             logger_dec_pedal_all = _load_logger_channel(
                 logger_legs,
-                [('EBC1', 'EBC1 brake pedal position')],
-                target_col='EBC1 brake pedal position',
+                [("EBC1", "EBC1 brake pedal position")],
+                target_col="EBC1 brake pedal position",
                 desc="Loading Logger EBC1",
             )
             if logger_dec_pedal_all is not None:
-                logger.info("Logger EBC1 brake-pedal data: %d rows", len(logger_dec_pedal_all))
-        return (logger_speed_all, logger_mass_all,
-                logger_acc_pedal_all, logger_dec_pedal_all)
+                logger.info(
+                    "Logger EBC1 brake-pedal data: %d rows", len(logger_dec_pedal_all)
+                )
+        return (
+            logger_speed_all,
+            logger_mass_all,
+            logger_acc_pedal_all,
+            logger_dec_pedal_all,
+        )
 
     def _preload_charger_meter(self, charger_objects):
         """Preload charger start/end meter readings into a time-indexed frame for
@@ -437,30 +536,46 @@ class JOLTReportGenerator:
                 try:
                     if ct.start_meter is not None and ct.end_meter is not None:
                         ts_start = pd.Timestamp(ct.start_time)
-                        ts_end   = pd.Timestamp(ct.end_time)
+                        ts_end = pd.Timestamp(ct.end_time)
                         if ts_start.tzinfo is None:
-                            ts_start = ts_start.tz_localize('UTC')
+                            ts_start = ts_start.tz_localize("UTC")
                         if ts_end.tzinfo is None:
-                            ts_end = ts_end.tz_localize('UTC')
-                        meter_rows.append({'time': ts_start, 'meter_kwh': ct.start_meter})
-                        meter_rows.append({'time': ts_end,   'meter_kwh': ct.end_meter})
+                            ts_end = ts_end.tz_localize("UTC")
+                        meter_rows.append(
+                            {"time": ts_start, "meter_kwh": ct.start_meter}
+                        )
+                        meter_rows.append({"time": ts_end, "meter_kwh": ct.end_meter})
                 except Exception:
                     pass
             if meter_rows:
-                charger_meter_all = pd.DataFrame(meter_rows).sort_values('time')
-                charger_meter_all = charger_meter_all.set_index('time')
+                charger_meter_all = pd.DataFrame(meter_rows).sort_values("time")
+                charger_meter_all = charger_meter_all.set_index("time")
         return charger_meter_all
 
-    def _process_diesel_legs(self, logger_legs, cfg, reg, out_dir,
-                             cumulative_km, srf_org_raw, trial_cache,
-                             op_acc, all_rows):
+    def _process_diesel_legs(
+        self,
+        logger_legs,
+        cfg,
+        reg,
+        out_dir,
+        cumulative_km,
+        srf_org_raw,
+        trial_cache,
+        op_acc,
+        all_rows,
+    ):
         """Diesel branch: build rows from SRFLOGGER_V1 legs via process_diesel_leg,
         appending them to all_rows. Returns the updated cumulative_km."""
         logger.info("Diesel branch: processing %d SRFLOGGER legs", len(logger_legs))
-        for leg_idx, leg in enumerate(tqdm(logger_legs, desc="Processing diesel logger legs")):
+        for leg_idx, leg in enumerate(
+            tqdm(logger_legs, desc="Processing diesel logger legs")
+        ):
             try:
                 trip_rows, cumulative_km = process_diesel_leg(
-                    leg, cfg, cumulative_km, srf_data=self.srf_data,
+                    leg,
+                    cfg,
+                    cumulative_km,
+                    srf_data=self.srf_data,
                     out_dir=out_dir,
                     reg=reg,
                     reg_code=reg,
@@ -477,15 +592,35 @@ class JOLTReportGenerator:
                 )
                 all_rows.extend(trip_rows)
             except Exception:
-                logger.exception("Diesel leg processing failed: %s", getattr(leg, 'uri', '?'))
+                logger.exception(
+                    "Diesel leg processing failed: %s", getattr(leg, "uri", "?")
+                )
         return cumulative_km
 
-    def _process_fps_legs(self, fps_legs, reg, out_dir, raw_dir, cap_lo,
-                          cap_hi, logger_speed_all, logger_mass_all,
-                          logger_acc_pedal_all, logger_dec_pedal_all,
-                          charger_meter_all, logger_legs, altitude_col,
-                          speed_col, mass_agg, srf_org_raw, trial_cache,
-                          op_acc, home_point, cumulative_km, all_rows):
+    def _process_fps_legs(
+        self,
+        fps_legs,
+        reg,
+        out_dir,
+        raw_dir,
+        cap_lo,
+        cap_hi,
+        logger_speed_all,
+        logger_mass_all,
+        logger_acc_pedal_all,
+        logger_dec_pedal_all,
+        charger_meter_all,
+        logger_legs,
+        altitude_col,
+        speed_col,
+        mass_agg,
+        srf_org_raw,
+        trial_cache,
+        op_acc,
+        home_point,
+        cumulative_km,
+        all_rows,
+    ):
         """Main EV loop: per FPS leg cache raw telematics, run segmentation, build
         charge/discharge rows, and detect the home charging point. Returns the
         updated (cumulative_km, home_point)."""
@@ -525,9 +660,9 @@ class JOLTReportGenerator:
             ts_s = pd.Timestamp(leg.start_time)
             ts_e = pd.Timestamp(leg.end_time)
             if ts_s.tzinfo is None:
-                ts_s = ts_s.tz_localize('UTC')
+                ts_s = ts_s.tz_localize("UTC")
             if ts_e.tzinfo is None:
-                ts_e = ts_e.tz_localize('UTC')
+                ts_e = ts_e.tz_localize("UTC")
 
             # Slice the current leg's time window from the logger speed data
             leg_logger_spd = None
@@ -564,10 +699,13 @@ class JOLTReportGenerator:
             # turns figures off here and does not affect the raw write.
             make_figs = self.debug_mode and self.save_figures
             c_segs, d_segs = run_segment_detection(
-                df_leg, reg=reg, suffix=suffix,
+                df_leg,
+                reg=reg,
+                suffix=suffix,
                 out_dir=str(out_dir) if make_figs else None,
                 generate_validation_fig=make_figs,
-                cap_lo=cap_lo, cap_hi=cap_hi,
+                cap_lo=cap_lo,
+                cap_hi=cap_hi,
                 logger_speed_df=leg_logger_spd,
                 logger_mass_df=leg_logger_mass,
                 charger_meter_df=leg_charger_meter,
@@ -575,7 +713,8 @@ class JOLTReportGenerator:
 
             # ── Operator code (per-leg; shared by all segments of the same leg) ──
             op_code, _op_src, _op_unknown = derive_leg_operator(
-                leg, reg,
+                leg,
+                reg,
                 srf_org_raw=srf_org_raw,
                 vehicles=VEHICLE_CONFIG,
                 trial_cache=trial_cache,
@@ -587,11 +726,18 @@ class JOLTReportGenerator:
                 op_acc["_unknown"].add(op_code)
 
             for seg in c_segs:
-                seg_clean = {k: v for k, v in seg.items() if k not in _ANCHOR_PRIVATE_KEYS}
+                seg_clean = {
+                    k: v for k, v in seg.items() if k not in _ANCHOR_PRIVATE_KEYS
+                }
                 row, _ = _seg_to_row(
-                    seg_clean, "charge", leg_uri,
-                    [], [],  # charger/logger links filled in by the patcher
-                    df_leg, cumulative_km, home_point,
+                    seg_clean,
+                    "charge",
+                    leg_uri,
+                    [],
+                    [],  # charger/logger links filled in by the patcher
+                    df_leg,
+                    cumulative_km,
+                    home_point,
                     srf_data=self.srf_data,
                     altitude_col=altitude_col,
                     speed_col=speed_col,
@@ -601,11 +747,18 @@ class JOLTReportGenerator:
                 all_rows.append((seg["start_time"], list(row)))
 
             for seg in d_segs:
-                seg_clean = {k: v for k, v in seg.items() if k not in _ANCHOR_PRIVATE_KEYS}
+                seg_clean = {
+                    k: v for k, v in seg.items() if k not in _ANCHOR_PRIVATE_KEYS
+                }
                 row, cumulative_km = _seg_to_row(
-                    seg_clean, "discharge", leg_uri,
-                    [], [],  # charger/logger links filled in by the patcher
-                    df_leg, cumulative_km, home_point,
+                    seg_clean,
+                    "discharge",
+                    leg_uri,
+                    [],
+                    [],  # charger/logger links filled in by the patcher
+                    df_leg,
+                    cumulative_km,
+                    home_point,
                     srf_data=self.srf_data,
                     altitude_col=altitude_col,
                     speed_col=speed_col,
@@ -620,6 +773,7 @@ class JOLTReportGenerator:
 
             if home_point is None and c_segs:
                 from geopy import Point as GeoPoint
+
                 for s in c_segs:
                     lat_h = s.get("latitude")
                     lon_h = s.get("longitude")
@@ -641,31 +795,35 @@ class JOLTReportGenerator:
         if home_point is not None:
             from geopy import Point as GeoPoint
             from geopy.distance import geodesic
-            _ri_leg_type = _row_idx('Leg Type')
-            _ri_origin   = _row_idx('Origin (Lat, Lon)')
+
+            _ri_leg_type = _row_idx("Leg Type")
+            _ri_origin = _row_idx("Origin (Lat, Lon)")
             reclassified = 0
             for _, row in all_rows:
                 lt = row[_ri_leg_type]
-                if not isinstance(lt, str) or 'Away' not in lt:
+                if not isinstance(lt, str) or "Away" not in lt:
                     continue
                 origin_str = row[_ri_origin]
                 if not origin_str or not isinstance(origin_str, str):
                     continue
-                m = re.match(r'Point\(([+-]?\d+\.?\d*)\s+([+-]?\d+\.?\d*)\)', origin_str)
+                m = re.match(
+                    r"Point\(([+-]?\d+\.?\d*)\s+([+-]?\d+\.?\d*)\)", origin_str
+                )
                 if not m:
                     continue
                 lat_f, lon_f = float(m.group(1)), float(m.group(2))
                 try:
                     if geodesic(home_point, GeoPoint(lat_f, lon_f)).km < 0.5:
-                        row[_ri_leg_type] = lt.replace('Away', 'Home')
+                        row[_ri_leg_type] = lt.replace("Away", "Home")
                         reclassified += 1
                 except Exception:
                     pass
             if reclassified:
-                logger.info("Charge-segment reclassification: %d rows Away → Home", reclassified)
+                logger.info(
+                    "Charge-segment reclassification: %d rows Away → Home", reclassified
+                )
 
-    def _finalize_rows(self, sorted_rows, out_headers, is_diesel, cfg,
-                       soc_est_cap):
+    def _finalize_rows(self, sorted_rows, out_headers, is_diesel, cfg, soc_est_cap):
         """Effective-capacity correction (EV) + non-discharge EP scrub + per-period
         donor capacity + Stop-row insertion. Returns
         (sorted_rows, period_cap_kwh, period_n, period_src)."""
@@ -673,17 +831,30 @@ class JOLTReportGenerator:
         # Diesel vehicles have no SOC / battery capacity, skip this step.
         if is_diesel:
             computed_eff_cap = None
-            cap_source = 'diesel'
+            cap_source = "diesel"
             period_cap_kwh = period_n = None
-            period_src = 'diesel'
+            period_src = "diesel"
         else:
-            sorted_rows, computed_eff_cap, cap_source = self._correct_effective_capacity(
-                sorted_rows,
-                _IDX_CAP, _IDX_ENERGY, _IDX_SOC_CHANGE, _IDX_EPERF,
-                _IDX_DISTANCE, _IDX_ESOURCE, _IDX_BPOWER, _IDX_DURATION,
-                _IDX_EPERF_CORR, _IDX_ELEV, _IDX_MASS,
-                soc_est_cap, _IDX_EPERF_KIN, idx_start=_IDX_START,
-                soc_fallback=_resolve_soc_fallback(cfg))
+            sorted_rows, computed_eff_cap, cap_source = (
+                self._correct_effective_capacity(
+                    sorted_rows,
+                    _IDX_CAP,
+                    _IDX_ENERGY,
+                    _IDX_SOC_CHANGE,
+                    _IDX_EPERF,
+                    _IDX_DISTANCE,
+                    _IDX_ESOURCE,
+                    _IDX_BPOWER,
+                    _IDX_DURATION,
+                    _IDX_EPERF_CORR,
+                    _IDX_ELEV,
+                    _IDX_MASS,
+                    soc_est_cap,
+                    _IDX_EPERF_KIN,
+                    idx_start=_IDX_START,
+                    soc_fallback=_resolve_soc_fallback(cfg),
+                )
+            )
 
             # Bug fix: a charge row's Energy Performance should always be NaN, but
             # some paths (e.g. the effective-capacity step-2 re-derivation after
@@ -695,12 +866,13 @@ class JOLTReportGenerator:
                 if not isinstance(lt, str):
                     continue
                 lt_low = lt.strip().lower()
-                if lt_low == 'stop' or re.match(
-                        r'^(ac|dc|charge|mix|estimated)', lt_low):
-                    row[_IDX_EPERF] = float('nan')
-                    row[_IDX_EPERF_CORR] = float('nan')
-                    row[_IDX_EPERF_KIN] = float('nan')
-                    row[_IDX_EP_EXCL_AUX] = float('nan')
+                if lt_low == "stop" or re.match(
+                    r"^(ac|dc|charge|mix|estimated)", lt_low
+                ):
+                    row[_IDX_EPERF] = float("nan")
+                    row[_IDX_EPERF_CORR] = float("nan")
+                    row[_IDX_EPERF_KIN] = float("nan")
+                    row[_IDX_EP_EXCL_AUX] = float("nan")
 
             # v2.2.6+: this report period's donor-based capacity (kwh, n), same
             # convention as _correct_effective_capacity's avg_eff_cap (charge-preferred
@@ -708,7 +880,8 @@ class JOLTReportGenerator:
             # sorted_rows after _correct, for _persist_effective_capacity to merge
             # into the quarterly weighted average.
             period_cap_kwh, period_n, period_src = _period_capacity_from_rows(
-                sorted_rows, _IDX_CAP, _IDX_SOC_CHANGE, _IDX_ESOURCE)
+                sorted_rows, _IDX_CAP, _IDX_SOC_CHANGE, _IDX_ESOURCE
+            )
 
         # ── Post-processing: fill in Stop rows (stationary segments between trip/charge) ──
         # Must run AFTER sorting + effective capacity correction so that the
@@ -718,14 +891,29 @@ class JOLTReportGenerator:
         sorted_rows = _insert_stop_rows(sorted_rows, headers=out_headers)
         n_stops_added = len(sorted_rows) - n_before_stops
         if n_stops_added:
-            logger.info("Inserted %d Stop rows (%d rows total)",
-                         n_stops_added, len(sorted_rows))
+            logger.info(
+                "Inserted %d Stop rows (%d rows total)", n_stops_added, len(sorted_rows)
+            )
         return sorted_rows, period_cap_kwh, period_n, period_src
 
-    def _write_outputs(self, sorted_rows, out_headers, reg, ds, de, out_dir,
-                       is_diesel, period_cap_kwh, period_n, period_src,
-                       period_key, charger_windows, logger_legs,
-                       logger_windows, time_start):
+    def _write_outputs(
+        self,
+        sorted_rows,
+        out_headers,
+        reg,
+        ds,
+        de,
+        out_dir,
+        is_diesel,
+        period_cap_kwh,
+        period_n,
+        period_src,
+        period_key,
+        charger_windows,
+        logger_legs,
+        logger_windows,
+        time_start,
+    ):
         """Persist effective capacity (EV), write the xlsx (+ inspect HTML in debug
         mode), then run the charger/logger patchers (EV only). Returns the
         report path (or the existing path when overwrite is disabled)."""
@@ -734,7 +922,8 @@ class JOLTReportGenerator:
         # donor weighted average from all reliable quarters)
         if not is_diesel:
             self._persist_effective_capacity(
-                reg, period_cap_kwh, period_n, period_src, period_key)
+                reg, period_cap_kwh, period_n, period_src, period_key
+            )
 
         ds_str = ds.strftime("%Y%m%d")
         de_str = de.strftime("%Y%m%d")
@@ -742,13 +931,16 @@ class JOLTReportGenerator:
         report_path = out_dir / report_name
 
         if report_path.exists() and not self.overwrite_existing_report:
-            logger.info("Report already exists and overwrite is disabled: %s", report_path)
+            logger.info(
+                "Report already exists and overwrite is disabled: %s", report_path
+            )
             return str(report_path)
 
         period_start = ds.date()
         period_end = de.date()
-        _write_excel_report(sorted_rows, reg, period_start, period_end,
-                            report_path, headers=out_headers)
+        _write_excel_report(
+            sorted_rows, reg, period_start, period_end, report_path, headers=out_headers
+        )
 
         if self.debug_mode:
             _write_html_viewer(out_dir, reg, period_start, period_end, report_name)
@@ -764,13 +956,16 @@ class JOLTReportGenerator:
             from jolt_toolkit.report_generator.logger_patcher import LoggerPatcher
 
             ChargerPatcher(srf_data=self.srf_data).patch_file(
-                report_path, charger_windows=charger_windows)
+                report_path, charger_windows=charger_windows
+            )
             LoggerPatcher(srf_data=self.srf_data).patch_file(
-                report_path, logger_legs=logger_legs,
-                logger_windows=logger_windows)
+                report_path, logger_legs=logger_legs, logger_windows=logger_windows
+            )
 
         logger.info("Report written: %s", report_path)
-        logger.info("Excel write complete, took %.2f seconds", perf_counter() - time_write)
+        logger.info(
+            "Excel write complete, took %.2f seconds", perf_counter() - time_write
+        )
         logger.info("Total report time: %.2f seconds", perf_counter() - time_start)
         return str(report_path)
 
@@ -787,6 +982,7 @@ class JOLTReportGenerator:
         from jolt_toolkit.report_generator.charger_patcher import (
             merge_save_charger_transactions,
         )
+
         merge_save_charger_transactions(charger_objects, out_dir)
 
     @staticmethod
@@ -806,7 +1002,8 @@ class JOLTReportGenerator:
                 if not available:
                     continue
                 df = leg.get_data_frame(
-                    list(available), resolution='1s',
+                    list(available),
+                    resolution="1s",
                     conversion=_logger_to_numeric,
                 )
                 if df is None or df.empty:
@@ -823,8 +1020,7 @@ class JOLTReportGenerator:
     @staticmethod
     def _make_srf_data(api_key, root, cache_dir=None, verify=True):
         try:
-            return make_srf_client(
-                cache_dir, api_key=api_key, root=root, verify=verify)
+            return make_srf_client(cache_dir, api_key=api_key, root=root, verify=verify)
         except Exception as e:
             logger.error("SRF client creation failed: %s", e)
             raise
@@ -834,5 +1030,9 @@ class JOLTReportGenerator:
 # re-expose them as staticmethods so existing call sites (``JOLTReportGenerator.
 # _correct_effective_capacity`` in scripts.recompute_from_cache, and ``self.<name>``
 # inside generate_report) keep resolving unchanged.
-JOLTReportGenerator._correct_effective_capacity = staticmethod(_correct_effective_capacity)
-JOLTReportGenerator._persist_effective_capacity = staticmethod(_persist_effective_capacity)
+JOLTReportGenerator._correct_effective_capacity = staticmethod(
+    _correct_effective_capacity
+)
+JOLTReportGenerator._persist_effective_capacity = staticmethod(
+    _persist_effective_capacity
+)

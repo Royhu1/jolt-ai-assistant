@@ -35,7 +35,10 @@ from jolt_toolkit.vehicle_params_identificator import config as cfg
 
 def setup_logging(vehicle_reg: str = "all") -> logging.Logger:
     cfg.LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    log_file = cfg.LOGS_DIR / f"identification_{vehicle_reg}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    log_file = (
+        cfg.LOGS_DIR
+        / f"identification_{vehicle_reg}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    )
     logging.basicConfig(
         level=getattr(logging, cfg.LOG_LEVEL),
         format=cfg.LOG_FORMAT,
@@ -51,16 +54,25 @@ def setup_logging(vehicle_reg: str = "all") -> logging.Logger:
 
 def probe_vehicle(vehicle_reg: str, srf_reg: str, srf=None):
     """探测车辆的全日期范围 Logger 数据。"""
-    from jolt_toolkit.vehicle_params_identificator.data_loader import discover_logger_channels
+    from jolt_toolkit.vehicle_params_identificator.data_loader import (
+        discover_logger_channels,
+    )
+
     info = discover_logger_channels(
-        vehicle_reg, srf_reg, "2024-01-01", "2026-12-31", srf=srf,
+        vehicle_reg,
+        srf_reg,
+        "2024-01-01",
+        "2026-12-31",
+        srf=srf,
     )
     print(f"\n{'='*60}")
     print(f"  {vehicle_reg} ({srf_reg})")
     sources = info["logger_sources"]
     if sources:
         for src, d in sources.items():
-            print(f"  {src}: {d['count']} legs, {d.get('first','')} ~ {d.get('last','')}")
+            print(
+                f"  {src}: {d['count']} legs, {d.get('first','')} ~ {d.get('last','')}"
+            )
             print(f"    channels: {d.get('channels', [])}")
     else:
         print("  NO LOGGER DATA")
@@ -79,18 +91,22 @@ def _apply_filters(
 ) -> list[dict]:
     """应用指定过滤器组合。"""
     from jolt_toolkit.vehicle_params_identificator.identification import (
-        filter_by_wind_mean,
         filter_by_elevation_change,
         filter_by_mass_deviation,
+        filter_by_wind_mean,
     )
+
     filtered = constraints
     if use_wind:
         filtered = filter_by_wind_mean(filtered, wind_max_mps=cfg.WIND_MEAN_MAX_MPS)
     if use_mass:
-        filtered = filter_by_mass_deviation(filtered, deviation_pct=cfg.MASS_DEVIATION_PCT)
+        filtered = filter_by_mass_deviation(
+            filtered, deviation_pct=cfg.MASS_DEVIATION_PCT
+        )
     if use_elev:
         filtered = filter_by_elevation_change(
-            filtered, threshold_m=cfg.ELEVATION_CHANGE_THRESHOLD_M,
+            filtered,
+            threshold_m=cfg.ELEVATION_CHANGE_THRESHOLD_M,
         )
     return filtered
 
@@ -110,13 +126,21 @@ def run_single_vehicle(
     log: logging.Logger,
 ) -> dict | None:
     """对单辆车执行完整辨识流程。"""
-    from jolt_toolkit.vehicle_params_identificator.data_loader import download_logger_data, load_vehicle_csvs
-    from jolt_toolkit.vehicle_params_identificator.preprocessing import extract_all_cruise_segments
+    from jolt_toolkit.vehicle_params_identificator.data_loader import (
+        download_logger_data,
+        load_vehicle_csvs,
+    )
     from jolt_toolkit.vehicle_params_identificator.identification import (
         calculate_all_constraints,
         identify_parameters,
     )
-    from jolt_toolkit.vehicle_params_identificator.visualization import plot_comprehensive_analysis, plot_mass_histogram
+    from jolt_toolkit.vehicle_params_identificator.preprocessing import (
+        extract_all_cruise_segments,
+    )
+    from jolt_toolkit.vehicle_params_identificator.visualization import (
+        plot_comprehensive_analysis,
+        plot_mass_histogram,
+    )
 
     srf_reg = vehicle_cfg["srf_reg"]
 
@@ -141,9 +165,12 @@ def run_single_vehicle(
     # 检查是否有 EEC1
     has_eec1 = any("EngSpd" in d.columns for d in dfs)
     energy_mode = "eec1" if has_eec1 else "battery"
-    log.info("能量模式: %s (has_eec1=%s, max_torque=%.0f Nm)",
-             energy_mode, has_eec1,
-             max_torque_nm if max_torque_nm else 0)
+    log.info(
+        "能量模式: %s (has_eec1=%s, max_torque=%.0f Nm)",
+        energy_mode,
+        has_eec1,
+        max_torque_nm if max_torque_nm else 0,
+    )
 
     if energy_mode == "eec1" and max_torque_nm is None:
         log.error("EEC1 模式需要 max_torque_nm 参数")
@@ -188,7 +215,8 @@ def run_single_vehicle(
 
     # 7. 质量分布直方图
     plot_mass_histogram(
-        constraints, vehicle_reg,
+        constraints,
+        vehicle_reg,
         save_path=str(results_dir / f"{vehicle_reg}_mass_hist.png"),
     )
 
@@ -196,13 +224,25 @@ def run_single_vehicle(
     make = vehicle_cfg.get("make", "")
     label = f"{vehicle_reg} ({make})"
     cases = [
-        ("all",  "Unfiltered",                      dict(use_wind=False, use_mass=False, use_elev=False)),
-        ("0",    f"Wind ≤{cfg.WIND_MEAN_MAX_MPS}m/s",                   dict(use_wind=True,  use_mass=False, use_elev=False)),
-        ("1",    f"Mass ±{cfg.MASS_DEVIATION_PCT*100:.0f}%",             dict(use_wind=False, use_mass=True,  use_elev=False)),
-        ("2",    f"Elev ±{cfg.ELEVATION_CHANGE_THRESHOLD_M:.0f}m",       dict(use_wind=False, use_mass=False, use_elev=True)),
-        ("3",    f"Wind+Mass",                       dict(use_wind=True,  use_mass=True,  use_elev=False)),
-        ("4",    f"Wind+Elev",                       dict(use_wind=True,  use_mass=False, use_elev=True)),
-        ("5",    f"Wind+Mass+Elev",                  dict(use_wind=True,  use_mass=True,  use_elev=True)),
+        ("all", "Unfiltered", dict(use_wind=False, use_mass=False, use_elev=False)),
+        (
+            "0",
+            f"Wind ≤{cfg.WIND_MEAN_MAX_MPS}m/s",
+            dict(use_wind=True, use_mass=False, use_elev=False),
+        ),
+        (
+            "1",
+            f"Mass ±{cfg.MASS_DEVIATION_PCT*100:.0f}%",
+            dict(use_wind=False, use_mass=True, use_elev=False),
+        ),
+        (
+            "2",
+            f"Elev ±{cfg.ELEVATION_CHANGE_THRESHOLD_M:.0f}m",
+            dict(use_wind=False, use_mass=False, use_elev=True),
+        ),
+        ("3", f"Wind+Mass", dict(use_wind=True, use_mass=True, use_elev=False)),
+        ("4", f"Wind+Elev", dict(use_wind=True, use_mass=False, use_elev=True)),
+        ("5", f"Wind+Mass+Elev", dict(use_wind=True, use_mass=True, use_elev=True)),
     ]
 
     best_result = None
@@ -228,13 +268,17 @@ def run_single_vehicle(
             title += f" | C_rr={res['c_rr_identified']:.6f}, C_dA={res['c_da_identified']:.2f}"
 
         plot_comprehensive_analysis(
-            res, title,
+            res,
+            title,
             save_path=str(results_dir / f"{vehicle_reg}_analysis_{suffix}.png"),
         )
-        log.info("图 %s: n=%d, C_rr=%s, C_dA=%s",
-                 suffix, len(filtered),
-                 f"{res['c_rr_identified']:.6f}" if res['c_rr_identified'] else "N/A",
-                 f"{res['c_da_identified']:.2f}" if res['c_da_identified'] else "N/A")
+        log.info(
+            "图 %s: n=%d, C_rr=%s, C_dA=%s",
+            suffix,
+            len(filtered),
+            f"{res['c_rr_identified']:.6f}" if res["c_rr_identified"] else "N/A",
+            f"{res['c_da_identified']:.2f}" if res["c_da_identified"] else "N/A",
+        )
 
         # 记录最佳结果（最多约束的全过滤组合）
         if suffix == "5" and res["c_rr_identified"] is not None:
@@ -281,15 +325,29 @@ def run_single_vehicle(
 def main():
     load_dotenv(str(cfg.JOLT_ROOT / ".env"))
 
-    p = argparse.ArgumentParser(description="JOLT EV C_rr / C_dA 参数辨识 (基于 SRF Logger 数据)")
+    p = argparse.ArgumentParser(
+        description="JOLT EV C_rr / C_dA 参数辨识 (基于 SRF Logger 数据)"
+    )
     p.add_argument("--veh", type=str, default=None, help="车牌号")
-    p.add_argument("--all", action="store_true", help="辨识所有有 Logger 的车辆 (IDENTIFICATION_CONFIGS)")
-    p.add_argument("--ds", type=str, default=None, help="开始日期 (默认从 IDENTIFICATION_CONFIGS)")
-    p.add_argument("--de", type=str, default=None, help="结束日期 (默认从 IDENTIFICATION_CONFIGS)")
+    p.add_argument(
+        "--all",
+        action="store_true",
+        help="辨识所有有 Logger 的车辆 (IDENTIFICATION_CONFIGS)",
+    )
+    p.add_argument(
+        "--ds", type=str, default=None, help="开始日期 (默认从 IDENTIFICATION_CONFIGS)"
+    )
+    p.add_argument(
+        "--de", type=str, default=None, help="结束日期 (默认从 IDENTIFICATION_CONFIGS)"
+    )
     p.add_argument("--probe", action="store_true", help="仅探测 Logger 通道")
     p.add_argument("--no-download", action="store_true", help="不下载，用已有 CSV")
-    p.add_argument("--max-torque", type=float, default=None, help="覆盖电机最大扭矩 (Nm)")
-    p.add_argument("--efficiency", type=float, default=cfg.MOTOR_EFFICIENCY, help="传动效率")
+    p.add_argument(
+        "--max-torque", type=float, default=None, help="覆盖电机最大扭矩 (Nm)"
+    )
+    p.add_argument(
+        "--efficiency", type=float, default=cfg.MOTOR_EFFICIENCY, help="传动效率"
+    )
     p.add_argument("--seg-distance", type=float, default=None, help="巡航段距离 (m)")
     p.add_argument("--min-speed", type=float, default=None, help="最小平均速度 (km/h)")
     args = p.parse_args()
@@ -310,7 +368,10 @@ def main():
     # SRF 客户端
     srf = None
     if not args.no_download or args.probe:
-        from jolt_toolkit.vehicle_params_identificator.data_loader import _make_srf_client
+        from jolt_toolkit.vehicle_params_identificator.data_loader import (
+            _make_srf_client,
+        )
+
         srf = _make_srf_client()
 
     results = {}
@@ -336,7 +397,10 @@ def main():
         log.info("=" * 60)
 
         result = run_single_vehicle(
-            reg, vcfg, ds, de,
+            reg,
+            vcfg,
+            ds,
+            de,
             srf=srf,
             download=not args.no_download,
             max_torque_nm=max_torque,
@@ -356,14 +420,18 @@ def main():
             json.dump(results, f, indent=2, ensure_ascii=False)
 
         print("\n" + "=" * 90)
-        print(f"{'Vehicle':<12} {'Make':<15} {'Mode':<8} {'C_rr':>10} {'C_dA':>8} {'Segs':>6} {'Legs':>6}")
+        print(
+            f"{'Vehicle':<12} {'Make':<15} {'Mode':<8} {'C_rr':>10} {'C_dA':>8} {'Segs':>6} {'Legs':>6}"
+        )
         print("-" * 90)
         for reg, r in results.items():
             bf = r.get("best_filtered") or r.get("unfiltered", {})
             crr = f"{bf['c_rr']:.6f}" if bf.get("c_rr") is not None else "N/A"
             cda = f"{bf['c_da']:.2f}" if bf.get("c_da") is not None else "N/A"
-            print(f"{reg:<12} {r.get('make',''):<15} {r['energy_mode']:<8} {crr:>10} {cda:>8} "
-                  f"{r['n_constraints_total']:>6} {r['n_legs']:>6}")
+            print(
+                f"{reg:<12} {r.get('make',''):<15} {r['energy_mode']:<8} {crr:>10} {cda:>8} "
+                f"{r['n_constraints_total']:>6} {r['n_legs']:>6}"
+            )
         print("=" * 90)
 
 

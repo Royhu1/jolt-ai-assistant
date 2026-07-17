@@ -24,11 +24,11 @@ import numpy as np
 import pandas as pd
 
 from jolt_toolkit.vehicle_params_identificator.config import (
-    SEG_DISTANCE_M,
-    MIN_AVG_SPEED_KMPH,
-    WINDOW_STEP_M,
     MAX_SPEED_CV,
+    MIN_AVG_SPEED_KMPH,
     MIN_SPEED_FLOOR_KMPH,
+    SEG_DISTANCE_M,
+    WINDOW_STEP_M,
 )
 
 logger = logging.getLogger(__name__)
@@ -162,7 +162,10 @@ def get_cruise_segments(
             )
         elif "timestamp" in seg_df.columns:
             ts = pd.to_datetime(seg_df["timestamp"])
-            period = (ts.iloc[0].strftime("%y%m%d-%H%M%S"), ts.iloc[-1].strftime("%y%m%d-%H%M%S"))
+            period = (
+                ts.iloc[0].strftime("%y%m%d-%H%M%S"),
+                ts.iloc[-1].strftime("%y%m%d-%H%M%S"),
+            )
         else:
             period = (str(int(start)), str(int(end)))
 
@@ -200,5 +203,7 @@ def extract_all_cruise_segments(
             if verbose:
                 logger.debug("Leg %d: %d 个巡航段", idx + 1, len(segs))
 
-    logger.info("总计提取 %d 个巡航段 (来自 %d 条 legs)", len(all_segments), len(dataframes))
+    logger.info(
+        "总计提取 %d 个巡航段 (来自 %d 条 legs)", len(all_segments), len(dataframes)
+    )
     return all_segments

@@ -41,6 +41,15 @@ dev = [
 [project.scripts]
 jolt-report = "jolt_toolkit.report_generator.cli:main"
 
+[tool.black]
+line-length = 88
+
+[tool.isort]
+# "black" profile keeps isort's import ordering compatible with black's
+# formatting (trailing commas, parenthesised multi-line imports) so the two
+# tools do not fight. Three groups: stdlib / third-party / first-party.
+profile = "black"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["jolt_toolkit*"]

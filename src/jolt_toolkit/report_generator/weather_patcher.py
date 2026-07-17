@@ -38,19 +38,26 @@ from jolt_toolkit.report_generator.weather_fetcher.openweather import (
 logger = logging.getLogger(__name__)
 
 # ── Excel column indices (1-based, openpyxl convention) ─────────────────
-_COL_LEG_TYPE   = 2
+_COL_LEG_TYPE = 2
 _COL_START_TIME = 6
-_COL_ORIGIN     = 7
-_COL_END_TIME   = 9
-_COL_DEST       = 10
-_COL_TEMP       = 38
-_COL_PRESSURE   = 39
-_COL_HUMIDITY   = 40
+_COL_ORIGIN = 7
+_COL_END_TIME = 9
+_COL_DEST = 10
+_COL_TEMP = 38
+_COL_PRESSURE = 39
+_COL_HUMIDITY = 40
 _COL_WIND_SPEED = 41
-_COL_WIND_DIR      = 42
-_COL_WEATHER_TYPE  = 43
+_COL_WIND_DIR = 42
+_COL_WEATHER_TYPE = 43
 
-_WEATHER_COLS = (_COL_TEMP, _COL_PRESSURE, _COL_HUMIDITY, _COL_WIND_SPEED, _COL_WIND_DIR, _COL_WEATHER_TYPE)
+_WEATHER_COLS = (
+    _COL_TEMP,
+    _COL_PRESSURE,
+    _COL_HUMIDITY,
+    _COL_WIND_SPEED,
+    _COL_WIND_DIR,
+    _COL_WEATHER_TYPE,
+)
 
 # Cheap sanity check (mirrors charger_patcher): the hard-coded 1-based Excel
 # columns above must stay in step with report_builder.HEADERS (Excel col ==
@@ -72,11 +79,12 @@ assert _COL_WEATHER_TYPE == HEADERS.index("Weather Type") + 1
 
 # ── Utility functions ─────────────────────────────────────────────────────
 
+
 def _parse_point(point_str) -> tuple[float | None, float | None]:
     """Parse a coordinate string in 'Point(lat lon)' format."""
     if not point_str or not isinstance(point_str, str):
         return None, None
-    m = re.match(r'Point\(([+-]?\d+\.?\d*)\s+([+-]?\d+\.?\d*)\)', point_str)
+    m = re.match(r"Point\(([+-]?\d+\.?\d*)\s+([+-]?\d+\.?\d*)\)", point_str)
     if m:
         return float(m.group(1)), float(m.group(2))
     return None, None
@@ -84,7 +92,7 @@ def _parse_point(point_str) -> tuple[float | None, float | None]:
 
 def _deg_to_cardinal(deg: float) -> str:
     """Degrees → 8-point compass wind direction."""
-    directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+    directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
     idx = round(deg / 45) % 8
     return directions[idx]
 
@@ -94,7 +102,7 @@ def _cell_needs_patch(cell) -> bool:
     v = cell.value
     if v is None:
         return True
-    if isinstance(v, str) and (v.strip() == '' or v.strip().upper() == '=NA()'):
+    if isinstance(v, str) and (v.strip() == "" or v.strip().upper() == "=NA()"):
         return True
     return False
 
@@ -134,6 +142,7 @@ def _is_ev_layout(ws) -> bool:
 
 # ── Main class ────────────────────────────────────────────────────────────
 
+
 class WeatherPatcher:
     """
     Weather data backfill tool.
@@ -160,12 +169,16 @@ class WeatherPatcher:
         max_workers:   number of concurrent requests (default 30)
     """
 
-    def __init__(self, cache_file: str | Path | None = None,
-                 precision: int = 2, time_bucket_s: int = 3600,
-                 max_workers: int = 30):
+    def __init__(
+        self,
+        cache_file: str | Path | None = None,
+        precision: int = 2,
+        time_bucket_s: int = 3600,
+        max_workers: int = 30,
+    ):
         cache_file = cache_file or os.environ.get(
-            'WEATHER_CACHE_FILE',
-            str(get_cache_dir() / '.weather_cache.json'))
+            "WEATHER_CACHE_FILE", str(get_cache_dir() / ".weather_cache.json")
+        )
         self._cache = WeatherCache(cache_file, precision, time_bucket_s)
         self._keys = KeyManager("WeatherPatcher")
         self._fetcher = WeatherFetcher(self._keys, max_workers)
@@ -191,11 +204,11 @@ class WeatherPatcher:
 
         logger.info(f"Patching: {xlsx_path.name}")
         wb = load_workbook(str(xlsx_path))
-        if 'Report' not in wb.sheetnames:
+        if "Report" not in wb.sheetnames:
             logger.error(f"  'Report' sheet not found in {xlsx_path.name}")
             wb.close()
             return 0
-        ws = wb['Report']
+        ws = wb["Report"]
 
         # Diesel-layout guard: this patcher's _COL_* indices are the EV HEADERS
         # layout. A diesel report uses DIESEL_HEADERS (different column order),
@@ -204,15 +217,21 @@ class WeatherPatcher:
         if not _is_ev_layout(ws):
             logger.error(
                 "  %s: diesel/unknown layout, skipping (coarse weather patcher "
-                "supports the EV layout only)", xlsx_path.name)
+                "supports the EV layout only)",
+                xlsx_path.name,
+            )
             wb.close()
             return 0
 
         # 1. Collect the rows needing backfill
         tasks = []  # (row_idx, o_lat, o_lon, o_dt, d_lat, d_lon, d_dt)
         total_rows = ws.max_row - 1  # minus the header row
-        for row_idx in tqdm(range(2, ws.max_row + 1), desc="Scanning weather rows",
-                            total=total_rows, leave=False):  # skip the header row
+        for row_idx in tqdm(
+            range(2, ws.max_row + 1),
+            desc="Scanning weather rows",
+            total=total_rows,
+            leave=False,
+        ):  # skip the header row
             # Weather is backfilled on driving / trip rows ONLY. Charge and Stop
             # rows do not need weather, and querying them would only waste
             # OpenWeather quota, so skip any non-trip row before its coordinates
@@ -225,7 +244,7 @@ class WeatherPatcher:
                 continue
 
             origin_str = ws.cell(row_idx, _COL_ORIGIN).value
-            dest_str   = ws.cell(row_idx, _COL_DEST).value
+            dest_str = ws.cell(row_idx, _COL_DEST).value
             o_lat, o_lon = _parse_point(origin_str)
             d_lat, d_lon = _parse_point(dest_str)
             if o_lat is None or d_lat is None:
@@ -254,13 +273,16 @@ class WeatherPatcher:
 
         # 3. Look up the cache
         weather_map, missing = self._cache.get_batch(all_locs)
-        logger.info(f"  {len(all_locs)} unique locations: "
-                    f"{len(weather_map)} cached, {len(missing)} need API")
+        logger.info(
+            f"  {len(all_locs)} unique locations: "
+            f"{len(weather_map)} cached, {len(missing)} need API"
+        )
 
         # 4. Fetch the missing data from the API
         if missing:
             fetched = self._fetcher.fetch_batch(
-                missing, desc="Fetching weather API", warn_on_failure=True)
+                missing, desc="Fetching weather API", warn_on_failure=True
+            )
             weather_map.update(fetched)
             if fetched:
                 self._cache.put_batch(fetched)
@@ -274,21 +296,21 @@ class WeatherPatcher:
             if o_w is None or d_w is None:
                 continue
 
-            avg_temp  = round((o_w[0] + d_w[0]) / 2, 1)
+            avg_temp = round((o_w[0] + d_w[0]) / 2, 1)
             avg_press = round((o_w[1] + d_w[1]) / 2, 1)
             avg_humid = round((o_w[2] + d_w[2]) / 2, 1)
-            avg_wind  = round((o_w[3] + d_w[3]) / 2, 1)
-            avg_dir   = (o_w[4] + d_w[4]) / 2
-            cardinal  = _deg_to_cardinal(avg_dir)
+            avg_wind = round((o_w[3] + d_w[3]) / 2, 1)
+            avg_dir = (o_w[4] + d_w[4]) / 2
+            cardinal = _deg_to_cardinal(avg_dir)
             # Origin's weather type (compatible with the old 5-element cache)
             weather_type = o_w[5] if len(o_w) > 5 else None
 
-            ws.cell(row_idx, _COL_TEMP).value          = avg_temp
-            ws.cell(row_idx, _COL_PRESSURE).value       = avg_press
-            ws.cell(row_idx, _COL_HUMIDITY).value        = avg_humid
-            ws.cell(row_idx, _COL_WIND_SPEED).value     = avg_wind
-            ws.cell(row_idx, _COL_WIND_DIR).value       = cardinal
-            ws.cell(row_idx, _COL_WEATHER_TYPE).value   = weather_type
+            ws.cell(row_idx, _COL_TEMP).value = avg_temp
+            ws.cell(row_idx, _COL_PRESSURE).value = avg_press
+            ws.cell(row_idx, _COL_HUMIDITY).value = avg_humid
+            ws.cell(row_idx, _COL_WIND_SPEED).value = avg_wind
+            ws.cell(row_idx, _COL_WIND_DIR).value = cardinal
+            ws.cell(row_idx, _COL_WEATHER_TYPE).value = weather_type
             patched += 1
 
         if patched > 0:
@@ -300,8 +322,10 @@ class WeatherPatcher:
         wb.close()
 
         summary = self._keys.summary()
-        logger.info(f"  API keys: {summary['active']}/{summary['total_keys']} active, "
-                    f"{summary['total_usage']} calls this session")
+        logger.info(
+            f"  API keys: {summary['active']}/{summary['total_keys']} active, "
+            f"{summary['total_usage']} calls this session"
+        )
 
         return patched
 
@@ -317,7 +341,7 @@ class WeatherPatcher:
             logger.error(f"Folder not found: {folder}")
             return {}
 
-        xlsx_files = sorted(folder.glob('jolt_report_*.xlsx'))
+        xlsx_files = sorted(folder.glob("jolt_report_*.xlsx"))
         if not xlsx_files:
             logger.info(f"No jolt_report_*.xlsx files in {folder}")
             return {}

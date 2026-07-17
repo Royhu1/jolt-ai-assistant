@@ -16,7 +16,6 @@ import re
 
 import numpy as np
 
-
 # ── Excel report column headers (EV; identical field order to the legacy JOLT LegRecord) ──
 HEADERS = (
     "Leg Number",

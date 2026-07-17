@@ -27,27 +27,48 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="jolt-report",
         description="Generate a JOLT Excel report for a vehicle over a date range.",
     )
-    parser.add_argument('-veh', '--vehicle_registration', type=str,
-                        help='Vehicle registration, e.g. YK73WFN')
-    parser.add_argument('-ds', '--date_start', type=str,
-                        help='Start date (YYYY-MM-DD)')
-    parser.add_argument('-de', '--date_end', type=str,
-                        help='End date (YYYY-MM-DD, inclusive)')
-    parser.add_argument('--debug', action='store_true', default=False,
-                        help='Enable debug mode: generate validation figures and '
-                             'save raw telematics CSV')
-    parser.add_argument('--raw-only', dest='raw_only', action='store_true',
-                        default=False,
-                        help='Save raw telematics CSV + inspect HTML (like --debug) '
-                             'but skip drawing the baked validation figures during '
-                             'generation (they are re-drawn later via the overlay '
-                             'regenerate step).')
-    parser.add_argument('--fast', action='store_true', default=False,
-                        help='Fast mode: skip SRF Logger and Charger data fetching')
-    parser.add_argument('--out-dir', '--report-output-folder', dest='out_dir',
-                        type=str, default=None,
-                        help='Output folder for the report. Defaults to '
-                             './excel_report_database/<package_version>.')
+    parser.add_argument(
+        "-veh",
+        "--vehicle_registration",
+        type=str,
+        help="Vehicle registration, e.g. YK73WFN",
+    )
+    parser.add_argument("-ds", "--date_start", type=str, help="Start date (YYYY-MM-DD)")
+    parser.add_argument(
+        "-de", "--date_end", type=str, help="End date (YYYY-MM-DD, inclusive)"
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Enable debug mode: generate validation figures and "
+        "save raw telematics CSV",
+    )
+    parser.add_argument(
+        "--raw-only",
+        dest="raw_only",
+        action="store_true",
+        default=False,
+        help="Save raw telematics CSV + inspect HTML (like --debug) "
+        "but skip drawing the baked validation figures during "
+        "generation (they are re-drawn later via the overlay "
+        "regenerate step).",
+    )
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        default=False,
+        help="Fast mode: skip SRF Logger and Charger data fetching",
+    )
+    parser.add_argument(
+        "--out-dir",
+        "--report-output-folder",
+        dest="out_dir",
+        type=str,
+        default=None,
+        help="Output folder for the report. Defaults to "
+        "./excel_report_database/<package_version>.",
+    )
     return parser
 
 
@@ -58,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     # Load .env (if present in the working directory) before reading env vars.
     try:
         from dotenv import load_dotenv
+
         load_dotenv()
     except Exception:  # dotenv is optional at runtime
         pass
@@ -73,14 +95,19 @@ def main(argv: list[str] | None = None) -> int:
     if not os.environ.get("SRF_API_KEY"):
         logger.error(
             "SRF_API_KEY is not set. Export it, or add it to a .env file in the "
-            "working directory, before generating a report.")
+            "working directory, before generating a report."
+        )
         return 2
 
-    missing = [name for name, val in (
-        ("-veh/--vehicle_registration", args.vehicle_registration),
-        ("-ds/--date_start", args.date_start),
-        ("-de/--date_end", args.date_end),
-    ) if not val]
+    missing = [
+        name
+        for name, val in (
+            ("-veh/--vehicle_registration", args.vehicle_registration),
+            ("-ds/--date_start", args.date_start),
+            ("-de/--date_end", args.date_end),
+        )
+        if not val
+    ]
     if missing:
         logger.error("Missing required argument(s): %s", ", ".join(missing))
         return 2

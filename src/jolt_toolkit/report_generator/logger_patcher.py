@@ -23,29 +23,29 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import srf_client
-from srf_client import paging
 from openpyxl import load_workbook
 from openpyxl.styles import Font
+from srf_client import paging
 from tqdm import tqdm
 
 from jolt_toolkit.report_generator.paths import get_cache_dir
-from jolt_toolkit.report_generator.segment_algorithms import VEHICLE_CONFIG
+from jolt_toolkit.report_generator.pedal_histogram import (
+    EBC1_COL,
+    EEC2_COL,
+    MIN_DISTANCE_FOR_PEDAL_KM,
+    compute_pedal_histogram,
+)
 from jolt_toolkit.report_generator.report_builder import (
     HEADERS,
-    _find_overlap,
     _build_logger_url,
-    _kinetics_corrected_energy_perf,
+    _find_overlap,
     _get_trip_speed_array,
+    _kinetics_corrected_energy_perf,
 )
-from jolt_toolkit.report_generator.pedal_histogram import (
-    compute_pedal_histogram,
-    MIN_DISTANCE_FOR_PEDAL_KM,
-    EEC2_COL,
-    EBC1_COL,
-)
+from jolt_toolkit.report_generator.segment_algorithms import VEHICLE_CONFIG
 from jolt_toolkit.report_generator.xlsx_patch_common import (
-    _parse_report_filename,
     _cell_is_empty,
+    _parse_report_filename,
     _to_timestamp,
     make_srf_client,
 )
@@ -53,26 +53,32 @@ from jolt_toolkit.report_generator.xlsx_patch_common import (
 logger = logging.getLogger(__name__)
 
 # ── Excel column indices (1-based, openpyxl convention) ─────────────────
-_COL_LEG_TYPE    = 2   # Leg Type
-_COL_LOGGER_LINK = 5   # SRF Logger Link
-_COL_START_TIME  = 6
-_COL_END_TIME    = 9
-_COL_MASS        = 16  # Vehicle Mass (kg)
-_COL_MASS_CV     = 17  # Vehicle Mass CV (reliability)
-_COL_TEMP        = 38
-_COL_PRESSURE    = 39
-_COL_HUMIDITY    = 40
-_COL_WIND_SPEED  = 41
-_COL_WIND_DIR    = 42
+_COL_LEG_TYPE = 2  # Leg Type
+_COL_LOGGER_LINK = 5  # SRF Logger Link
+_COL_START_TIME = 6
+_COL_END_TIME = 9
+_COL_MASS = 16  # Vehicle Mass (kg)
+_COL_MASS_CV = 17  # Vehicle Mass CV (reliability)
+_COL_TEMP = 38
+_COL_PRESSURE = 39
+_COL_HUMIDITY = 40
+_COL_WIND_SPEED = 41
+_COL_WIND_DIR = 42
 
-_COL_DISTANCE    = 13  # Distance (km)
-_COL_ELEV_DIFF   = 15  # Elevation Difference (m)
-_COL_ENERGY      = 22  # Energy Change (kWh)
-_COL_EPERF_KIN   = 47  # Energy Performance Kinetics Corrected (kWh/km)
-_COL_HIST_ACC    = 44  # Histogram of Accelerator Pedal Position
-_COL_HIST_DEC    = 45  # Histogram of Decelerator Pedal Position
+_COL_DISTANCE = 13  # Distance (km)
+_COL_ELEV_DIFF = 15  # Elevation Difference (m)
+_COL_ENERGY = 22  # Energy Change (kWh)
+_COL_EPERF_KIN = 47  # Energy Performance Kinetics Corrected (kWh/km)
+_COL_HIST_ACC = 44  # Histogram of Accelerator Pedal Position
+_COL_HIST_DEC = 45  # Histogram of Decelerator Pedal Position
 
-_WEATHER_COLS = (_COL_TEMP, _COL_PRESSURE, _COL_HUMIDITY, _COL_WIND_SPEED, _COL_WIND_DIR)
+_WEATHER_COLS = (
+    _COL_TEMP,
+    _COL_PRESSURE,
+    _COL_HUMIDITY,
+    _COL_WIND_SPEED,
+    _COL_WIND_DIR,
+)
 
 # Cheap sanity check (mirrors charger_patcher): the hard-coded 1-based Excel
 # columns above must stay in step with report_builder.HEADERS (Excel col ==
@@ -94,24 +100,27 @@ assert _COL_WIND_DIR == HEADERS.index("Average Wind Direction") + 1
 assert _COL_DISTANCE == HEADERS.index("Distance (km)") + 1
 assert _COL_ELEV_DIFF == HEADERS.index("Elevation Difference (m)") + 1
 assert _COL_ENERGY == HEADERS.index("Energy Change (kWh)") + 1
-assert _COL_EPERF_KIN == HEADERS.index("Energy Performance Kinetics Corrected (kWh/km)") + 1
+assert (
+    _COL_EPERF_KIN
+    == HEADERS.index("Energy Performance Kinetics Corrected (kWh/km)") + 1
+)
 assert _COL_HIST_ACC == HEADERS.index("Histogram of Accelerator Pedal Position") + 1
 assert _COL_HIST_DEC == HEADERS.index("Histogram of Decelerator Pedal Position") + 1
 
 # ── Logger Channel 7 column names ─────────────────────────────────────────
-_W_TEMP   = '7 temperature'
-_W_PRESS  = '7 pressure'
-_W_HUMID  = '7 humidity'
-_W_WIND_S = '7 wind speed'
-_W_WIND_D = '7 wind direction'
+_W_TEMP = "7 temperature"
+_W_PRESS = "7 pressure"
+_W_HUMID = "7 humidity"
+_W_WIND_S = "7 wind speed"
+_W_WIND_D = "7 wind direction"
 
 # ── Logger CVW column name ───────────────────────────────────────────────
-_CVW_COL = 'CVW gross combination vehicle weight'
+_CVW_COL = "CVW gross combination vehicle weight"
 
-_CARDINALS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+_CARDINALS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 
 # ── Charge-type regex (consistent with report_builder) ─────────────────────
-_CHARGE_RE = re.compile(r'^(AC|DC|Charge|Mix|estimated)', re.IGNORECASE)
+_CHARGE_RE = re.compile(r"^(AC|DC|Charge|Mix|estimated)", re.IGNORECASE)
 
 
 # ── Utility functions ─────────────────────────────────────────────────────
@@ -124,12 +133,13 @@ def _cell_needs_weather(cell) -> bool:
     v = cell.value
     if v is None:
         return True
-    if isinstance(v, str) and (v.strip() == '' or v.strip().upper() == '=NA()'):
+    if isinstance(v, str) and (v.strip() == "" or v.strip().upper() == "=NA()"):
         return True
     return False
 
 
 # ── Main class ────────────────────────────────────────────────────────────
+
 
 class LoggerPatcher:
     """
@@ -166,9 +176,13 @@ class LoggerPatcher:
 
     # ── Public interface ──────────────────────────────────────────────────
 
-    def patch_file(self, xlsx_path: str | Path, *,
-                   logger_legs: list | None = None,
-                   logger_windows: list | None = None) -> int:
+    def patch_file(
+        self,
+        xlsx_path: str | Path,
+        *,
+        logger_legs: list | None = None,
+        logger_windows: list | None = None,
+    ) -> int:
         """
         Backfill a single xlsx report's Logger Link and weather data.
 
@@ -204,26 +218,34 @@ class LoggerPatcher:
         weather_df = self._load_weather_data(logger_legs)
         mass_df = self._load_mass_data(logger_legs)
         speed_df = self._load_speed_data(logger_legs)
-        acc_pedal_df = self._load_pedal_data(logger_legs, channel='EEC2')
-        dec_pedal_df = self._load_pedal_data(logger_legs, channel='EBC1')
+        acc_pedal_df = self._load_pedal_data(logger_legs, channel="EEC2")
+        dec_pedal_df = self._load_pedal_data(logger_legs, channel="EBC1")
 
         # 3. Open the xlsx
         logger.info("LoggerPatcher: backfilling %s", xlsx_path.name)
         wb = load_workbook(str(xlsx_path))
-        if 'Report' not in wb.sheetnames:
+        if "Report" not in wb.sheetnames:
             logger.error("  'Report' worksheet not found: %s", xlsx_path.name)
             wb.close()
             return 0
-        ws = wb['Report']
+        ws = wb["Report"]
 
         # 4. Iterate rows, backfilling Link and weather (discharge/trip segments only, skip charge segments)
         patched = 0
         total_rows = ws.max_row - 1  # minus the header row
-        for row_idx in tqdm(range(2, ws.max_row + 1), desc="Logger backfill rows",
-                            total=total_rows, leave=False):
+        for row_idx in tqdm(
+            range(2, ws.max_row + 1),
+            desc="Logger backfill rows",
+            total=total_rows,
+            leave=False,
+        ):
             # Charge segments should have no Logger data
             leg_type_val = ws.cell(row_idx, _COL_LEG_TYPE).value
-            if leg_type_val and isinstance(leg_type_val, str) and _CHARGE_RE.match(leg_type_val):
+            if (
+                leg_type_val
+                and isinstance(leg_type_val, str)
+                and _CHARGE_RE.match(leg_type_val)
+            ):
                 continue
 
             t_s = _to_timestamp(ws.cell(row_idx, _COL_START_TIME).value)
@@ -240,9 +262,9 @@ class LoggerPatcher:
                     url = _build_logger_url(uri, t_s, t_e)
                     if url:
                         cell = ws.cell(row_idx, _COL_LOGGER_LINK)
-                        cell.value = 'Link'
+                        cell.value = "Link"
                         cell.hyperlink = url
-                        cell.font = Font(color='0000FF', underline='single')
+                        cell.font = Font(color="0000FF", underline="single")
                         row_patched = True
 
             # 4b. Weather data
@@ -253,22 +275,27 @@ class LoggerPatcher:
                 if not matched.empty:
                     if _W_TEMP in matched.columns:
                         ws.cell(row_idx, _COL_TEMP).value = round(
-                            float(matched[_W_TEMP].mean()), 1)
+                            float(matched[_W_TEMP].mean()), 1
+                        )
                     if _W_PRESS in matched.columns:
                         ws.cell(row_idx, _COL_PRESSURE).value = round(
-                            float(matched[_W_PRESS].mean()), 1)
+                            float(matched[_W_PRESS].mean()), 1
+                        )
                     if _W_HUMID in matched.columns:
                         ws.cell(row_idx, _COL_HUMIDITY).value = round(
-                            float(matched[_W_HUMID].mean()), 1)
+                            float(matched[_W_HUMID].mean()), 1
+                        )
                     if _W_WIND_S in matched.columns:
                         ws.cell(row_idx, _COL_WIND_SPEED).value = round(
-                            float(matched[_W_WIND_S].mean()), 1)
+                            float(matched[_W_WIND_S].mean()), 1
+                        )
                     if _W_WIND_D in matched.columns:
                         wind_d = matched[_W_WIND_D].dropna()
                         if not wind_d.empty:
                             avg_deg = float(wind_d.mean())
-                            ws.cell(row_idx, _COL_WIND_DIR).value = (
-                                _CARDINALS[round(avg_deg / 45) % 8])
+                            ws.cell(row_idx, _COL_WIND_DIR).value = _CARDINALS[
+                                round(avg_deg / 45) % 8
+                            ]
                     row_patched = True
 
             # 4c. Mass data (backfilled only when the report has no valid mass)
@@ -278,29 +305,41 @@ class LoggerPatcher:
                 valid_m = valid_m[valid_m > 0]
                 if len(valid_m) >= 5:
                     median_mass = float(np.median(valid_m.values))
-                    cv = float(valid_m.std() / valid_m.mean()) if valid_m.mean() > 0 else None
+                    cv = (
+                        float(valid_m.std() / valid_m.mean())
+                        if valid_m.mean() > 0
+                        else None
+                    )
                     ws.cell(row_idx, _COL_MASS).value = round(median_mass, 0)
                     if cv is not None:
                         ws.cell(row_idx, _COL_MASS_CV).value = round(cv, 3)
                     row_patched = True
 
             # 4d. Kinetics-corrected energy performance (computed second by second from the Logger 1Hz speed data)
-            if speed_df is not None and _cell_needs_weather(ws.cell(row_idx, _COL_EPERF_KIN)):
+            if speed_df is not None and _cell_needs_weather(
+                ws.cell(row_idx, _COL_EPERF_KIN)
+            ):
                 energy_val = ws.cell(row_idx, _COL_ENERGY).value
                 dist_val = ws.cell(row_idx, _COL_DISTANCE).value
                 elev_val = ws.cell(row_idx, _COL_ELEV_DIFF).value
                 mass_val = ws.cell(row_idx, _COL_MASS).value
-                if (energy_val is not None and dist_val is not None
-                        and mass_val is not None):
+                if (
+                    energy_val is not None
+                    and dist_val is not None
+                    and mass_val is not None
+                ):
                     try:
                         energy_kwh = float(energy_val)
                         distance_km = float(dist_val)
-                        elevation_m = float(elev_val) if elev_val is not None else float('nan')
+                        elevation_m = (
+                            float(elev_val) if elev_val is not None else float("nan")
+                        )
                         mass_kg = float(mass_val)
                         speed_arr = _get_trip_speed_array(speed_df, t_s, t_e)
                         if speed_arr is not None and distance_km > 0:
                             ep_kin = _kinetics_corrected_energy_perf(
-                                energy_kwh, distance_km, elevation_m, mass_kg, speed_arr)
+                                energy_kwh, distance_km, elevation_m, mass_kg, speed_arr
+                            )
                             if not np.isnan(ep_kin):
                                 ws.cell(row_idx, _COL_EPERF_KIN).value = ep_kin
                                 row_patched = True
@@ -316,20 +355,28 @@ class LoggerPatcher:
 
             if dist_km > MIN_DISTANCE_FOR_PEDAL_KM:
                 # Accelerator-pedal histogram
-                if acc_pedal_df is not None and _cell_is_empty(ws.cell(row_idx, _COL_HIST_ACC)):
+                if acc_pedal_df is not None and _cell_is_empty(
+                    ws.cell(row_idx, _COL_HIST_ACC)
+                ):
                     try:
                         acc_slice = acc_pedal_df.loc[t_s:t_e].dropna()
-                        hist_str = compute_pedal_histogram(acc_slice, value_col=EEC2_COL)
+                        hist_str = compute_pedal_histogram(
+                            acc_slice, value_col=EEC2_COL
+                        )
                         if hist_str is not None:
                             ws.cell(row_idx, _COL_HIST_ACC).value = hist_str
                             row_patched = True
                     except Exception:
                         pass
                 # Brake-pedal histogram
-                if dec_pedal_df is not None and _cell_is_empty(ws.cell(row_idx, _COL_HIST_DEC)):
+                if dec_pedal_df is not None and _cell_is_empty(
+                    ws.cell(row_idx, _COL_HIST_DEC)
+                ):
                     try:
                         dec_slice = dec_pedal_df.loc[t_s:t_e].dropna()
-                        hist_str = compute_pedal_histogram(dec_slice, value_col=EBC1_COL)
+                        hist_str = compute_pedal_histogram(
+                            dec_slice, value_col=EBC1_COL
+                        )
                         if hist_str is not None:
                             ws.cell(row_idx, _COL_HIST_DEC).value = hist_str
                             row_patched = True
@@ -341,7 +388,10 @@ class LoggerPatcher:
 
         if patched > 0:
             wb.save(str(xlsx_path))
-            logger.info("  Backfilled %d rows (Logger Link + weather + mass + kinetics correction + pedal histograms), saved", patched)
+            logger.info(
+                "  Backfilled %d rows (Logger Link + weather + mass + kinetics correction + pedal histograms), saved",
+                patched,
+            )
         else:
             logger.info("  No Logger data to backfill")
 
@@ -355,7 +405,7 @@ class LoggerPatcher:
             logger.error("Folder does not exist: %s", folder)
             return {}
 
-        xlsx_files = sorted(folder.glob('jolt_report_*.xlsx'))
+        xlsx_files = sorted(folder.glob("jolt_report_*.xlsx"))
         if not xlsx_files:
             logger.info("LoggerPatcher: no report files under %s", folder)
             return {}
@@ -371,7 +421,9 @@ class LoggerPatcher:
         """Fetch Logger legs and time windows from the SRF API. Returns (legs, windows) or None."""
         parsed = _parse_report_filename(xlsx_path)
         if parsed is None:
-            logger.error("  Cannot parse vehicle info from the file name: %s", xlsx_path.name)
+            logger.error(
+                "  Cannot parse vehicle info from the file name: %s", xlsx_path.name
+            )
             return None
 
         reg, ds_str, de_str = parsed
@@ -384,7 +436,12 @@ class LoggerPatcher:
         ds = datetime.datetime.strptime(ds_str, "%Y%m%d")
         de = datetime.datetime.strptime(de_str, "%Y%m%d")
 
-        logger.info("  Fetching Logger legs from the SRF API: %s  %s ~ %s", reg_srf, ds_str, de_str)
+        logger.info(
+            "  Fetching Logger legs from the SRF API: %s  %s ~ %s",
+            reg_srf,
+            ds_str,
+            de_str,
+        )
         params = {
             "start_time": srf_client.filter.between(
                 datetime.datetime.combine(ds, datetime.time.min, datetime.timezone.utc),
@@ -423,9 +480,9 @@ class LoggerPatcher:
         dfs = []
         for leg in tqdm(logger_legs, desc="Loading Logger weather", leave=False):
             try:
-                if '7' not in leg.types:
+                if "7" not in leg.types:
                     continue
-                df_w = leg.get_data_frame('7', resolution='1s')
+                df_w = leg.get_data_frame("7", resolution="1s")
                 if df_w is not None and not df_w.empty:
                     dfs.append(df_w)
             except Exception as exc:
@@ -437,9 +494,9 @@ class LoggerPatcher:
 
         weather_df = pd.concat(dfs).sort_index()
         if weather_df.index.tz is None:
-            weather_df.index = weather_df.index.tz_localize('UTC')
+            weather_df.index = weather_df.index.tz_localize("UTC")
         else:
-            weather_df.index = weather_df.index.tz_convert('UTC')
+            weather_df.index = weather_df.index.tz_convert("UTC")
         logger.info("  Extracted %d weather readings from the Logger", len(weather_df))
         return weather_df
 
@@ -451,9 +508,9 @@ class LoggerPatcher:
         dfs = []
         for leg in tqdm(logger_legs, desc="Loading Logger CVW", leave=False):
             try:
-                if 'CVW' not in leg.types:
+                if "CVW" not in leg.types:
                     continue
-                df_m = leg.get_data_frame('CVW', resolution='1s')
+                df_m = leg.get_data_frame("CVW", resolution="1s")
                 if df_m is not None and not df_m.empty and _CVW_COL in df_m.columns:
                     dfs.append(df_m[[_CVW_COL]])
             except Exception as exc:
@@ -465,9 +522,9 @@ class LoggerPatcher:
 
         mass_df = pd.concat(dfs).sort_index()
         if mass_df.index.tz is None:
-            mass_df.index = mass_df.index.tz_localize('UTC')
+            mass_df.index = mass_df.index.tz_localize("UTC")
         else:
-            mass_df.index = mass_df.index.tz_convert('UTC')
+            mass_df.index = mass_df.index.tz_convert("UTC")
         logger.info("  Extracted %d CVW mass readings from the Logger", len(mass_df))
         return mass_df
 
@@ -480,16 +537,16 @@ class LoggerPatcher:
         for leg in tqdm(logger_legs, desc="Loading Logger speed", leave=False):
             try:
                 avail = leg.types
-                if 'CCVS' in avail:
-                    df_spd = leg.get_data_frame('CCVS', resolution='1s')
-                    col = 'CCVS wheel based vehicle speed'
+                if "CCVS" in avail:
+                    df_spd = leg.get_data_frame("CCVS", resolution="1s")
+                    col = "CCVS wheel based vehicle speed"
                     if col in df_spd.columns:
-                        dfs.append(df_spd[[col]].rename(columns={col: 'logger_speed'}))
-                elif '2' in avail:
-                    df_spd = leg.get_data_frame('2', resolution='1s')
-                    col = '2 speed'
+                        dfs.append(df_spd[[col]].rename(columns={col: "logger_speed"}))
+                elif "2" in avail:
+                    df_spd = leg.get_data_frame("2", resolution="1s")
+                    col = "2 speed"
                     if col in df_spd.columns:
-                        dfs.append(df_spd[[col]].rename(columns={col: 'logger_speed'}))
+                        dfs.append(df_spd[[col]].rename(columns={col: "logger_speed"}))
             except Exception as exc:
                 logger.debug("  Logger CCVS speed extraction failed: %s", exc)
 
@@ -499,14 +556,15 @@ class LoggerPatcher:
 
         speed_df = pd.concat(dfs).sort_index()
         if speed_df.index.tz is None:
-            speed_df.index = speed_df.index.tz_localize('UTC')
+            speed_df.index = speed_df.index.tz_localize("UTC")
         else:
-            speed_df.index = speed_df.index.tz_convert('UTC')
+            speed_df.index = speed_df.index.tz_convert("UTC")
         logger.info("  Extracted %d CCVS speed readings from the Logger", len(speed_df))
         return speed_df
 
-    def _load_pedal_data(self, logger_legs: list,
-                         channel: str = 'EEC2') -> pd.DataFrame | None:
+    def _load_pedal_data(
+        self, logger_legs: list, channel: str = "EEC2"
+    ) -> pd.DataFrame | None:
         """Load pedal-position data from all Logger legs.
 
         Args:
@@ -520,8 +578,8 @@ class LoggerPatcher:
             return None
 
         col_map = {
-            'EEC2': EEC2_COL,
-            'EBC1': EBC1_COL,
+            "EEC2": EEC2_COL,
+            "EBC1": EBC1_COL,
         }
         target_col = col_map.get(channel)
         if target_col is None:
@@ -532,7 +590,7 @@ class LoggerPatcher:
             try:
                 if channel not in leg.types:
                     continue
-                df_p = leg.get_data_frame(channel, resolution='1s')
+                df_p = leg.get_data_frame(channel, resolution="1s")
                 if df_p is not None and not df_p.empty and target_col in df_p.columns:
                     dfs.append(df_p[[target_col]])
             except Exception as exc:
@@ -544,8 +602,10 @@ class LoggerPatcher:
 
         pedal_df = pd.concat(dfs).sort_index()
         if pedal_df.index.tz is None:
-            pedal_df.index = pedal_df.index.tz_localize('UTC')
+            pedal_df.index = pedal_df.index.tz_localize("UTC")
         else:
-            pedal_df.index = pedal_df.index.tz_convert('UTC')
-        logger.info("  Extracted %d %s pedal readings from the Logger", len(pedal_df), channel)
+            pedal_df.index = pedal_df.index.tz_convert("UTC")
+        logger.info(
+            "  Extracted %d %s pedal readings from the Logger", len(pedal_df), channel
+        )
         return pedal_df

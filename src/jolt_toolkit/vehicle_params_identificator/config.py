@@ -22,16 +22,16 @@ RESULTS_DIR = JOLT_ROOT / "research_projects" / "parameter_identify" / "results"
 LOGS_DIR = JOLT_ROOT / "research_projects" / "parameter_identify" / "logs"
 
 # ── 物理常数 ──────────────────────────────────────────────────────────────
-GRAVITY = 9.81                  # m/s²
-AIR_DENSITY = 1.225             # kg/m³
-MOTOR_EFFICIENCY = 0.90         # 电机 + 逆变器 + 传动效率（EV 综合）
+GRAVITY = 9.81  # m/s²
+AIR_DENSITY = 1.225  # kg/m³
+MOTOR_EFFICIENCY = 0.90  # 电机 + 逆变器 + 传动效率（EV 综合）
 
 # ── 巡航段提取参数 ────────────────────────────────────────────────────────
-SEG_DISTANCE_M = 5000           # 巡航段最小距离 (m)，比柴油 10 km 更短
-MIN_AVG_SPEED_KMPH = 40         # 最小平均速度 (km/h)，比柴油 80 km/h 更低
-WINDOW_STEP_M = 200             # 滑动窗口步长 (m)
-MAX_SPEED_CV = 0.20             # 巡航段速度变异系数上限（替代 BrkPedalPos == 0 判定）
-MIN_SPEED_FLOOR_KMPH = 5.0     # 段内最低速度底线 (km/h)
+SEG_DISTANCE_M = 5000  # 巡航段最小距离 (m)，比柴油 10 km 更短
+MIN_AVG_SPEED_KMPH = 40  # 最小平均速度 (km/h)，比柴油 80 km/h 更低
+WINDOW_STEP_M = 200  # 滑动窗口步长 (m)
+MAX_SPEED_CV = 0.20  # 巡航段速度变异系数上限（替代 BrkPedalPos == 0 判定）
+MIN_SPEED_FLOOR_KMPH = 5.0  # 段内最低速度底线 (km/h)
 
 # ── 聚类 & 辨识参数 ──────────────────────────────────────────────────────
 N_CLUSTERS = 2
@@ -48,8 +48,8 @@ PARAMS_RANGE = {
 
 # ── 过滤参数 ──────────────────────────────────────────────────────────────
 ELEVATION_CHANGE_THRESHOLD_M = 100.0  # 海拔变化阈值 (m)
-MASS_DEVIATION_PCT = 0.10             # 质量偏差百分比（±10%）
-WIND_MEAN_MAX_MPS = 4.0               # 平均风速阈值 (m/s)
+MASS_DEVIATION_PCT = 0.10  # 质量偏差百分比（±10%）
+WIND_MEAN_MAX_MPS = 4.0  # 平均风速阈值 (m/s)
 
 # ── 车辆 Logger 参数辨识配置 ────────────────────────────────────────────
 # 仅包含有 SRF Logger 数据的车辆

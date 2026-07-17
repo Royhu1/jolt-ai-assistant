@@ -23,8 +23,8 @@ from scipy import stats
 from sklearn.cluster import KMeans
 
 from jolt_toolkit.vehicle_params_identificator.config import (
-    GRAVITY,
     AIR_DENSITY,
+    GRAVITY,
     MOTOR_EFFICIENCY,
     N_CLUSTERS,
     RANDOM_STATE,
@@ -121,7 +121,9 @@ def calculate_linear_constraint(
         v2_ds = float((v_series**2 * dist_intervals).sum())
         aero = cda * 0.5 * air_density * v2_ds
 
-        predicted = (delta_kinetic + delta_potential + rolling + aero) / drive_train_efficiency
+        predicted = (
+            delta_kinetic + delta_potential + rolling + aero
+        ) / drive_train_efficiency
         eq = sp.Eq(predicted, actual_energy_J)
 
         crr_sols = sp.solve(eq, crr)
@@ -280,15 +282,28 @@ def identify_parameters(
     ms1 = float(slopes[idx_1].mean())
     mi1 = float(intercepts[idx_1].mean())
 
-    logger.info("Cluster 0 (轻载): n=%d, mass=%.0f kg", len(idx_0), float(avg_masses[idx_0].mean()))
-    logger.info("Cluster 1 (重载): n=%d, mass=%.0f kg", len(idx_1), float(avg_masses[idx_1].mean()))
+    logger.info(
+        "Cluster 0 (轻载): n=%d, mass=%.0f kg",
+        len(idx_0),
+        float(avg_masses[idx_0].mean()),
+    )
+    logger.info(
+        "Cluster 1 (重载): n=%d, mass=%.0f kg",
+        len(idx_1),
+        float(avg_masses[idx_1].mean()),
+    )
 
-    result.update({
-        "cluster_0_slope_mean": ms0, "cluster_0_intercept_mean": mi0,
-        "cluster_1_slope_mean": ms1, "cluster_1_intercept_mean": mi1,
-        "cluster_labels": labels,
-        "n_cluster_0": int(len(idx_0)), "n_cluster_1": int(len(idx_1)),
-    })
+    result.update(
+        {
+            "cluster_0_slope_mean": ms0,
+            "cluster_0_intercept_mean": mi0,
+            "cluster_1_slope_mean": ms1,
+            "cluster_1_intercept_mean": mi1,
+            "cluster_labels": labels,
+            "n_cluster_0": int(len(idx_0)),
+            "n_cluster_1": int(len(idx_1)),
+        }
+    )
 
     if abs(ms0 - ms1) > 1e-10:
         c_da = float((mi1 - mi0) / (ms0 - ms1))
@@ -303,7 +318,10 @@ def identify_parameters(
 
 
 def filter_by_wind_mean(
-    constraints: list[dict], *, wind_max_mps: float, wind_col: str = "wind_speed_mps",
+    constraints: list[dict],
+    *,
+    wind_max_mps: float,
+    wind_col: str = "wind_speed_mps",
 ) -> list[dict]:
     """过滤平均风速过大的约束。"""
     kept = []
@@ -315,12 +333,17 @@ def filter_by_wind_mean(
         ws = df[wind_col].dropna()
         if len(ws) == 0 or float(ws.mean()) <= wind_max_mps:
             kept.append(c)
-    logger.info("风速过滤 (≤%.1f m/s): %d → %d", wind_max_mps, len(constraints), len(kept))
+    logger.info(
+        "风速过滤 (≤%.1f m/s): %d → %d", wind_max_mps, len(constraints), len(kept)
+    )
     return kept
 
 
 def filter_by_elevation_change(
-    constraints: list[dict], *, threshold_m: float, elevation_col: str = "elevation",
+    constraints: list[dict],
+    *,
+    threshold_m: float,
+    elevation_col: str = "elevation",
 ) -> list[dict]:
     """过滤海拔变化过大的约束。"""
     kept = []
@@ -338,7 +361,9 @@ def filter_by_elevation_change(
     return kept
 
 
-def filter_by_mass_deviation(constraints: list[dict], *, deviation_pct: float) -> list[dict]:
+def filter_by_mass_deviation(
+    constraints: list[dict], *, deviation_pct: float
+) -> list[dict]:
     """过滤质量偏离聚类中心的约束。"""
     if not constraints:
         return constraints
@@ -351,8 +376,14 @@ def filter_by_mass_deviation(constraints: list[dict], *, deviation_pct: float) -
         cl_idx = np.where(labels == cl)[0]
         mean_m = float(np.nanmean(masses[cl_idx]))
         for i in cl_idx:
-            if not (mean_m * (1 - deviation_pct) <= masses[i] <= mean_m * (1 + deviation_pct)):
+            if not (
+                mean_m * (1 - deviation_pct)
+                <= masses[i]
+                <= mean_m * (1 + deviation_pct)
+            ):
                 keep[i] = False
     kept = [c for i, c in enumerate(constraints) if keep[i]]
-    logger.info("质量过滤 (±%.0f%%): %d → %d", deviation_pct * 100, len(constraints), len(kept))
+    logger.info(
+        "质量过滤 (±%.0f%%): %d → %d", deviation_pct * 100, len(constraints), len(kept)
+    )
     return kept

@@ -22,6 +22,7 @@ This module also generates the diesel vehicles' validation figures (4 panels:
 Speed / cumulative fuel / cumulative mileage / GCVW), in place of the EV's
 plot_leg_validation.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -35,50 +36,50 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from jolt_toolkit.report_generator.segment_algorithms import (
-    find_speed_trips,
-    TIME_COL,
-    VEHICLE_CONFIG,
-    # Shared validation-figure styling primitives (v2.2.4): the rounded white
-    # data-label background and the post-draw collector that externalises every
-    # such label to a sidecar JSON. Reused verbatim so diesel figures match the
-    # EV figures' interactive-overlay behaviour (DRY — one source of truth).
-    _TEXT_BBOX,
-    _export_overlay_boxes,
-)
+from jolt_toolkit.report_generator.operators import derive_leg_operator
 from jolt_toolkit.report_generator.report_builder import (
     DIESEL_HEADERS,
     _build_logger_url,
-    _point_str,
-    _get_postcode,
-    _write_html_viewer,
-    _group_paths_by_date,
     _clear_day_validation_figures,
+    _get_postcode,
+    _group_paths_by_date,
+    _point_str,
+    _write_html_viewer,
 )
-from jolt_toolkit.report_generator.operators import derive_leg_operator
+from jolt_toolkit.report_generator.segment_algorithms import (  # Shared validation-figure styling primitives (v2.2.4): the rounded white; data-label background and the post-draw collector that externalises every; such label to a sidecar JSON. Reused verbatim so diesel figures match the; EV figures' interactive-overlay behaviour (DRY — one source of truth).
+    _TEXT_BBOX,
+    TIME_COL,
+    VEHICLE_CONFIG,
+    _export_overlay_boxes,
+    find_speed_trips,
+)
 
 logger = logging.getLogger(__name__)
 
 
 # ── Logger channel-name constants (defaults corresponding to the vehicles.json fields) ──
 DEFAULT_SPEED_COL = "CCVS wheel based vehicle speed"
-DEFAULT_SPEED_FALLBACK = "2 speed"           # GPS m/s
-DEFAULT_FUEL_COL = "LFC engine total fuel used"   # cumulative L
-DEFAULT_FUEL_RATE_COL = "LFE fuel rate"           # instantaneous L/h
+DEFAULT_SPEED_FALLBACK = "2 speed"  # GPS m/s
+DEFAULT_FUEL_COL = "LFC engine total fuel used"  # cumulative L
+DEFAULT_FUEL_RATE_COL = "LFE fuel rate"  # instantaneous L/h
 DEFAULT_DISTANCE_COL = "VDHR hr total vehicle distance"  # cumulative km
 DEFAULT_MASS_COL = "CVW gross combination vehicle weight"
 DEFAULT_ALTITUDE_COL = "2 altitude"
 DEFAULT_AMBIENT_TEMP_COL = "AMB ambient air temperature"
-DEFAULT_DIESEL_LHV_KWH_PER_L = 10.0   # diesel lower heating value ≈ 36 MJ/L / 3600 s/h = 10 kWh/L
-DEFAULT_MIN_TRIP_DISTANCE_KM = 1.0    # a "trip" below this distance is treated as depot-shuffling noise
+DEFAULT_DIESEL_LHV_KWH_PER_L = (
+    10.0  # diesel lower heating value ≈ 36 MJ/L / 3600 s/h = 10 kWh/L
+)
+DEFAULT_MIN_TRIP_DISTANCE_KM = (
+    1.0  # a "trip" below this distance is treated as depot-shuffling noise
+)
 
 # ── Logger Channel 7 weather channels (consistent with logger_patcher.py) ──
-_W_TEMP   = '7 temperature'
-_W_PRESS  = '7 pressure'
-_W_HUMID  = '7 humidity'
-_W_WIND_S = '7 wind speed'
-_W_WIND_D = '7 wind direction'
-_CARDINALS = ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW')
+_W_TEMP = "7 temperature"
+_W_PRESS = "7 pressure"
+_W_HUMID = "7 humidity"
+_W_WIND_S = "7 wind speed"
+_W_WIND_D = "7 wind direction"
+_CARDINALS = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
 
 
 def _build_logger_df(leg, cfg: dict) -> pd.DataFrame | None:
@@ -145,8 +146,11 @@ def _build_logger_df(leg, cfg: dict) -> pd.DataFrame | None:
         try:
             df_w = leg.get_data_frame("7", resolution="1s")
             if df_w is not None and not df_w.empty:
-                keep = [c for c in (_W_TEMP, _W_PRESS, _W_HUMID, _W_WIND_S, _W_WIND_D)
-                        if c in df_w.columns]
+                keep = [
+                    c
+                    for c in (_W_TEMP, _W_PRESS, _W_HUMID, _W_WIND_S, _W_WIND_D)
+                    if c in df_w.columns
+                ]
                 if keep:
                     frames.append(df_w[keep])
         except Exception as exc:
@@ -206,7 +210,10 @@ def _finalise_logger_df(
     df[TIME_COL] = df.index
 
     # Primary speed column handling: if CCVS speed is empty, use the GPS speed × 3.6 fallback
-    if speed_col not in df.columns or pd.to_numeric(df[speed_col], errors="coerce").notna().sum() == 0:
+    if (
+        speed_col not in df.columns
+        or pd.to_numeric(df[speed_col], errors="coerce").notna().sum() == 0
+    ):
         if speed_fb in df.columns:
             df[speed_col] = pd.to_numeric(df[speed_fb], errors="coerce") * 3.6
             logger.debug("  leg %s using GPS speed fallback (m/s × 3.6)", source)
@@ -243,9 +250,7 @@ def _logger_df_from_csv(csv_path: Path, cfg: dict) -> pd.DataFrame | None:
     return _finalise_logger_df(df, cfg, source=csv_path.name)
 
 
-def _logger_day_df_from_csvs(
-    csv_paths: list[Path], cfg: dict
-) -> pd.DataFrame | None:
+def _logger_day_df_from_csvs(csv_paths: list[Path], cfg: dict) -> pd.DataFrame | None:
     """
     Merge multiple per-leg ``logger_<date>_<idx>.csv`` of the same calendar day into a single DataFrame.
 
@@ -352,19 +357,25 @@ def _trip_metrics(
     if (np.isnan(distance_km) or distance_km == 0) and speed_col in sl.columns:
         spd = pd.to_numeric(sl[speed_col], errors="coerce").fillna(0.0)
         if len(spd) >= 2:
-            dt_s = np.diff(sl.index.values).astype("timedelta64[ms]").astype(float) / 1000.0
+            dt_s = (
+                np.diff(sl.index.values).astype("timedelta64[ms]").astype(float)
+                / 1000.0
+            )
             v_ms = spd.values[:-1] / 3.6
             distance_km = round(float(np.sum(v_ms * dt_s) / 1000.0), 3)
 
     # ── Average speed ────────────────────────────────────────────────
     dur_s = (t_end - t_start).total_seconds()
-    avg_speed = round(distance_km / (dur_s / 3600.0), 2) if (
-        not np.isnan(distance_km) and dur_s > 0) else nan
+    avg_speed = (
+        round(distance_km / (dur_s / 3600.0), 2)
+        if (not np.isnan(distance_km) and dur_s > 0)
+        else nan
+    )
 
     # ── Mass: trip CVW median; if unavailable, take the value via the fallback chain ──
     veh_mass = nan
     veh_mass_cv = nan
-    mass_source = 'cvw_trip'  # 'cvw_trip' | 'cvw_carryover' | 'weight_class'
+    mass_source = "cvw_trip"  # 'cvw_trip' | 'cvw_carryover' | 'weight_class'
     if mass_col in sl.columns:
         m_all = pd.to_numeric(sl[mass_col], errors="coerce")
         # Exclude the 0 broadcast by the CVW counter while stationary
@@ -385,12 +396,12 @@ def _trip_metrics(
                 veh_mass_cv = round(float(m.std() / m.mean()), 4)
     if np.isnan(veh_mass) and mass_fallback_kg is not None and mass_fallback_kg > 0:
         veh_mass = float(mass_fallback_kg)
-        mass_source = 'cvw_carryover'
+        mass_source = "cvw_carryover"
     if np.isnan(veh_mass):
         wc_t = cfg.get("weight_class_t")
         if wc_t is not None:
             veh_mass = float(wc_t) * 1000.0
-            mass_source = 'weight_class'
+            mass_source = "weight_class"
 
     # ── Elevation difference ─────────────────────────────────────────
     elev_diff = nan
@@ -433,8 +444,7 @@ def _trip_metrics(
 
     # ── Fuel Consumption (L/100km) — the diesel vehicle's primary metric ──
     fuel_consumption_l_per_100km = nan
-    if (not np.isnan(distance_km) and distance_km > 0
-            and not np.isnan(fuel_l)):
+    if not np.isnan(distance_km) and distance_km > 0 and not np.isnan(fuel_l):
         fuel_consumption_l_per_100km = round(fuel_l / distance_km * 100.0, 3)
 
     return {
@@ -453,8 +463,10 @@ def _trip_metrics(
         "humidity_avg": humidity_avg,
         "wind_speed_avg": wind_speed_avg,
         "wind_dir_text": wind_dir_text,
-        "lat_s": lat_s, "lon_s": lon_s,
-        "lat_e": lat_e, "lon_e": lon_e,
+        "lat_s": lat_s,
+        "lon_s": lon_s,
+        "lat_e": lat_e,
+        "lon_e": lon_e,
         "fuel_consumption_l_per_100km": fuel_consumption_l_per_100km,
     }
 
@@ -498,36 +510,36 @@ def _diesel_seg_to_row(
     leg_type = "In Transit"  # reuse the EV discharge Trip naming, directly comparable across vehicles
 
     row = (
-        leg_type,                                       # Leg Type
-        logger_url,                                     # SRF Logger Link
-        pd.Timestamp(t_s),                              # Start Time (UTC)
-        origin,                                         # Origin (Lat, Lon)
-        origin_pc,                                      # Origin Place
-        pd.Timestamp(t_e),                              # End Time (UTC)
-        destination,                                    # Destination (Lat, Lon)
-        dest_pc,                                        # Destination Place
-        dur_days,                                       # Duration (HH:MM:SS)
-        distance,                                       # Distance (km)
-        seg.get("avg_speed", nan),                      # Average Speed (km/h)
-        seg.get("elev_diff", nan),                      # Elevation Difference (m)
-        seg.get("veh_mass", nan),                       # Vehicle Mass (kg)
-        seg.get("veh_mass_cv", nan),                    # Vehicle Mass CV (reliability)
-        cumulative_km,                                  # Cumulative Distance (km)
-        seg.get("fuel_l", nan),                         # Fuel Used (L)
-        seg.get("fuel_consumption_l_per_100km", nan),   # Fuel Consumption (L/100km)
-        seg.get("temp_avg", nan),                       # Average Temperature (C)  — Logger Channel 7
-        seg.get("pressure_avg", nan),                   # Average Pressure (hPa)   — Logger Channel 7
-        seg.get("humidity_avg", nan),                   # Average Humidity (%)     — Logger Channel 7
-        seg.get("wind_speed_avg", nan),                 # Average Wind Speed (m/s) — Logger Channel 7
-        seg.get("wind_dir_text") or nan,                # Average Wind Direction   — Logger Channel 7
-        nan,                                            # Weather Type — text label, still needs the OpenWeather WeatherPatcher
-        "lfc_fuel",                                     # Energy Source
-        operator,                                       # Operator (project code) [v2.2.5]
+        leg_type,  # Leg Type
+        logger_url,  # SRF Logger Link
+        pd.Timestamp(t_s),  # Start Time (UTC)
+        origin,  # Origin (Lat, Lon)
+        origin_pc,  # Origin Place
+        pd.Timestamp(t_e),  # End Time (UTC)
+        destination,  # Destination (Lat, Lon)
+        dest_pc,  # Destination Place
+        dur_days,  # Duration (HH:MM:SS)
+        distance,  # Distance (km)
+        seg.get("avg_speed", nan),  # Average Speed (km/h)
+        seg.get("elev_diff", nan),  # Elevation Difference (m)
+        seg.get("veh_mass", nan),  # Vehicle Mass (kg)
+        seg.get("veh_mass_cv", nan),  # Vehicle Mass CV (reliability)
+        cumulative_km,  # Cumulative Distance (km)
+        seg.get("fuel_l", nan),  # Fuel Used (L)
+        seg.get("fuel_consumption_l_per_100km", nan),  # Fuel Consumption (L/100km)
+        seg.get("temp_avg", nan),  # Average Temperature (C)  — Logger Channel 7
+        seg.get("pressure_avg", nan),  # Average Pressure (hPa)   — Logger Channel 7
+        seg.get("humidity_avg", nan),  # Average Humidity (%)     — Logger Channel 7
+        seg.get("wind_speed_avg", nan),  # Average Wind Speed (m/s) — Logger Channel 7
+        seg.get("wind_dir_text") or nan,  # Average Wind Direction   — Logger Channel 7
+        nan,  # Weather Type — text label, still needs the OpenWeather WeatherPatcher
+        "lfc_fuel",  # Energy Source
+        operator,  # Operator (project code) [v2.2.5]
     )
 
-    assert len(row) == len(DIESEL_HEADERS) - 1, (
-        f"diesel row length {len(row)} != expected {len(DIESEL_HEADERS) - 1}"
-    )
+    assert (
+        len(row) == len(DIESEL_HEADERS) - 1
+    ), f"diesel row length {len(row)} != expected {len(DIESEL_HEADERS) - 1}"
     return row, cumulative_km
 
 
@@ -564,8 +576,8 @@ def plot_diesel_leg_validation(
     PNG. The in-place redraw entry :func:`regenerate_diesel_validation` passes True.
     """
     try:
-        import matplotlib.pyplot as plt
         import matplotlib.dates as mdates
+        import matplotlib.pyplot as plt
         from matplotlib.lines import Line2D
         from matplotlib.patches import Patch
     except ImportError:
@@ -580,11 +592,11 @@ def plot_diesel_leg_validation(
     dist_col = cfg.get("distance_col", DEFAULT_DISTANCE_COL)
     mass_col = cfg.get("mass_col", DEFAULT_MASS_COL)
 
-    _DISCHARGE_COLOR = '#C8E6C9'  # light green, consistent with the EV Trip colour
+    _DISCHARGE_COLOR = "#C8E6C9"  # light green, consistent with the EV Trip colour
     # Two-line short format matching the EV plot_leg_validation. The previous
     # single-line '%Y-%m-%d %H:%M' was too wide and collided horizontally once
     # the tick font doubled to 16.
-    _DATE_FMT = '%d %b\n%H:%M'
+    _DATE_FMT = "%d %b\n%H:%M"
     # In-figure fonts aligned with the EV plot_leg_validation (v2.2.4, doubled).
     # The larger figure + DPI give the 2x two-line y-labels and the legends room
     # so nothing overlaps or clips at this scale.
@@ -597,49 +609,61 @@ def plot_diesel_leg_validation(
     _DPI = 150
 
     fig, (ax1, ax2, ax3, ax4) = plt.subplots(
-        4, 1, figsize=(18, 10), sharex=True,
-        gridspec_kw={'height_ratios': [1.6, 1.2, 1.2, 1.6]},
+        4,
+        1,
+        figsize=(18, 10),
+        sharex=True,
+        gridspec_kw={"height_ratios": [1.6, 1.2, 1.2, 1.6]},
     )
 
     def _overlay(ax):
         for t_s, t_e in trips:
-            ax.axvspan(pd.Timestamp(t_s), pd.Timestamp(t_e),
-                       color=_DISCHARGE_COLOR, alpha=0.55, zorder=1)
+            ax.axvspan(
+                pd.Timestamp(t_s),
+                pd.Timestamp(t_e),
+                color=_DISCHARGE_COLOR,
+                alpha=0.55,
+                zorder=1,
+            )
 
     # ── Panel 1: Speed ─────────────────────────────────────────────────
     if speed_col in df.columns:
-        spd = pd.to_numeric(df[speed_col], errors='coerce')
-        ax1.plot(df.index, spd, color='#1565C0', lw=1.0, alpha=0.9,
-                 label='CCVS speed (km/h)')
+        spd = pd.to_numeric(df[speed_col], errors="coerce")
+        ax1.plot(
+            df.index, spd, color="#1565C0", lw=1.0, alpha=0.9, label="CCVS speed (km/h)"
+        )
     _overlay(ax1)
-    ax1.set_ylabel('Speed (km/h)', fontsize=_LABEL_FONT)
+    ax1.set_ylabel("Speed (km/h)", fontsize=_LABEL_FONT)
     # Fixed 0–100 km/h: consistent with the EV plot_leg_validation's Panel 1 Speed axis
     ax1.set_ylim(0, 100)
     ax1.grid(True, alpha=0.3)
     legend_items1 = [
-        Patch(color=_DISCHARGE_COLOR, alpha=0.6,
-              label=f'Trip ({len(trips)} segs)'),
-        Line2D([0], [0], color='#1565C0', lw=1.5, label='Speed'),
+        Patch(color=_DISCHARGE_COLOR, alpha=0.6, label=f"Trip ({len(trips)} segs)"),
+        Line2D([0], [0], color="#1565C0", lw=1.5, label="Speed"),
     ]
-    ax1.legend(handles=legend_items1, fontsize=_LEGEND_FONT, loc='upper right')
-    ax1.set_title(f'{reg}  {suffix}  [Diesel Segment Validation]',
-                  fontsize=_LABEL_FONT)
+    ax1.legend(handles=legend_items1, fontsize=_LEGEND_FONT, loc="upper right")
+    ax1.set_title(f"{reg}  {suffix}  [Diesel Segment Validation]", fontsize=_LABEL_FONT)
 
     # ── Panel 2: Cumulative Fuel Used (L) ──────────────────────────────
     if fuel_col in df.columns:
-        fuel = pd.to_numeric(df[fuel_col], errors='coerce')
+        fuel = pd.to_numeric(df[fuel_col], errors="coerce")
         mask = fuel.notna()
         if mask.any():
             base = float(fuel[mask].iloc[0])
-            ax2.plot(df.index[mask], fuel[mask] - base,
-                     color='#8D6E63', lw=1.8, alpha=0.9,
-                     label='LFC total fuel used (normalised)')
+            ax2.plot(
+                df.index[mask],
+                fuel[mask] - base,
+                color="#8D6E63",
+                lw=1.8,
+                alpha=0.9,
+                label="LFC total fuel used (normalised)",
+            )
         # per-trip fuel annotation
         for seg in seg_metrics:
-            if np.isnan(seg.get('fuel_l', nan)):
+            if np.isnan(seg.get("fuel_l", nan)):
                 continue
-            t_s_seg = pd.Timestamp(seg['start_time'])
-            t_e_seg = pd.Timestamp(seg['end_time'])
+            t_s_seg = pd.Timestamp(seg["start_time"])
+            t_e_seg = pd.Timestamp(seg["end_time"])
             mid = t_s_seg + (t_e_seg - t_s_seg) / 2
             # Annotation: an axvspan plus a text at the midpoint
             try:
@@ -647,82 +671,117 @@ def plot_diesel_leg_validation(
                 if len(_fuel_mid) > 0:
                     y_lvl = float(_fuel_mid.iloc[-1]) - base
                     # Rounded-bbox data label so _export_overlay_boxes picks it up.
-                    ax2.annotate(f"{seg['fuel_l']:.1f} L",
-                                 xy=(mid, y_lvl),
-                                 fontsize=_DATA_FONT, color='#4E342E', ha='center',
-                                 va='bottom', fontweight='bold', bbox=_TEXT_BBOX)
+                    ax2.annotate(
+                        f"{seg['fuel_l']:.1f} L",
+                        xy=(mid, y_lvl),
+                        fontsize=_DATA_FONT,
+                        color="#4E342E",
+                        ha="center",
+                        va="bottom",
+                        fontweight="bold",
+                        bbox=_TEXT_BBOX,
+                    )
             except Exception:
                 pass
     _overlay(ax2)
-    ax2.set_ylabel('Fuel Used\n(L, zeroed)', fontsize=_LABEL_FONT)
+    ax2.set_ylabel("Fuel Used\n(L, zeroed)", fontsize=_LABEL_FONT)
     # minimum ymax = 5.0 L: short trips are forced to show 0–5 L, long trips keep the data-driven larger range
     ymax2 = max(5.0, ax2.get_ylim()[1])
     ax2.set_ylim(0, ymax2)
     ax2.grid(True, alpha=0.3)
     if ax2.get_legend_handles_labels()[1]:
-        ax2.legend(fontsize=_LEGEND_FONT, loc='upper left')
+        ax2.legend(fontsize=_LEGEND_FONT, loc="upper left")
 
     # ── Panel 3: Cumulative Distance (km) ──────────────────────────────
     if dist_col in df.columns:
-        d = pd.to_numeric(df[dist_col], errors='coerce')
+        d = pd.to_numeric(df[dist_col], errors="coerce")
         mask = d.notna()
         if mask.any():
             base = float(d[mask].iloc[0])
-            ax3.plot(df.index[mask], d[mask] - base,
-                     color='#6A1B9A', lw=1.8, alpha=0.9,
-                     label='VDHR distance (normalised)')
+            ax3.plot(
+                df.index[mask],
+                d[mask] - base,
+                color="#6A1B9A",
+                lw=1.8,
+                alpha=0.9,
+                label="VDHR distance (normalised)",
+            )
     _overlay(ax3)
-    ax3.set_ylabel('Distance\n(km, zeroed)', fontsize=_LABEL_FONT)
+    ax3.set_ylabel("Distance\n(km, zeroed)", fontsize=_LABEL_FONT)
     # minimum ymax = 10.0 km: short trips are forced to show 0–10 km, long trips keep the data-driven larger range
     ymax3 = max(10.0, ax3.get_ylim()[1])
     ax3.set_ylim(0, ymax3)
     ax3.grid(True, alpha=0.3)
     if ax3.get_legend_handles_labels()[1]:
-        ax3.legend(fontsize=_LEGEND_FONT, loc='upper left')
+        ax3.legend(fontsize=_LEGEND_FONT, loc="upper left")
 
     # ── Panel 4: GCVW ──────────────────────────────────────────────────
     has_gcvw = False
     if mass_col in df.columns:
-        m = pd.to_numeric(df[mass_col], errors='coerce')
+        m = pd.to_numeric(df[mass_col], errors="coerce")
         mask = m.notna() & (m > 0)
         if mask.any():
             has_gcvw = True
-            ax4.plot(df.index[mask], m[mask],
-                     color='#37474F', lw=1.4, alpha=0.8)
-            ax4.scatter(df.index[mask], m[mask],
-                        color='#37474F', s=5, alpha=0.8)
+            ax4.plot(df.index[mask], m[mask], color="#37474F", lw=1.4, alpha=0.8)
+            ax4.scatter(df.index[mask], m[mask], color="#37474F", s=5, alpha=0.8)
     # per-trip average-mass annotation
     has_trip_mass = False
     for seg in seg_metrics:
-        if np.isnan(seg.get('veh_mass', nan)):
+        if np.isnan(seg.get("veh_mass", nan)):
             continue
         has_trip_mass = True
-        t_s_seg = pd.Timestamp(seg['start_time'])
-        t_e_seg = pd.Timestamp(seg['end_time'])
-        seg_mass = float(seg['veh_mass'])
-        ax4.plot([t_s_seg, t_e_seg], [seg_mass, seg_mass],
-                 color='#2E7D32', lw=3.5, linestyle='--', alpha=0.9, zorder=5)
+        t_s_seg = pd.Timestamp(seg["start_time"])
+        t_e_seg = pd.Timestamp(seg["end_time"])
+        seg_mass = float(seg["veh_mass"])
+        ax4.plot(
+            [t_s_seg, t_e_seg],
+            [seg_mass, seg_mass],
+            color="#2E7D32",
+            lw=3.5,
+            linestyle="--",
+            alpha=0.9,
+            zorder=5,
+        )
         mid = t_s_seg + (t_e_seg - t_s_seg) / 2
         # Rounded-bbox data label so _export_overlay_boxes picks it up.
-        ax4.text(mid, seg_mass, f' {seg_mass / 1000:.1f} t',
-                 ha='center', va='bottom', fontsize=_DATA_FONT,
-                 color='#2E7D32', fontweight='bold', zorder=8, bbox=_TEXT_BBOX)
+        ax4.text(
+            mid,
+            seg_mass,
+            f" {seg_mass / 1000:.1f} t",
+            ha="center",
+            va="bottom",
+            fontsize=_DATA_FONT,
+            color="#2E7D32",
+            fontweight="bold",
+            zorder=8,
+            bbox=_TEXT_BBOX,
+        )
     _overlay(ax4)
-    ax4.set_ylabel('GCVW\n(kg)', fontsize=_LABEL_FONT)
+    ax4.set_ylabel("GCVW\n(kg)", fontsize=_LABEL_FONT)
     ax4.set_ylim(0, 50000)
     ax4.set_yticks(range(0, 50001, 10000))
     ax4.grid(True, alpha=0.3)
     mass_legend = []
     if has_gcvw:
         mass_legend.append(
-            Line2D([0], [0], color='#37474F', lw=1.4, marker='o',
-                   markersize=5, label='GCVW reading'))
+            Line2D(
+                [0],
+                [0],
+                color="#37474F",
+                lw=1.4,
+                marker="o",
+                markersize=5,
+                label="GCVW reading",
+            )
+        )
     if has_trip_mass:
         mass_legend.append(
-            Line2D([0], [0], color='#2E7D32', lw=3.5, linestyle='--',
-                   label='Per-trip mean'))
+            Line2D(
+                [0], [0], color="#2E7D32", lw=3.5, linestyle="--", label="Per-trip mean"
+            )
+        )
     if mass_legend:
-        ax4.legend(handles=mass_legend, fontsize=_LEGEND_FONT, loc='upper right')
+        ax4.legend(handles=mass_legend, fontsize=_LEGEND_FONT, loc="upper right")
 
     # Fix the time axis to the full UTC calendar day [00:00, next 00:00) so that
     # diesel figures from different days share an identical midnight-to-midnight
@@ -743,10 +802,10 @@ def plot_diesel_leg_validation(
         ax.xaxis.set_major_locator(mdates.HourLocator(byhour=range(0, 24, 3)))
         ax.xaxis.set_major_formatter(fmt)
         # Size both axes' tick labels to the 2x EV scale (was only ax4 x-major).
-        ax.tick_params(axis='both', labelsize=_TICK_FONT)
+        ax.tick_params(axis="both", labelsize=_TICK_FONT)
     # sharex=True → setting the limit once propagates to all four panels.
     ax4.set_xlim(day_start, day_end)
-    ax4.set_xlabel('Time (UTC)', fontsize=_LABEL_FONT)
+    ax4.set_xlabel("Time (UTC)", fontsize=_LABEL_FONT)
 
     # h_pad mirrors the EV figure: gives the 2x two-line y-labels of adjacent
     # panels room so they do not crowd at the panel boundaries.
@@ -762,18 +821,18 @@ def plot_diesel_leg_validation(
         fig.canvas.draw()
         boxes = _export_overlay_boxes(fig)
         plt.savefig(out_path, dpi=_DPI)
-        sidecar = out_path.with_suffix('.boxes.json')
+        sidecar = out_path.with_suffix(".boxes.json")
         if boxes:
-            with open(sidecar, 'w', encoding='utf-8') as fh:
+            with open(sidecar, "w", encoding="utf-8") as fh:
                 json.dump(boxes, fh, ensure_ascii=False)
         elif sidecar.exists():
             # Stale sidecar from a previous run with labels → remove it so the
             # viewer does not overlay boxes onto a now-empty figure.
             sidecar.unlink()
     else:
-        plt.savefig(out_path, dpi=_DPI, bbox_inches='tight')
+        plt.savefig(out_path, dpi=_DPI, bbox_inches="tight")
     plt.close(fig)
-    logger.info('  fig: %s', out_path.name)
+    logger.info("  fig: %s", out_path.name)
 
 
 def _segments_from_df(
@@ -795,8 +854,7 @@ def _segments_from_df(
     speed_thr = float(cfg.get("speed_threshold_kmh", 1.0))
     min_stop = float(cfg.get("min_stop_duration_min", 5.0))
     min_trip = float(cfg.get("min_trip_duration_min", 2.0))
-    min_trip_km = float(cfg.get("min_trip_distance_km",
-                                DEFAULT_MIN_TRIP_DISTANCE_KM))
+    min_trip_km = float(cfg.get("min_trip_distance_km", DEFAULT_MIN_TRIP_DISTANCE_KM))
 
     trips = find_speed_trips(
         df,
@@ -816,7 +874,10 @@ def _segments_from_df(
     n_dropped_pathological = 0
     for t_start, t_end in trips:
         seg = _trip_metrics(
-            df, pd.Timestamp(t_start), pd.Timestamp(t_end), cfg,
+            df,
+            pd.Timestamp(t_start),
+            pd.Timestamp(t_end),
+            cfg,
             mass_fallback_kg=mass_carry,
         )
         if not seg:
@@ -858,7 +919,10 @@ def _segments_from_df(
     if n_dropped_short or n_dropped_pathological:
         logger.debug(
             "  leg %s: dropped %d short (<%.1f km) + %d pathological trips",
-            source, n_dropped_short, min_trip_km, n_dropped_pathological,
+            source,
+            n_dropped_short,
+            min_trip_km,
+            n_dropped_pathological,
         )
 
     return trips, seg_metrics
@@ -912,7 +976,8 @@ def process_diesel_leg(
     # usually "JOLT - <OP>" (does not match the round-robin regex), falling back to
     # vehicle.organisation.name resolution.
     op_code, op_source, op_unknown = derive_leg_operator(
-        leg, reg_code or reg,
+        leg,
+        reg_code or reg,
         srf_org_raw=srf_org_raw,
         vehicles=VEHICLE_CONFIG,
         trial_cache=trial_cache,
@@ -931,7 +996,11 @@ def process_diesel_leg(
     rows: list = []
     for seg in seg_metrics:
         row, cumulative_km = _diesel_seg_to_row(
-            seg, leg.uri, cumulative_km, srf_data=srf_data, operator=op_code,
+            seg,
+            leg.uri,
+            cumulative_km,
+            srf_data=srf_data,
+            operator=op_code,
         )
         rows.append((seg["start_time"], list(row)))
 
@@ -950,10 +1019,17 @@ def process_diesel_leg(
         try:
             leg_date = str(pd.Timestamp(leg.start_time).date())
             suffix = f"{leg_date}_{leg_idx:04d}"
-            out_path = Path(out_dir) / 'validation_figures' / \
-                f'validation_{reg}_{suffix}.png'
+            out_path = (
+                Path(out_dir) / "validation_figures" / f"validation_{reg}_{suffix}.png"
+            )
             plot_diesel_leg_validation(
-                df, trips, seg_metrics, reg, suffix, out_path, cfg,
+                df,
+                trips,
+                seg_metrics,
+                reg,
+                suffix,
+                out_path,
+                cfg,
             )
         except Exception as exc:
             logger.warning("Diesel validation figure generation failed: %s", exc)
@@ -1014,7 +1090,9 @@ def regenerate_diesel_validation(
 
     if reg is None:
         if not xlsx_files:
-            logger.error("No report file found, cannot resolve the vehicle: %s", report_dir)
+            logger.error(
+                "No report file found, cannot resolve the vehicle: %s", report_dir
+            )
             return 0
         m = _XLSX_RE.match(xlsx_files[0].name)
         if not m:
@@ -1044,7 +1122,10 @@ def regenerate_diesel_validation(
     by_date = _group_paths_by_date(csvs, _LOGGER_DATE_RE)
     n_removed = _clear_day_validation_figures(fig_dir, reg)
     if n_removed:
-        logger.info("  Cleared historical per-leg validation figures + sidecars: %d files", n_removed)
+        logger.info(
+            "  Cleared historical per-leg validation figures + sidecars: %d files",
+            n_removed,
+        )
 
     fig_count = 0
     for day, day_csvs in by_date.items():
@@ -1058,14 +1139,18 @@ def regenerate_diesel_validation(
         out_path = fig_dir / f"validation_{reg}_{day}.png"
         try:
             plot_diesel_leg_validation(
-                df, trips, seg_metrics, reg, day, out_path, cfg,
+                df,
+                trips,
+                seg_metrics,
+                reg,
+                day,
+                out_path,
+                cfg,
                 export_overlay=True,
             )
             fig_count += 1
         except Exception as exc:
-            logger.warning(
-                "Diesel validation figure redraw failed %s: %s", day, exc
-            )
+            logger.warning("Diesel validation figure redraw failed %s: %s", day, exc)
 
     # Rewrite an inspect HTML for each non-finetuned period xlsx (finetuned periods
     # are handled by the report-finetuner flow, skipped here to avoid overwriting
@@ -1082,6 +1167,8 @@ def regenerate_diesel_validation(
 
     logger.info(
         "regenerate_diesel_validation: %s completed %d figures, %d inspect HTML files",
-        reg, fig_count, html_count,
+        reg,
+        fig_count,
+        html_count,
     )
     return fig_count
