@@ -26,7 +26,13 @@ converged, applying `MergeOp` / `SplitOp` / `DeleteOp` corrections, and producin
   (canonical home since v3.1.0, moved from `src/jolt_toolkit/report_generator/finetune.py`;
   bump the skill's `manifest.yaml` version on any edit) — and calling its public API:
   `apply_operations` / `regenerate_figures` / `regenerate_inspect_html` /
-  `reconstruct_segs_from_xlsx` / `MergeOp` / `SplitOp` / `DeleteOp`
+  `reconstruct_segs_from_xlsx` / `dump_segs_json` / `MergeOp` / `SplitOp` / `DeleteOp`.
+  Since v3.1.0 P2b the library is **xlsx-side only**: `regenerate_figures` /
+  `regenerate_inspect_html` keep their signatures but delegate the actual painting/HTML
+  to the report-visuals skill CLI (call chain: `dump_segs_json` → temp segments JSON →
+  subprocess `render_visuals.py repaint-finetuned`, cwd = repo root) — the overlay
+  painter and the finetuned HTML writer live in
+  `.claude/skills/report-visuals/code/finetuned_visuals.py`
 
 ### You do NOT touch
 
@@ -44,7 +50,7 @@ converged, applying `MergeOp` / `SplitOp` / `DeleteOp` corrections, and producin
 - Discovering "the same kind of segmentation error recurs across multiple dates" → **route back to `param-tuner`** (this is a parameter problem, not an outlier)
 - Discovering "the algorithm logic itself is flawed" (e.g. the energy column is misidentified for some vehicle class) → **route back to `jolt-toolkit-dev`** to fix the algorithm
 - Needing a new type of Operation (reclassify, shift_boundary, etc.) → **extend the skill-owned `code/finetune.py`** (you own it since v3.1.0; bump the skill manifest version in the same change)
-- Needing a new overlay style added to `plot_leg_validation` → **request `jolt-toolkit-dev`** (the painter is package code until P2b re-homes rendering to the `report-visuals` skill)
+- Needing a new overlay style / figure or viewer rendering change → **route to the `report-visuals` skill** (since v3.1.0 P2b it owns the painter `plot_leg_validation` and the finetuned rendering in `code/finetuned_visuals.py`; the package paints nothing)
 
 ## Core tool: the `finetune.py` library
 
@@ -96,11 +102,22 @@ regenerate_inspect_html(
 )
 ```
 
-**Overlay + skip behaviour**: when `original_xlsx_path` is not None, `regenerate_figures`
+**Rendering delegation (since v3.1.0 P2b)**: `regenerate_figures` and
+`regenerate_inspect_html` keep the exact signatures above but no longer paint in-process —
+they reconstruct the per-date segments, dump them to a temp JSON
+(`dump_segs_json`, schema `report-visuals.finetuned-segs/v1`) and drive the report-visuals
+CLI via subprocess (`sys.executable`, cwd = repo root, env inherited):
+`.claude/skills/report-visuals/code/render_visuals.py repaint-finetuned --xlsx ...
+--segs-json ... --figures-only` (figures) / `--html-only --html-out ...` (viewer). A CLI
+failure surfaces as `RuntimeError` with the CLI output (previously some cases raised
+`FileNotFoundError`). Never import report-visuals code directly — CLI reuse only.
+
+**Overlay + skip behaviour** (unchanged semantics, now executed CLI-side): when
+`original_xlsx_path` is not None, the renderer
 compares the original vs finetuned segments for each day:
 - Identical → **skip, no `_finetuned.png` produced**. The inspect HTML automatically falls back to the original figure
   `validation_*.png` for that day, with a grey italic label `(unchanged — original)` beside the entry
-- Different → `plot_leg_validation` draws an overlay figure, with the original segments in red/green (alpha 0.25) as the base, and the
+- Different → the report-visuals painter (`plot_leg_validation`) draws an overlay figure, with the original segments in red/green (alpha 0.25) as the base, and the
   finetuned segments overlaid in **orange** `#FF9933` / **cyan** `#00CCCC` (alpha 0.40), annotated with the `[FT]` prefix.
   The inspect HTML adds an amber bold label `[modified]` beside that day's entry
 
@@ -132,9 +149,9 @@ only 1 extra `_finetuned.png` appears in `validation_figures/`, so no space is w
    The whitelist is in the `_DISCHARGE_LEG_TYPES` / `_CHARGE_LEG_PREFIX_RE` constants of `finetune.py`.
    An unrecognised leg type is logged as a warning and skipped.
 
-4. **Anchor fields are injected explicitly by `attach_anchors_from_df`**. `reconstruct_segs_from_xlsx`
-   only reads the xlsx, keeping a clean signature; `regenerate_figures` internally calls
-   `attach_anchors_from_df` automatically to obtain `_anchor_start_rel_kwh` /
+4. **Anchor fields are injected rendering-side by `attach_anchors_from_df`**. `reconstruct_segs_from_xlsx`
+   only reads the xlsx, keeping a clean signature, and the segments JSON carries no anchors; the report-visuals
+   renderer (`finetuned_visuals.attach_anchors_from_df` — moved there in P2b) obtains `_anchor_start_rel_kwh` /
    `_anchor_end_rel_kwh` etc. by interpolating from the raw CSV, used to draw the ▼▲ triangle markers. If you call `plot_leg_validation`
    directly from outside without supplying anchors, it degrades to text-annotation mode (`_annotate_overlay_energy_delta`).
 

@@ -37,15 +37,19 @@ coming from the package (segmentation STAYS in ``jolt_toolkit``). Reason: the
 v3.1.0 platform-slim plan moves all validation-figure + inspect-HTML rendering
 out of the package into this skill (package originals removed in Phase P2).
 
-P1 note: ``run_segment_detection`` still paints the EV figures inline inside
-the package (its ``out_dir`` + ``generate_validation_fig=True`` path). Phase P2
-introduces the ``figure_hook`` seam so the package stops importing matplotlib
-and this skill passes its own painter (``validation_figure.plot_leg_validation``).
+P2b note (2026-07-17): the package no longer paints figures or imports
+matplotlib — ``run_segment_detection`` grew a keyword-only ``figure_hook``
+seam and this module passes the skill-local painter
+(``validation_figure.plot_leg_validation``) as the hook, so figures come out
+identical to the former inline path in a single pass (the hook is invoked at
+exactly the point, and with exactly the arguments, the old inline call used —
+see the docstring in ``segmentation/detection.py``).
 """
 
 from __future__ import annotations
 
 import datetime
+import inspect
 import io
 import logging
 import os
@@ -71,8 +75,47 @@ from html_viewer import (
     _group_paths_by_date,
     _write_html_viewer,
 )
+from validation_figure import plot_leg_validation
 
 logger = logging.getLogger(__name__)
+
+# ── figure_hook contract check (v3.1.0 P2b) ─────────────────────────────
+# ``run_segment_detection`` invokes the hook with EXACTLY the positional args
+# (df_raw, charge_segs, discharge_segs, reg, suffix, out_path) plus the kwargs
+# below (contract documented in ``segmentation/detection.py``). The skill-local
+# painter's signature matches because it IS the former inline callee — assert
+# once at import time so any future signature drift fails loudly here instead
+# of deep inside a repaint run.
+_HOOK_POSITIONAL = [
+    "df_raw",
+    "charge_segs",
+    "discharge_segs",
+    "reg",
+    "suffix",
+    "out_path",
+]
+_HOOK_KWARGS = {
+    "ac_col",
+    "dc_col",
+    "panel3_col",
+    "mass_col",
+    "speed_col",
+    "logger_speed_df",
+    "logger_mass_df",
+    "charger_meter_df",
+    "mass_from_logger",
+    "mass_agg",
+    "export_dsoc_overlay",
+}
+_painter_params = inspect.signature(plot_leg_validation).parameters
+assert list(_painter_params)[:6] == _HOOK_POSITIONAL, (
+    "plot_leg_validation's leading positional parameters no longer match the "
+    f"figure_hook contract: {list(_painter_params)[:6]}"
+)
+assert _HOOK_KWARGS <= set(_painter_params), (
+    "plot_leg_validation no longer accepts the figure_hook kwargs: missing "
+    + ", ".join(sorted(_HOOK_KWARGS - set(_painter_params)))
+)
 
 # ── Logger 数据列名 ──────────────────────────────────────────────────────
 _CVW_COL = "CVW gross combination vehicle weight"
@@ -255,6 +298,11 @@ class ValidationGenerator:
                 # Externalise every panel's data label → sidecar JSON for the inspect
                 # HTML's interactive hover overlay (the PNG no longer bakes them).
                 export_dsoc_overlay=True,
+                # v3.1.0 P2b: the package no longer paints — supply the
+                # skill-local painter through the figure_hook seam (invoked
+                # with exactly the former inline-call arguments, so the
+                # figures are identical in a single pass).
+                figure_hook=plot_leg_validation,
             )
             fig_count += 1
 

@@ -111,7 +111,8 @@ def rerender_version(db_root: Path, version: str, reg_filter: str | None = None)
 
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(
-        prog="python -m jolt_toolkit.report_generator.rerender_inspect",
+        # Skill-local since v3.1.0 (the package module was removed in P2).
+        prog="python .claude/skills/report-visuals/code/rerender_inspect.py",
         description=(
             "Re-render inspect_*.html viewers from existing figures/sidecars "
             "(no PNG / sidecar regeneration)."

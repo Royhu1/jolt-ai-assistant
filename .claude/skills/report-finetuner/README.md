@@ -40,7 +40,9 @@ report-finetuner/
 4. **Agent (2) plan** — propose a list of `MergeOp` / `SplitOp` / `DeleteOp`.
 5. **Agent (3) apply** — run the skill-owned finetune library
    (`code/finetune.py`, imported with this skill's `code/` on `sys.path`) to write
-   the `*_finetuned.xlsx`, then regenerate overlay figures + inspect HTML.
+   the `*_finetuned.xlsx`, then regenerate overlay figures + inspect HTML
+   (`regenerate_figures` / `regenerate_inspect_html` — since P2b these delegate the
+   rendering to the report-visuals skill CLI under the hood; see the call chain below).
 6. **Agent (4) log** — write the `evaluations/{REG}_{period}_finetune_log.md` and update the
    `references/{REG}.md` case study.
 
@@ -51,7 +53,19 @@ contract.
 **Why an agent:** context isolation (reading tens of PNGs), cross-session memory, and forced
 two-layer logging. **Owner:** since v3.1.0 the core library's canonical home is this skill's
 `code/finetune.py` (moved out of the `jolt_toolkit` package; it still imports package names —
-HEADERS, segmentation constants — read-only, and its figure/HTML regeneration will delegate
-to the `report-visuals` CLI in P2b); the agent definition is
-`.claude/agents/report-finetuner.md`. Use after `/param-tuner` is exhausted but figures
-still show segmentation errors.
+HEADERS, segmentation constants — read-only). Since P2b the library owns only the **xlsx
+side** (operations, `reconstruct_segs_from_xlsx`, `dump_segs_json`); **rendering is
+delegated to the report-visuals skill** with this call chain (CLI subprocess — never a
+cross-skill Python import):
+
+```
+finetune.regenerate_figures / regenerate_inspect_html   (public signatures unchanged)
+  → dump_segs_json(...) → temp segments JSON (schema report-visuals.finetuned-segs/v1)
+  → subprocess: sys.executable .claude/skills/report-visuals/code/render_visuals.py \
+        repaint-finetuned --xlsx ... [--segs-json ... --figures-only | --html-only --html-out ...]
+    (cwd = repo root, env inherited)
+  → validation_*_finetuned.png overlays + inspect_*_finetuned.html
+```
+
+The agent definition is `.claude/agents/report-finetuner.md`. Use after `/param-tuner` is
+exhausted but figures still show segmentation errors.

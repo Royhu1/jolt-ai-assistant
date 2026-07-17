@@ -20,6 +20,21 @@ rerender-html
     figures + sidecars already on disk — no PNG / sidecar is re-rendered
     (wraps the skill-local :mod:`rerender_inspect`).
 
+repaint-finetuned
+    Rendering half of the report-finetuner flow (v3.1.0 P2b): given a
+    ``*_finetuned.xlsx`` plus a segments JSON (produced by the finetune
+    library's ``dump_segs_json`` — schema
+    ``report-visuals.finetuned-segs/v1``, see :mod:`finetuned_visuals`),
+    paint the ``validation_*_finetuned.png`` figures (original-vs-finetuned
+    overlay, or plain when no original segs are supplied; unchanged days are
+    skipped and stale finetuned PNGs removed) and write the
+    ``inspect_*_finetuned.html`` viewer. ``--figures-only`` / ``--html-only``
+    restrict to one half (``--html-only`` needs no segments JSON — it only
+    enumerates figures already on disk). Never overwrites non-finetuned
+    originals. Prints machine-parsable summary lines
+    ``[report-visuals] repaint-finetuned: figures=<N>`` / ``html=<path>``
+    that the finetune library's wrappers parse.
+
 Usage (from the repo root, so ``./cache`` and ``.env`` resolve)
 ---------------------------------------------------------------
     python .claude/skills/report-visuals/code/render_visuals.py \
@@ -28,10 +43,17 @@ Usage (from the repo root, so ``./cache`` and ``.env`` resolve)
     python .claude/skills/report-visuals/code/render_visuals.py \
         rerender-html --version 2.2.8 --db-root excel_report_database [--reg YK73WFN]
 
-Behaviour is identical to what each mode wraps (v3.1.0 P1 copy-first move —
-see the skill README). ``*_finetuned.*`` artefacts are always left untouched;
-explicit ``--finetuned`` support for the report-finetuner flow is a later
-phase (TODO in the skill README).
+    python .claude/skills/report-visuals/code/render_visuals.py \
+        repaint-finetuned --xlsx <...>/jolt_report_<REG>_<start>_<end>_finetuned.xlsx \
+        --segs-json <segments.json> [--raw-dir <...>/raw_telematics] \
+        [--out-dir <...>/validation_figures] [--fig-suffix _finetuned] \
+        [--figures-only | --html-only] [--html-out <path>]
+
+Behaviour is identical to what each mode wraps (see the skill README).
+``repaint``/``rerender-html`` always leave ``*_finetuned.*`` artefacts
+untouched; regenerating those is exactly what ``repaint-finetuned`` is for
+(driven by the report-finetuner skill through this CLI — no cross-skill
+Python imports).
 """
 
 from __future__ import annotations
@@ -111,6 +133,67 @@ def cmd_repaint(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_repaint_finetuned(args: argparse.Namespace) -> int:
+    from finetuned_visuals import (
+        paint_finetuned_figures,
+        write_finetuned_inspect_html,
+    )
+
+    xlsx = Path(args.xlsx)
+    if not xlsx.is_file():
+        print(f"[report-visuals] xlsx not found: {xlsx}", file=sys.stderr)
+        return 2
+    if args.figures_only and args.html_only:
+        print(
+            "[report-visuals] --figures-only and --html-only are mutually "
+            "exclusive",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        if not args.html_only:
+            if not args.segs_json:
+                print(
+                    "[report-visuals] --segs-json is required unless "
+                    "--html-only (the xlsx-side reconstruction is "
+                    "finetune-owned: produce the JSON with the "
+                    "report-finetuner skill's finetune.dump_segs_json)",
+                    file=sys.stderr,
+                )
+                return 2
+            segs_json = Path(args.segs_json)
+            if not segs_json.is_file():
+                print(
+                    f"[report-visuals] segments JSON not found: {segs_json}",
+                    file=sys.stderr,
+                )
+                return 2
+            raw_dir = (
+                Path(args.raw_dir) if args.raw_dir else xlsx.parent / "raw_telematics"
+            )
+            out_dir = (
+                Path(args.out_dir)
+                if args.out_dir
+                else xlsx.parent / "validation_figures"
+            )
+            n = paint_finetuned_figures(
+                xlsx, segs_json, raw_dir, out_dir, fig_suffix=args.fig_suffix
+            )
+            print(f"[report-visuals] repaint-finetuned: figures={n}")
+
+        if not args.figures_only:
+            html_out = Path(args.html_out) if args.html_out else None
+            out_path = write_finetuned_inspect_html(
+                xlsx, html_out, fig_suffix=args.fig_suffix
+            )
+            print(f"[report-visuals] repaint-finetuned: html={out_path}")
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"[report-visuals] repaint-finetuned failed: {exc}", file=sys.stderr)
+        return 3
+    return 0
+
+
 def cmd_rerender_html(args: argparse.Namespace) -> int:
     from rerender_inspect import rerender_version
 
@@ -172,6 +255,66 @@ def main(argv: list[str] | None = None) -> int:
         help="SRF API cache directory (default ./cache — run from the repo root)",
     )
     p_re.set_defaults(func=cmd_repaint)
+
+    p_ft = sub.add_parser(
+        "repaint-finetuned",
+        help=(
+            "paint validation_*_finetuned.png overlays from a finetuned xlsx "
+            "+ segments JSON, and write the inspect_*_finetuned.html viewer "
+            "(rendering half of the report-finetuner flow)"
+        ),
+    )
+    p_ft.add_argument(
+        "--xlsx",
+        required=True,
+        help="path to the jolt_report_<REG>_<start>_<end>_finetuned.xlsx",
+    )
+    p_ft.add_argument(
+        "--segs-json",
+        default=None,
+        help=(
+            "segments JSON (schema report-visuals.finetuned-segs/v1) produced "
+            "by the report-finetuner skill's finetune.dump_segs_json; "
+            "required unless --html-only"
+        ),
+    )
+    p_ft.add_argument(
+        "--raw-dir",
+        default=None,
+        help="raw telematics dir (default: <xlsx dir>/raw_telematics)",
+    )
+    p_ft.add_argument(
+        "--out-dir",
+        default=None,
+        help="figure output dir (default: <xlsx dir>/validation_figures)",
+    )
+    p_ft.add_argument(
+        "--fig-suffix",
+        default="_finetuned",
+        help="suffix for the produced figures/HTML (default: _finetuned)",
+    )
+    p_ft.add_argument(
+        "--figures-only",
+        action="store_true",
+        help="paint the finetuned figures but skip the inspect HTML",
+    )
+    p_ft.add_argument(
+        "--html-only",
+        action="store_true",
+        help=(
+            "write only the finetuned inspect HTML from figures already on "
+            "disk (no segments JSON needed)"
+        ),
+    )
+    p_ft.add_argument(
+        "--html-out",
+        default=None,
+        help=(
+            "explicit inspect-HTML output path (default: "
+            "inspect_<xlsx stem[+fig-suffix]>.html next to the xlsx)"
+        ),
+    )
+    p_ft.set_defaults(func=cmd_repaint_finetuned)
 
     p_rr = sub.add_parser(
         "rerender-html",

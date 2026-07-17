@@ -3,7 +3,7 @@
 Applies to every run of the report-visuals skill. *Why each rule exists is
 stated inline so the rule can be safely evolved later.*
 
-## Invocation (single CLI, two modes)
+## Invocation (single CLI, three modes)
 
 Run from the **repo root** so `./cache`, `.env` (SRF_API_KEY) and relative DB
 paths resolve; use the jolt env python with `PYTHONUTF8=1` (Windows cp1252
@@ -21,7 +21,24 @@ python .claude/skills/report-visuals/code/render_visuals.py \
 # Rewrite ONLY the inspect_*.html viewers from existing figures/sidecars
 python .claude/skills/report-visuals/code/render_visuals.py \
     rerender-html --version <ver> --db-root excel_report_database [--reg <REG>]
+
+# Rendering half of the report-finetuner flow: paint *_finetuned overlay
+# figures + the inspect_*_finetuned.html viewer for a finetuned xlsx
+python .claude/skills/report-visuals/code/render_visuals.py \
+    repaint-finetuned --xlsx <dir>/jolt_report_<REG>_<start>_<end>_finetuned.xlsx \
+    --segs-json <segments.json> [--raw-dir <dir>/raw_telematics] \
+    [--out-dir <dir>/validation_figures] [--fig-suffix _finetuned] \
+    [--figures-only | --html-only] [--html-out <path>]
 ```
+
+`repaint-finetuned` contract: the segments JSON (schema
+`report-visuals.finetuned-segs/v1`) is produced by the report-finetuner
+skill's `finetune.dump_segs_json` — xlsx reconstruction is finetune-owned,
+painting is this skill's; the two halves meet ONLY at this CLI + JSON seam
+(no cross-skill Python imports — v3.1.0 coupling rule). `--html-only` needs
+no JSON (it enumerates figures already on disk). The CLI prints
+machine-parsable `figures=<N>` / `html=<path>` summary lines that the
+finetune library's wrappers parse — keep them stable.
 
 `repaint` inputs: `raw_telematics/raw_*.csv` (EV) or `raw_logger_*/logger_*.csv`
 (diesel) + at least one non-finetuned `jolt_report_*.xlsx` in the directory
@@ -41,17 +58,26 @@ nothing to repaint — generate the report with `--debug`/`--raw-only` first
 
 ## Append-only / finetuned discipline
 
-`*_finetuned.*` artefacts are NEVER touched: finetuned figures/sidecars survive
-every sweep, and finetuned xlsx periods get no inspect HTML from this skill —
-they belong to the report-finetuner flow (its corrections must not be silently
-overwritten by a base repaint). Explicit `--finetuned` support is a later
-phase (TODO in README).
+The base modes (`repaint` / `rerender-html`) NEVER touch `*_finetuned.*`
+artefacts: finetuned figures/sidecars survive every sweep, and finetuned xlsx
+periods get no inspect HTML from those modes — a base repaint must not
+silently overwrite the report-finetuner's corrections. Regenerating the
+finetuned set is exclusively `repaint-finetuned`'s job (driven by the
+report-finetuner skill), and IT in turn never overwrites non-finetuned
+originals — its outputs always carry the `--fig-suffix`
+(`validation_<REG>_<date>_<idx>_finetuned.png`,
+`inspect_*_finetuned.html`); a date whose finetuned segs equal the originals
+gets NO finetuned PNG (stale ones are removed) so the viewer falls back to
+the original figure.
 
-## Delegation status (P1)
+## figure_hook seam (P2b)
 
-The EV path still calls the package's `run_segment_detection(out_dir=...)`,
-which paints inline with the PACKAGE's `plot_leg_validation` — expected until
-the P2 `figure_hook` seam lands; the skill-local `validation_figure.py` is
-already the module the diesel painter and future hook use. Segmentation
-always stays in `jolt_toolkit` (read-only from here); route segmentation /
-xlsx changes to jolt-toolkit-dev.
+Since v3.1.0 P2 the package paints nothing and does not import matplotlib.
+The EV repaint path passes the skill-local painter
+(`validation_figure.plot_leg_validation`) to the package's
+`run_segment_detection(..., figure_hook=...)` — the hook is invoked at
+exactly the point, and with exactly the arguments, the former inline call
+used (contract in `segmentation/detection.py`; an import-time assertion in
+`validation_generator.py` guards signature drift), so figures are identical
+in a single pass. Segmentation always stays in `jolt_toolkit` (read-only from
+here); route segmentation / xlsx changes to jolt-toolkit-dev.
