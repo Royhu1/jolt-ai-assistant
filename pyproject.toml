@@ -41,6 +41,13 @@ dev = [
 [project.scripts]
 jolt-report = "jolt_toolkit.report_generator.cli:main"
 
+[tool.pytest.ini_options]
+# Put the src-layout package on sys.path for the test session (pytest >=7 built-in
+# rootdir-relative prepend) so `pytest` from the repo root works without exporting
+# PYTHONPATH. Prepending means the worktree src wins over any editable install.
+pythonpath = ["src"]
+testpaths = ["tests"]
+
 [tool.black]
 line-length = 88
 
