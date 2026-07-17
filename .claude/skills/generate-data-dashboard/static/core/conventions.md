@@ -1,8 +1,12 @@
 # Conventions (always load)
 
-Produce `data_dashboard.html` for one report-database version. This skill is a thin
-driver over `jolt_toolkit.report_generator.data_dashboard`; all logic lives in the
-package (owned by the `jolt-toolkit-dev` agent — route any behaviour/layout change there).
+Produce `data_dashboard.html` for one report-database version. Since v3.1.0 this
+skill OWNS the dashboard code — the generator lives in the skill's `code/`
+(`generate_dashboard.py` runner + `data_dashboard.py` + `data_dashboard_detail.py` +
+vendored `assets/uplot/`); make behaviour/layout/detection changes there. The code
+imports the `jolt_toolkit` package read-only for shared names (HEADERS, segmentation
+constants, config loaders) — route to `jolt-toolkit-dev` only for a new xlsx field /
+package-shared name.
 
 ## Inputs to confirm with the user (ask only if ambiguous)
 
@@ -22,8 +26,10 @@ package (owned by the `jolt-toolkit-dev` agent — route any behaviour/layout ch
     (make/model, capacity, operator assignment + colours)
 - OneDrive caveat: ask the user to close any of the version's `.xlsx` open in Excel
   first — a locked workbook fails the scan.
-- Run from the repo root with the `jolt` conda env. If `import jolt_toolkit` resolves
-  to a stale editable install, prefix with `PYTHONPATH=src`.
+- Run from the repo root with the `jolt` conda env (the runner resolves the default
+  `--db-root` against the current working directory). `jolt_toolkit` must be
+  importable for the shared names; if `import jolt_toolkit` resolves to a stale
+  editable install, prefix with `PYTHONPATH=src`.
 
 ## Conventions
 

@@ -1,15 +1,19 @@
 name: generate-data-dashboard
-version: 2.0.1   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline
+version: 2.1.0   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline; 2.1.0 = v3.1.0 re-homing — the skill now OWNS the dashboard code (code/)
 description: >
   Declarative manifest for the static/dynamic split. SKILL.md uses this to
-  decide what to load for a given request. This skill is a thin wrapper over
-  the jolt_toolkit dashboard CLI with a single execution path, so per the
+  decide what to load for a given request. This skill drives its OWN
+  dashboard code (code/generate_dashboard.py runner over the skill-owned
+  code/data_dashboard*.py — self-contained owner since v3.1.0, like
+  generate-pdf-report) with a single execution path, so per the
   proportionality rule there are no axes, no gates and no fragments: the
   always-loaded core carries the conventions (inputs to confirm,
   preconditions, no-version-bump / never-commit rules), and the exact
   command + verify checklist load on demand when actually executing.
   Routing boundary: dashboard CODE (layout, detection rules, new panels)
-  belongs to the jolt-toolkit-dev agent — this skill only RUNS the generator.
+  now lives in this skill's code/ — change it HERE, not via jolt-toolkit-dev;
+  route to jolt-toolkit-dev only when the dashboard needs a new xlsx field
+  or a new shared name from the jolt_toolkit package.
 
 always_load:
   # Skill-local core: inputs to confirm, preconditions, conventions.
