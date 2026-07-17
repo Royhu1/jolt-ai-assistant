@@ -1,17 +1,23 @@
 # JOLT project dependencies
-
-# Core dependencies
-pydantic>=2.0.0
+#
+# This list mirrors the runtime dependencies declared in pyproject.toml
+# ([project].dependencies). Optional extras live in pyproject.toml:
+#   pip install -e .[params]   # scikit-learn — Crr/CdA parameter identification
+#   pip install -e .[dev]      # test + lint toolchain (also listed below)
 
 # Data processing
 pandas>=2.0.0
 numpy>=1.24.0
+scipy>=1.10.0
 
-# HTTP requests
+# HTTP requests + SRF API client
 requests>=2.31.0
-httpx>=0.24.0
+srf_client
 
-# File locking (used for the weather cache)
+# Reverse geocoding (postcode lookup)
+geopy
+
+# File locking (weather cache + vehicles.json write-back)
 filelock>=3.12.0
 
 # Environment variables
@@ -22,12 +28,11 @@ openpyxl>=3.1.0
 xlsxwriter>=3.1.0
 tqdm>=4.65.0
 
-# Visualisation (optional)
+# Visualisation
 matplotlib>=3.7.0
-seaborn>=0.12.0
 
-# Logging
-loguru>=0.7.0
+# Optional: parameter identification (pip install -e .[params])
+# scikit-learn
 
 # Testing (development dependencies)
 pytest>=7.4.0
@@ -37,5 +42,4 @@ pytest-mock>=3.11.0
 # Code quality (development dependencies)
 black>=23.0.0
 isort>=5.12.0
-flake8>=6.0.0
 mypy>=1.5.0

@@ -20,8 +20,9 @@ import numpy as np
 
 
 # Battery-efficiency model (Arrhenius)
-def eta_bat(T: float, B: float = 3500.0, alpha: float = 0.027,
-            T_ref: float = 25.0) -> float:
+def eta_bat(
+    T: float, B: float = 3500.0, alpha: float = 0.027, T_ref: float = 25.0
+) -> float:
     """
     Arrhenius model of battery discharge efficiency vs temperature (NMC/LFP lithium-ion).
 

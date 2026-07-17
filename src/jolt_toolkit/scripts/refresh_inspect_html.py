@@ -1,25 +1,27 @@
-"""刷新 excel_report_database/<version>/<REG>/inspect_*.html 到当前版本的 HTML 模板。
+"""Refresh excel_report_database/<version>/<REG>/inspect_*.html to the current version's HTML template.
 
-用途
-----
-当 ``_write_html_viewer`` 的 UX 升级（例如活动天红字、空天过滤 checkbox、
-``localStorage`` 状态记忆）后，需要把已有 xlsx 报告对应的 inspect HTML 全部
-重写，但 **不重跑分段算法、不重画 validation figures**。
+Purpose
+-------
+When ``_write_html_viewer``'s UX is upgraded (e.g. active-day red text, empty-day
+filter checkbox, ``localStorage`` state memory), the inspect HTML of every
+existing xlsx report needs to be rewritten, but **without re-running the
+segmentation algorithm or redrawing the validation figures**.
 
-逻辑
-----
-- 扫描 ``excel_report_database/<version>/<REG>/`` 目录，找到所有 ``jolt_report_<REG>_<DS>_<DE>.xlsx``。
-- 从文件名解析 period_start / period_end（YYYYMMDD → date）。
-- 直接调用 ``report_builder._write_html_viewer(out_dir, reg, ds, de, report_name)``。
-  该函数自己会读 ``out_dir/validation_figures/`` 下已有 png 并读取 xlsx 中的
-  active dates，无需我们额外参与。
-- 完全不动 xlsx / figures / raw_telematics。
+Logic
+-----
+- Scan the ``excel_report_database/<version>/<REG>/`` directory for all ``jolt_report_<REG>_<DS>_<DE>.xlsx``.
+- Parse period_start / period_end from the file name (YYYYMMDD → date).
+- Call ``report_builder._write_html_viewer(out_dir, reg, ds, de, report_name)`` directly.
+  That function itself reads the existing pngs under ``out_dir/validation_figures/``
+  and the active dates from the xlsx, so no extra involvement is needed from us.
+- Does not touch the xlsx / figures / raw_telematics at all.
 
-注意
-----
-- 通用于电车 / 柴油，因为 ``_write_html_viewer`` 只依赖 figures 文件名约定 +
-  xlsx 中的日期列，对车型不敏感。
-- 单车过滤通过 ``--reg`` 参数；默认刷整个 fleet。
+Notes
+-----
+- Generic across EV / diesel, because ``_write_html_viewer`` depends only on the
+  figures file-name convention + the date columns in the xlsx, and is
+  vehicle-type-agnostic.
+- Single-vehicle filtering is via the ``--reg`` argument; refreshes the whole fleet by default.
 """
 
 from __future__ import annotations
@@ -31,10 +33,9 @@ from datetime import date
 from pathlib import Path
 
 from jolt_toolkit.report_generator.report_builder import (
-    _write_html_viewer,
     _compute_active_dates_from_xlsx,
+    _write_html_viewer,
 )
-
 
 LOG = logging.getLogger("refresh_inspect_html")
 
@@ -88,9 +89,7 @@ def refresh_one(xlsx: Path) -> dict:
     # ``[._]`` accepts both the one-figure-per-day ``validation_<reg>_<date>.png`` and
     # the legacy per-leg ``validation_<reg>_<date>_<NNNN>.png`` (kept in lock-step with
     # _write_html_viewer so the counts here match what the viewer actually lists).
-    _date_re = re.compile(
-        r"validation_" + re.escape(reg) + r"_(\d{4}-\d{2}-\d{2})[._]"
-    )
+    _date_re = re.compile(r"validation_" + re.escape(reg) + r"_(\d{4}-\d{2}-\d{2})[._]")
     figs_in_period: list[str] = []
     if fig_dir.exists():
         ds_s, de_s = ds.isoformat(), de.isoformat()

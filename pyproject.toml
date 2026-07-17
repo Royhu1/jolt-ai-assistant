@@ -4,11 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jolt-toolkit"
-version = "2.2.8"
+version = "3.0.0"
 description = "JOLT EV telematics toolkit — report generation, plotting, and parameter identification"
 requires-python = ">=3.10"
 dependencies = [
-    "pydantic>=2.0.0",
     "pandas>=2.0.0",
     "numpy>=1.24.0",
     "requests>=2.31.0",
@@ -17,7 +16,6 @@ dependencies = [
     "openpyxl>=3.1.0",
     "filelock>=3.12.0",
     "geopy",
-    "scikit-learn",
     "srf_client",
     "matplotlib>=3.7.0",
     "scipy>=1.10.0",
@@ -25,6 +23,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Crr/CdA vehicle-parameter identification (vehicle_params_identificator/).
+# Not needed for the Excel-report generation path; kept optional so a platform
+# deploy (pip install .) stays lean.
+params = [
+    "scikit-learn",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
@@ -34,11 +38,36 @@ dev = [
     "mypy>=1.5.0",
 ]
 
+[project.scripts]
+jolt-report = "jolt_toolkit.report_generator.cli:main"
+
+[tool.pytest.ini_options]
+# Put the src-layout package on sys.path for the test session (pytest >=7 built-in
+# rootdir-relative prepend) so `pytest` from the repo root works without exporting
+# PYTHONPATH. Prepending means the worktree src wins over any editable install.
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.black]
+line-length = 88
+
+[tool.isort]
+# "black" profile keeps isort's import ordering compatible with black's
+# formatting (trailing commas, parenthesised multi-line imports) so the two
+# tools do not fight. Three groups: stdlib / third-party / first-party.
+profile = "black"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["jolt_toolkit*"]
 
 [tool.setuptools.package-data]
+# Config JSONs (vehicles / pipelines / plot_config). Without this a wheel install
+# ships no config → VEHICLE_CONFIG == {} → every run fails. Override the location
+# at runtime with JOLT_CONFIG_DIR (writable, for the capacity ledger write-back).
+"jolt_toolkit.configs" = [
+    "*.json",
+]
 # Vendored offline uPlot assets inlined into the dashboard drill-down detail
 # pages (see report_generator/assets/uplot/PROVENANCE.txt). Shipped so non-editable
 # installs can still render detail pages without a network fetch.
@@ -46,4 +75,7 @@ include = ["jolt_toolkit*"]
     "assets/uplot/*.js",
     "assets/uplot/*.css",
     "assets/uplot/*.txt",
+    # inspect_*.html viewer template (externalized from report_builder in v3.0.0;
+    # filled via str.format by report_generator.html_viewer).
+    "assets/*.html",
 ]

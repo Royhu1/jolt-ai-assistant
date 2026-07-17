@@ -1,5 +1,6 @@
-"""一次性脚本工具集。
+"""Collection of one-off script tools.
 
-放置只在某次升级 / 数据迁移时使用、不属于核心管线的小脚本。
-每个脚本通过 ``python -m jolt_toolkit.scripts.<name>`` 运行。
+Holds small scripts used only during a particular upgrade / data migration and
+that are not part of the core pipeline. Each script is run via
+``python -m jolt_toolkit.scripts.<name>``.
 """

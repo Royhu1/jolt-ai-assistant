@@ -1,9 +1,9 @@
 """
-report_generator — 报告生成子包。
+report_generator — report-generation sub-package.
 
-公开 API：
-  generate_report()   生成单车 Excel 报告
-  patch_logger()      Logger 天气数据补全
+Public API:
+  generate_report()   generate a single-vehicle Excel report
+  patch_logger()      backfill weather data from the Logger
 """
 
 from jolt_toolkit.report_generator._generator import JOLTReportGenerator
@@ -19,12 +19,15 @@ def generate_report(
     save_figures: bool = True,
     outputfolder: str = "excel_report_database",
 ) -> None:
-    """便捷函数：生成单车 Excel 报告。
+    """Convenience function: generate a single-vehicle Excel report.
 
-    ``save_figures=False`` 仅在 ``debug=True`` 时有意义：仍落盘 raw CSV + inspect HTML，
-    但跳过 generate 阶段烤入标注的 validation 图（对应 CLI 的 ``--raw-only``）。
+    ``save_figures=False`` is only meaningful when ``debug=True``: raw CSV +
+    inspect HTML are still written to disk, but the validation figures with
+    labels baked in during the generate stage are skipped (equivalent to the
+    CLI's ``--raw-only``).
     """
     from jolt_toolkit import __version__
+
     gen = JOLTReportGenerator(
         report_output_folder=f"./{outputfolder}/{__version__}",
         overwrite_existing_report=True,
@@ -46,7 +49,8 @@ def patch_logger(
     *,
     debug: bool = False,
 ) -> None:
-    """便捷函数：Logger 天气数据补全。"""
+    """Convenience function: backfill weather data from the Logger."""
     from jolt_toolkit.report_generator.logger_patcher import LoggerPatcher
+
     patcher = LoggerPatcher()
     patcher.patch(vehicle_registration, date_start, date_end, debug=debug)

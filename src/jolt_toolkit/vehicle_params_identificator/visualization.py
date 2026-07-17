@@ -9,21 +9,22 @@ import logging
 import os
 from typing import Optional
 
-import numpy as np
 import matplotlib
+import numpy as np
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy import stats
 
 from jolt_toolkit.vehicle_params_identificator.config import (
-    PARAMS_RANGE,
+    INTERSECTION_COLOR,
     LABEL_FONT_SIZE,
-    TITLE_FONT_SIZE,
-    TICK_FONT_SIZE,
     LEGEND_FONT_SIZE,
     LINE_COLOR_CLUSTER_0,
     LINE_COLOR_CLUSTER_1,
-    INTERSECTION_COLOR,
+    PARAMS_RANGE,
+    TICK_FONT_SIZE,
+    TITLE_FONT_SIZE,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,9 @@ def plot_comprehensive_analysis(
     fig, axes = plt.subplots(2, 2, figsize=figsize)
     fig.suptitle(
         f"Comprehensive Parameter Identification — {title}",
-        fontsize=TITLE_FONT_SIZE + 2, fontweight="bold", y=0.995,
+        fontsize=TITLE_FONT_SIZE + 2,
+        fontweight="bold",
+        y=0.995,
     )
 
     c0 = LINE_COLOR_CLUSTER_0
@@ -97,10 +100,28 @@ def plot_comprehensive_analysis(
     ax1.tick_params(labelsize=TICK_FONT_SIZE)
     ax1.grid(alpha=0.3)
     from matplotlib.lines import Line2D
-    ax1.legend(handles=[
-        Line2D([0], [0], color=c0, lw=2, alpha=0.6, label=f"Cluster 0 ({len(idx_0)} seg)"),
-        Line2D([0], [0], color=c1, lw=2, alpha=0.6, label=f"Cluster 1 ({len(idx_1)} seg)"),
-    ], fontsize=LEGEND_FONT_SIZE)
+
+    ax1.legend(
+        handles=[
+            Line2D(
+                [0],
+                [0],
+                color=c0,
+                lw=2,
+                alpha=0.6,
+                label=f"Cluster 0 ({len(idx_0)} seg)",
+            ),
+            Line2D(
+                [0],
+                [0],
+                color=c1,
+                lw=2,
+                alpha=0.6,
+                label=f"Cluster 1 ({len(idx_1)} seg)",
+            ),
+        ],
+        fontsize=LEGEND_FONT_SIZE,
+    )
 
     # ── 2. 平均线 + CI + 交点 ────────────────────────────────────────────
     ax2 = axes[0, 1]
@@ -116,17 +137,21 @@ def plot_comprehensive_analysis(
     se_s0 = stats.sem(slopes_0) if len(slopes_0) > 1 else 0
     se_i0 = stats.sem(intercepts_0) if len(intercepts_0) > 1 else 0
     t0 = stats.t.ppf(0.975, max(len(slopes_0) - 1, 1))
-    ci_up0 = line_0 + t0 * np.sqrt((cda_range * se_s0)**2 + se_i0**2)
-    ci_lo0 = line_0 - t0 * np.sqrt((cda_range * se_s0)**2 + se_i0**2)
+    ci_up0 = line_0 + t0 * np.sqrt((cda_range * se_s0) ** 2 + se_i0**2)
+    ci_lo0 = line_0 - t0 * np.sqrt((cda_range * se_s0) ** 2 + se_i0**2)
 
     se_s1 = stats.sem(slopes_1) if len(slopes_1) > 1 else 0
     se_i1 = stats.sem(intercepts_1) if len(intercepts_1) > 1 else 0
     t1 = stats.t.ppf(0.975, max(len(slopes_1) - 1, 1))
-    ci_up1 = line_1 + t1 * np.sqrt((cda_range * se_s1)**2 + se_i1**2)
-    ci_lo1 = line_1 - t1 * np.sqrt((cda_range * se_s1)**2 + se_i1**2)
+    ci_up1 = line_1 + t1 * np.sqrt((cda_range * se_s1) ** 2 + se_i1**2)
+    ci_lo1 = line_1 - t1 * np.sqrt((cda_range * se_s1) ** 2 + se_i1**2)
 
-    ax2.fill_between(cda_range, ci_lo0, ci_up0, color=c0, alpha=0.2, label="95% CI Cluster 0")
-    ax2.fill_between(cda_range, ci_lo1, ci_up1, color=c1, alpha=0.2, label="95% CI Cluster 1")
+    ax2.fill_between(
+        cda_range, ci_lo0, ci_up0, color=c0, alpha=0.2, label="95% CI Cluster 0"
+    )
+    ax2.fill_between(
+        cda_range, ci_lo1, ci_up1, color=c1, alpha=0.2, label="95% CI Cluster 1"
+    )
 
     # CI 交集区域
     ci_int_lo = np.maximum(ci_lo0, ci_lo1)
@@ -134,19 +159,45 @@ def plot_comprehensive_analysis(
     ci_mask = ci_int_lo <= ci_int_up
     if ci_mask.any():
         ax2.fill_between(
-            cda_range[ci_mask], ci_int_lo[ci_mask], ci_int_up[ci_mask],
-            color="orange", alpha=0.4, label="CI Intersection", zorder=3,
+            cda_range[ci_mask],
+            ci_int_lo[ci_mask],
+            ci_int_up[ci_mask],
+            color="orange",
+            alpha=0.4,
+            label="CI Intersection",
+            zorder=3,
         )
 
-    ax2.plot(cda_range, line_0, color=c0, lw=2.5, label=f"Mean Cluster 0 (slope={ms0:.6f})", zorder=4)
-    ax2.plot(cda_range, line_1, color=c1, lw=2.5, label=f"Mean Cluster 1 (slope={ms1:.6f})", zorder=4)
+    ax2.plot(
+        cda_range,
+        line_0,
+        color=c0,
+        lw=2.5,
+        label=f"Mean Cluster 0 (slope={ms0:.6f})",
+        zorder=4,
+    )
+    ax2.plot(
+        cda_range,
+        line_1,
+        color=c1,
+        lw=2.5,
+        label=f"Mean Cluster 1 (slope={ms1:.6f})",
+        zorder=4,
+    )
 
     if result["c_da_identified"] is not None and result["c_rr_identified"] is not None:
         cda_id = result["c_da_identified"]
         crr_id = result["c_rr_identified"]
         if params_range["cda_low"] <= cda_id <= params_range["cda_high"]:
-            ax2.plot(cda_id, crr_id, "o", color=INTERSECTION_COLOR, ms=10, zorder=5,
-                     label=f"C_dA={cda_id:.2f}, C_rr={crr_id:.5f}")
+            ax2.plot(
+                cda_id,
+                crr_id,
+                "o",
+                color=INTERSECTION_COLOR,
+                ms=10,
+                zorder=5,
+                label=f"C_dA={cda_id:.2f}, C_rr={crr_id:.5f}",
+            )
 
     ax2.set_xlim(params_range["cda_low"], params_range["cda_high"])
     ax2.set_ylim(params_range["crr_low"], params_range["crr_high"])
@@ -159,8 +210,24 @@ def plot_comprehensive_analysis(
 
     # ── 3. 斜率分布 ──────────────────────────────────────────────────────
     ax3 = axes[1, 0]
-    ax3.hist(slopes_0, bins=20, color=c0, alpha=0.6, label=f"Cluster 0 (n={len(slopes_0)})", edgecolor="k", density=True)
-    ax3.hist(slopes_1, bins=20, color=c1, alpha=0.6, label=f"Cluster 1 (n={len(slopes_1)})", edgecolor="k", density=True)
+    ax3.hist(
+        slopes_0,
+        bins=20,
+        color=c0,
+        alpha=0.6,
+        label=f"Cluster 0 (n={len(slopes_0)})",
+        edgecolor="k",
+        density=True,
+    )
+    ax3.hist(
+        slopes_1,
+        bins=20,
+        color=c1,
+        alpha=0.6,
+        label=f"Cluster 1 (n={len(slopes_1)})",
+        edgecolor="k",
+        density=True,
+    )
     ax3.axvline(ms0, color=c0, ls="--", lw=2, label=f"μ₀={ms0:.6f}")
     ax3.axvline(ms1, color=c1, ls="--", lw=2, label=f"μ₁={ms1:.6f}")
     ax3.set_xlabel("Slope", fontsize=LABEL_FONT_SIZE)
@@ -172,8 +239,24 @@ def plot_comprehensive_analysis(
 
     # ── 4. 截距分布 ──────────────────────────────────────────────────────
     ax4 = axes[1, 1]
-    ax4.hist(intercepts_0, bins=20, color=c0, alpha=0.6, label=f"Cluster 0 (n={len(intercepts_0)})", edgecolor="k", density=True)
-    ax4.hist(intercepts_1, bins=20, color=c1, alpha=0.6, label=f"Cluster 1 (n={len(intercepts_1)})", edgecolor="k", density=True)
+    ax4.hist(
+        intercepts_0,
+        bins=20,
+        color=c0,
+        alpha=0.6,
+        label=f"Cluster 0 (n={len(intercepts_0)})",
+        edgecolor="k",
+        density=True,
+    )
+    ax4.hist(
+        intercepts_1,
+        bins=20,
+        color=c1,
+        alpha=0.6,
+        label=f"Cluster 1 (n={len(intercepts_1)})",
+        edgecolor="k",
+        density=True,
+    )
     ax4.axvline(mi0, color=c0, ls="--", lw=2, label=f"μ₀={mi0:.6f}")
     ax4.axvline(mi1, color=c1, ls="--", lw=2, label=f"μ₁={mi1:.6f}")
     ax4.set_xlabel("Intercept", fontsize=LABEL_FONT_SIZE)
@@ -213,14 +296,31 @@ def plot_mass_histogram(
 
     fig, ax = plt.subplots(figsize=(10, 5))
     for cl, color in [(0, LINE_COLOR_CLUSTER_0), (1, LINE_COLOR_CLUSTER_1)]:
-        m = [masses[i] for i in range(len(masses)) if clusters[i] == cl and np.isfinite(masses[i])]
+        m = [
+            masses[i]
+            for i in range(len(masses))
+            if clusters[i] == cl and np.isfinite(masses[i])
+        ]
         if m:
-            ax.hist(m, bins=30, range=(0, 50000), alpha=0.5, color=color,
-                    label=f"Cluster {cl} (n={len(m)})")
+            ax.hist(
+                m,
+                bins=30,
+                range=(0, 50000),
+                alpha=0.5,
+                color=color,
+                label=f"Cluster {cl} (n={len(m)})",
+            )
             mean_m = np.mean(m)
             ax.axvline(mean_m, color=color, ls="--", lw=2)
-            ax.text(mean_m, ax.get_ylim()[1] * 0.9, f"{mean_m:.0f} kg",
-                    color=color, rotation=90, va="top", ha="right")
+            ax.text(
+                mean_m,
+                ax.get_ylim()[1] * 0.9,
+                f"{mean_m:.0f} kg",
+                color=color,
+                rotation=90,
+                va="top",
+                ha="right",
+            )
 
     ax.set_xlabel("avg_mass (kg)", fontsize=LABEL_FONT_SIZE)
     ax.set_ylabel("Count", fontsize=LABEL_FONT_SIZE)

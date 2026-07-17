@@ -66,9 +66,7 @@ def rerender_report(reg_dir: Path, reg: str, xlsx_name: str) -> bool:
     return after is not None and after != before
 
 
-def rerender_version(
-    db_root: Path, version: str, reg_filter: str | None = None
-) -> int:
+def rerender_version(db_root: Path, version: str, reg_filter: str | None = None) -> int:
     """Re-render inspect HTMLs for every report under ``<db-root>/<version>/``.
 
     ``reg_filter`` (optional) restricts to a single vehicle directory. Returns

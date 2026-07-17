@@ -58,7 +58,7 @@ def ols_hc1(y: np.ndarray, X: np.ndarray):
     resid = y - Xd @ beta
     XtX_inv = np.linalg.inv(Xd.T @ Xd)
     # HC1: (n/(n-k)) * (X'X)^-1 X' diag(e^2) X (X'X)^-1
-    meat = Xd.T @ (Xd * (resid ** 2)[:, None])
+    meat = Xd.T @ (Xd * (resid**2)[:, None])
     cov = (n / (n - k)) * XtX_inv @ meat @ XtX_inv
     se = np.sqrt(np.diag(cov))
     tstat = np.divide(beta, se, out=np.full_like(beta, np.nan), where=se > 0)
@@ -93,8 +93,10 @@ def fit_block(df: pd.DataFrame, ycol: str, xcols: list[str]) -> dict | None:
     fit = ols_hc1(y, X)
     sd_y = float(np.std(y))
     sd_x = X.std(axis=0)
-    std_beta = {xc: (float(fit["beta"][i + 1]) * float(sd_x[i]) / sd_y if sd_y > 0 else np.nan)
-                for i, xc in enumerate(xcols)}
+    std_beta = {
+        xc: (float(fit["beta"][i + 1]) * float(sd_x[i]) / sd_y if sd_y > 0 else np.nan)
+        for i, xc in enumerate(xcols)
+    }
     vifs = vif(X)
     return {
         "n": int(fit["n"]),
@@ -108,7 +110,9 @@ def fit_block(df: pd.DataFrame, ycol: str, xcols: list[str]) -> dict | None:
     }
 
 
-def demean_within(df: pd.DataFrame, cols: list[str], group_col: str = "reg") -> pd.DataFrame:
+def demean_within(
+    df: pd.DataFrame, cols: list[str], group_col: str = "reg"
+) -> pd.DataFrame:
     """Within-group demeaning (vehicle fixed effects)."""
     out = df.copy()
     for c in cols:

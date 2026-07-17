@@ -162,8 +162,8 @@ CATEGORY_ORDER = (TELEMATICS, LOGGER, CHARGER)
 # Three clear, distinct colours (blue / green / amber).
 CATEGORY_COLOURS = {
     TELEMATICS: "#2563EB",  # blue
-    LOGGER: "#16A34A",      # green
-    CHARGER: "#F59E0B",     # amber
+    LOGGER: "#16A34A",  # green
+    CHARGER: "#F59E0B",  # amber
 }
 CATEGORY_LABELS = {
     TELEMATICS: "Telematics",
@@ -235,8 +235,12 @@ assert all(c in HEADERS for c in CHARGER_SIGNAL_COLS)
 assert all(
     c in HEADERS
     for c in (
-        SOC_CHANGE_COL, ENERGY_CHANGE_COL, ENERGY_AC_COL,
-        ENERGY_DC_COL, ENERGY_PERF_COL, BATTERY_CAP_COL,
+        SOC_CHANGE_COL,
+        ENERGY_CHANGE_COL,
+        ENERGY_AC_COL,
+        ENERGY_DC_COL,
+        ENERGY_PERF_COL,
+        BATTERY_CAP_COL,
     )
 )
 
@@ -469,9 +473,18 @@ def _clean_operator(value) -> str | None:
 # ``HTL``): a deterministic md5-indexed pick keeps the colour identical across
 # runs and visually distinct from the neutral grey + the named company colours.
 _FALLBACK_OPERATOR_PALETTE = (
-    "#0EA5E9", "#22C55E", "#EF4444", "#A855F7", "#F97316",
-    "#14B8A6", "#EAB308", "#EC4899", "#6366F1", "#84CC16",
-    "#06B6D4", "#F43F5E",
+    "#0EA5E9",
+    "#22C55E",
+    "#EF4444",
+    "#A855F7",
+    "#F97316",
+    "#14B8A6",
+    "#EAB308",
+    "#EC4899",
+    "#6366F1",
+    "#84CC16",
+    "#06B6D4",
+    "#F43F5E",
 )
 
 
@@ -498,7 +511,7 @@ def _operator_days_from_legs(legs: list[dict]) -> dict[date, str]:
 
 
 def _periods_from_operator_days(
-    op_days: dict[date, str]
+    op_days: dict[date, str],
 ) -> tuple[str, list[dict]] | None:
     """Derive ``(trial_type, periods)`` from a ``{date: operator}`` map.
 
@@ -610,7 +623,9 @@ def build_operator_assignment(
                 used.add(p["c"])
 
     operator_colours = {
-        c: (company_colours[c] if company_colours.get(c) else _stable_operator_colour(c))
+        c: (
+            company_colours[c] if company_colours.get(c) else _stable_operator_colour(c)
+        )
         for c in used
     }
     operator_names = {c: _prettify_company(c) for c in used}
@@ -689,15 +704,15 @@ def read_report_legs(xlsx_path: Path) -> list[dict]:
             logger_link = (
                 link_i is not None and link_i < n and _link_present(row[link_i])
             )
-            if logger_link or any(
-                i < n and _is_present(row[i].value) for i in pedal_i
-            ):
+            if logger_link or any(i < n and _is_present(row[i].value) for i in pedal_i):
                 cats.add(LOGGER)
             if any(i < n and _is_present(row[i].value) for i in charger_i):
                 cats.add(CHARGER)
 
             # Leg class.
-            leg_type = row[type_i].value if (type_i is not None and type_i < n) else None
+            leg_type = (
+                row[type_i].value if (type_i is not None and type_i < n) else None
+            )
             leg_class = _classify_leg(leg_type)
 
             # Distance (driving legs only carry a real value).
@@ -1005,13 +1020,9 @@ def compute_vehicle_stats(
         for leg in legs
         if leg["leg_class"] == "trip" and leg["distance_km"]
     )
-    days = {
-        c: sum(1 for cats in avail.values() if c in cats) for c in CATEGORY_ORDER
-    }
+    days = {c: sum(1 for cats in avail.values() if c in cats) for c in CATEGORY_ORDER}
     raw = avail_raw or {}
-    raw_days = {
-        c: sum(1 for cats in raw.values() if c in cats) for c in CATEGORY_ORDER
-    }
+    raw_days = {c: sum(1 for cats in raw.values() if c in cats) for c in CATEGORY_ORDER}
     return {
         "fuel": "Diesel" if is_diesel else "EV",
         "make": cfg.get("make"),
@@ -1595,9 +1606,7 @@ def render_dashboard_html(
     # Fleet-wide month axis spans BOTH bases of ALL vehicles, so toggling
     # between Events / Raw never re-flows the month blocks (only colours change).
     all_dates = [d for reg in regs for d in full[reg]["avail"]]
-    all_dates += [
-        d for reg in regs for d in full[reg].get("avail_raw", {})
-    ]
+    all_dates += [d for reg in regs for d in full[reg].get("avail_raw", {})]
     if not all_dates:
         raise ValueError("No availability data to render.")
     d_min, d_max = min(all_dates), max(all_dates)
@@ -1755,7 +1764,9 @@ def generate_dashboard(
     if not full:
         raise ValueError(f"No reports found under {db_root / version}")
     html_doc = render_dashboard_html(
-        full, version=version, source_path=db_root / version,
+        full,
+        version=version,
+        source_path=db_root / version,
         detail_regs=detail_regs,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1765,18 +1776,14 @@ def generate_dashboard(
 
 def _day_counts(day_map: dict[date, set[str]]) -> dict[str, int]:
     """Per-category day counts for one ``{date: set_of_categories}`` map."""
-    return {
-        c: sum(1 for cats in day_map.values() if c in cats) for c in CATEGORY_ORDER
-    }
+    return {c: sum(1 for cats in day_map.values() if c in cats) for c in CATEGORY_ORDER}
 
 
 def _print_summary(full: dict[str, dict]) -> None:
     """Log the per-vehicle Events-vs-Raw day-count table (T / L / C each)."""
     LOG.info("=" * 78)
     LOG.info("Per-vehicle day counts — Events (report) vs Raw (files), T/L/C:")
-    LOG.info(
-        "%-9s  %-22s  %-22s", "REG", "events  T    L    C", "raw     T    L    C"
-    )
+    LOG.info("%-9s  %-22s  %-22s", "REG", "events  T    L    C", "raw     T    L    C")
     LOG.info("-" * 78)
     tot_ev = {c: 0 for c in CATEGORY_ORDER}
     tot_raw = {c: 0 for c in CATEGORY_ORDER}
@@ -1789,15 +1796,23 @@ def _print_summary(full: dict[str, dict]) -> None:
         LOG.info(
             "%-9s  events %4d %4d %4d   raw  %4d %4d %4d",
             reg,
-            ev[TELEMATICS], ev[LOGGER], ev[CHARGER],
-            raw[TELEMATICS], raw[LOGGER], raw[CHARGER],
+            ev[TELEMATICS],
+            ev[LOGGER],
+            ev[CHARGER],
+            raw[TELEMATICS],
+            raw[LOGGER],
+            raw[CHARGER],
         )
     LOG.info("-" * 78)
     LOG.info(
         "%-9s  events %4d %4d %4d   raw  %4d %4d %4d   (%d vehicles)",
         "FLEET",
-        tot_ev[TELEMATICS], tot_ev[LOGGER], tot_ev[CHARGER],
-        tot_raw[TELEMATICS], tot_raw[LOGGER], tot_raw[CHARGER],
+        tot_ev[TELEMATICS],
+        tot_ev[LOGGER],
+        tot_ev[CHARGER],
+        tot_raw[TELEMATICS],
+        tot_raw[LOGGER],
+        tot_raw[CHARGER],
         len(full),
     )
 
@@ -1888,24 +1903,30 @@ def main(argv=None) -> int:
             write_detail_pages,
         )
 
-        LOG.info("Generating %d detail page(s): %s",
-                 len(detail_request), ", ".join(detail_request))
+        LOG.info(
+            "Generating %d detail page(s): %s",
+            len(detail_request),
+            ", ".join(detail_request),
+        )
         written_detail = write_detail_pages(
-            db_root, args.version, detail_request,
-            out_dir=out_dir, legs_by_reg=legs_by_reg,
+            db_root,
+            args.version,
+            detail_request,
+            out_dir=out_dir,
+            legs_by_reg=legs_by_reg,
         )
 
     # hasDetail = detail pages written this run ∪ pages already on disk, so the
     # calendar links stay live for previously-generated vehicles too.
-    existing_detail = {
-        p.stem[len("detail_"):]
-        for p in out_dir.glob("detail_*.html")
-    }
+    existing_detail = {p.stem[len("detail_") :] for p in out_dir.glob("detail_*.html")}
     detail_regs = set(written_detail) | existing_detail
 
     full, written = generate_dashboard(
-        db_root, args.version, out_path,
-        detail_regs=detail_regs, legs_by_reg=legs_by_reg,
+        db_root,
+        args.version,
+        out_path,
+        detail_regs=detail_regs,
+        legs_by_reg=legs_by_reg,
     )
     _print_summary(full)
     LOG.info("=" * 78)

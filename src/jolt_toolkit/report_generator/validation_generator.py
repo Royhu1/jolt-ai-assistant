@@ -40,16 +40,16 @@ import pandas as pd
 import srf_client
 from srf_client import paging
 
+from jolt_toolkit.report_generator.report_builder import (
+    _clear_day_validation_figures,
+    _group_paths_by_date,
+    _write_html_viewer,
+)
 from jolt_toolkit.report_generator.segment_algorithms import (
-    run_segment_detection,
-    VEHICLE_CONFIG,
     SOC_COL,
     TIME_COL,
-)
-from jolt_toolkit.report_generator.report_builder import (
-    _write_html_viewer,
-    _group_paths_by_date,
-    _clear_day_validation_figures,
+    VEHICLE_CONFIG,
+    run_segment_detection,
 )
 
 logger = logging.getLogger(__name__)
@@ -208,7 +208,9 @@ class ValidationGenerator:
             report_dir / "validation_figures", reg
         )
         if n_removed:
-            logger.info("  清理历史 per-leg validation 图 + sidecar: %d 个文件", n_removed)
+            logger.info(
+                "  清理历史 per-leg validation 图 + sidecar: %d 个文件", n_removed
+            )
 
         fig_count = 0
         for day, day_csvs in by_date.items():

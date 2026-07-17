@@ -60,11 +60,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from jolt_toolkit.report_generator.report_builder import HEADERS, DIESEL_HEADERS
-from jolt_toolkit.report_generator.weather_patcher import WeatherPatcher
+from jolt_toolkit.report_generator.report_builder import DIESEL_HEADERS, HEADERS
 from jolt_toolkit.report_generator.weather_fetcher.fine_grained_patcher import (
     FineGrainedWeatherPatcher,
 )
+from jolt_toolkit.report_generator.weather_patcher import WeatherPatcher
 
 logger = logging.getLogger(__name__)
 
@@ -157,12 +157,11 @@ def patch_weather(
         return patcher.patch_folder(
             target, overwrite=overwrite, force_repatch=force_repatch
         )
-    return patcher.patch_file(
-        target, overwrite=overwrite, force_repatch=force_repatch
-    )
+    return patcher.patch_file(target, overwrite=overwrite, force_repatch=force_repatch)
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(

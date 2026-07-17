@@ -53,21 +53,25 @@ def _make_cruise_segment(
     energies = np.linspace(0, e_battery_kwh, n_points)  # 累积能量计数器
     timestamps = pd.date_range("2025-01-01", periods=n_points, freq="1s")
 
-    return pd.DataFrame({
-        "timestamp": timestamps,
-        "speed_kmph": speeds,
-        "mass_kg": masses,
-        "altitude_m": altitudes,
-        "energy_kwh": energies,
-        "distance_m": ds,
-        "latitude": np.linspace(52.0, 52.045, n_points),
-        "longitude": np.linspace(0.0, 0.063, n_points),
-    })
+    return pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "speed_kmph": speeds,
+            "mass_kg": masses,
+            "altitude_m": altitudes,
+            "energy_kwh": energies,
+            "distance_m": ds,
+            "latitude": np.linspace(52.0, 52.045, n_points),
+            "longitude": np.linspace(0.0, 0.063, n_points),
+        }
+    )
 
 
 def test_single_constraint():
     """验证单个约束线的斜率和截距方向。"""
-    from jolt_toolkit.vehicle_params_identificator.identification import calculate_linear_constraint
+    from jolt_toolkit.vehicle_params_identificator.identification import (
+        calculate_linear_constraint,
+    )
 
     df = _make_cruise_segment(mass_kg=15000, speed_kmph=60)
     result = calculate_linear_constraint(df, motor_efficiency=0.90)
@@ -78,7 +82,9 @@ def test_single_constraint():
     # slope 应为负数（C_dA 增大时 C_rr 减小）
     assert result["slope"] < 0, f"斜率应为负: {result['slope']}"
     assert result["intercept"] > 0, f"截距应为正: {result['intercept']}"
-    print(f"单约束测试通过: slope={result['slope']:.6e}, intercept={result['intercept']:.6f}")
+    print(
+        f"单约束测试通过: slope={result['slope']:.6e}, intercept={result['intercept']:.6f}"
+    )
 
 
 def test_identification_with_synthetic_data():
@@ -101,9 +107,12 @@ def test_identification_with_synthetic_data():
         mass = 13000 + np.random.uniform(0, 4000)
         speed = 55 + np.random.uniform(0, 20)
         df = _make_cruise_segment(
-            mass_kg=mass, speed_kmph=speed,
-            true_crr=TRUE_CRR, true_cda=TRUE_CDA,
-            elevation_start=100, elevation_end=100 + np.random.uniform(-5, 5),
+            mass_kg=mass,
+            speed_kmph=speed,
+            true_crr=TRUE_CRR,
+            true_cda=TRUE_CDA,
+            elevation_start=100,
+            elevation_end=100 + np.random.uniform(-5, 5),
         )
         segments.append({"segment_period": (f"seg_{i}", f"seg_{i}"), "segment_df": df})
 
@@ -112,11 +121,16 @@ def test_identification_with_synthetic_data():
         mass = 28000 + np.random.uniform(0, 4000)
         speed = 55 + np.random.uniform(0, 20)
         df = _make_cruise_segment(
-            mass_kg=mass, speed_kmph=speed,
-            true_crr=TRUE_CRR, true_cda=TRUE_CDA,
-            elevation_start=100, elevation_end=100 + np.random.uniform(-5, 5),
+            mass_kg=mass,
+            speed_kmph=speed,
+            true_crr=TRUE_CRR,
+            true_cda=TRUE_CDA,
+            elevation_start=100,
+            elevation_end=100 + np.random.uniform(-5, 5),
         )
-        segments.append({"segment_period": (f"seg_{30+i}", f"seg_{30+i}"), "segment_df": df})
+        segments.append(
+            {"segment_period": (f"seg_{30+i}", f"seg_{30+i}"), "segment_df": df}
+        )
 
     # 计算约束
     constraints = calculate_all_constraints(segments)
@@ -130,33 +144,47 @@ def test_identification_with_synthetic_data():
     crr = result["c_rr_identified"]
     cda = result["c_da_identified"]
 
-    print(f"\n辨识结果: C_rr = {crr:.6f} (真实: {TRUE_CRR}), C_dA = {cda:.2f} (真实: {TRUE_CDA})")
-    print(f"相对误差: C_rr = {abs(crr - TRUE_CRR)/TRUE_CRR*100:.1f}%, C_dA = {abs(cda - TRUE_CDA)/TRUE_CDA*100:.1f}%")
+    print(
+        f"\n辨识结果: C_rr = {crr:.6f} (真实: {TRUE_CRR}), C_dA = {cda:.2f} (真实: {TRUE_CDA})"
+    )
+    print(
+        f"相对误差: C_rr = {abs(crr - TRUE_CRR)/TRUE_CRR*100:.1f}%, C_dA = {abs(cda - TRUE_CDA)/TRUE_CDA*100:.1f}%"
+    )
 
     # 允许 20% 的误差范围（合成数据含噪声 + 海拔变化）
-    assert abs(crr - TRUE_CRR) / TRUE_CRR < 0.20, f"C_rr 误差过大: {crr:.6f} vs {TRUE_CRR}"
-    assert abs(cda - TRUE_CDA) / TRUE_CDA < 0.20, f"C_dA 误差过大: {cda:.2f} vs {TRUE_CDA}"
+    assert (
+        abs(crr - TRUE_CRR) / TRUE_CRR < 0.20
+    ), f"C_rr 误差过大: {crr:.6f} vs {TRUE_CRR}"
+    assert (
+        abs(cda - TRUE_CDA) / TRUE_CDA < 0.20
+    ), f"C_dA 误差过大: {cda:.2f} vs {TRUE_CDA}"
     print("交线法辨识测试通过！")
 
 
 def test_cruise_segment_extraction():
     """验证巡航段提取的筛选逻辑。"""
-    from jolt_toolkit.vehicle_params_identificator.preprocessing import get_cruise_segments
+    from jolt_toolkit.vehicle_params_identificator.preprocessing import (
+        get_cruise_segments,
+    )
 
     # 制造一条 leg 数据：前 10 km 恒速 60 km/h，后 5 km 变速
     n = 1000
-    speed = np.concatenate([
-        np.full(700, 60.0) + np.random.normal(0, 2, 700),  # 前段恒速
-        np.linspace(60, 10, 300),  # 后段减速
-    ])
-    df = pd.DataFrame({
-        "speed_kmph": speed,
-        "distance_m": np.linspace(0, 15000, n),
-        "mass_kg": np.full(n, 20000.0),
-        "altitude_m": np.linspace(100, 110, n),
-        "energy_kwh": np.linspace(0, 5.0, n),
-        "timestamp": pd.date_range("2025-01-01", periods=n, freq="1s"),
-    })
+    speed = np.concatenate(
+        [
+            np.full(700, 60.0) + np.random.normal(0, 2, 700),  # 前段恒速
+            np.linspace(60, 10, 300),  # 后段减速
+        ]
+    )
+    df = pd.DataFrame(
+        {
+            "speed_kmph": speed,
+            "distance_m": np.linspace(0, 15000, n),
+            "mass_kg": np.full(n, 20000.0),
+            "altitude_m": np.linspace(100, 110, n),
+            "energy_kwh": np.linspace(0, 5.0, n),
+            "timestamp": pd.date_range("2025-01-01", periods=n, freq="1s"),
+        }
+    )
 
     segs = get_cruise_segments(df, seg_distance_m=5000, min_avg_speed_kmph=40)
     # 应至少从恒速段提取到一个巡航段
@@ -166,17 +194,21 @@ def test_cruise_segment_extraction():
 
 def test_preprocessing_filters():
     """验证：低速/停车段应被过滤掉。"""
-    from jolt_toolkit.vehicle_params_identificator.preprocessing import get_cruise_segments
+    from jolt_toolkit.vehicle_params_identificator.preprocessing import (
+        get_cruise_segments,
+    )
 
     # 全程低速 (<30 km/h)
     n = 500
-    df = pd.DataFrame({
-        "speed_kmph": np.full(n, 25.0),
-        "distance_m": np.linspace(0, 10000, n),
-        "mass_kg": np.full(n, 20000.0),
-        "altitude_m": np.linspace(100, 105, n),
-        "energy_kwh": np.linspace(0, 2.0, n),
-    })
+    df = pd.DataFrame(
+        {
+            "speed_kmph": np.full(n, 25.0),
+            "distance_m": np.linspace(0, 10000, n),
+            "mass_kg": np.full(n, 20000.0),
+            "altitude_m": np.linspace(100, 105, n),
+            "energy_kwh": np.linspace(0, 2.0, n),
+        }
+    )
     segs = get_cruise_segments(df, seg_distance_m=5000, min_avg_speed_kmph=40)
     assert len(segs) == 0, "低速段不应被提取"
     print("低速过滤测试通过")
@@ -184,10 +216,16 @@ def test_preprocessing_filters():
 
 def test_visualization():
     """验证绘图不报错。"""
-    from jolt_toolkit.vehicle_params_identificator.identification import calculate_all_constraints, identify_parameters
-    from jolt_toolkit.vehicle_params_identificator.visualization import plot_comprehensive_analysis
-    import tempfile
     import os
+    import tempfile
+
+    from jolt_toolkit.vehicle_params_identificator.identification import (
+        calculate_all_constraints,
+        identify_parameters,
+    )
+    from jolt_toolkit.vehicle_params_identificator.visualization import (
+        plot_comprehensive_analysis,
+    )
 
     segments = []
     for mass in [15000, 30000]:
