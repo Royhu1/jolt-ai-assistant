@@ -168,6 +168,7 @@ is a verbatim block extraction, same statements, same order):
 
 ```
 generate_report(reg, date_start, date_end)
+  ├─ [reg not in VEHICLE_CONFIG]            → build_runtime_vehicle_config() (general fallback; injects a runtime cfg)
   ├─ fetch_events()                         → ServerData (SRF legs + charging events)
   ├─ _collect_charger_windows(server_data)  → charge (start,end,uri,energy) windows + raw objects
   ├─ _collect_legs(...)                     → split SRFLOGGER (logger) vs FPS legs
@@ -186,12 +187,50 @@ generate_report(reg, date_start, date_end)
 Diesel vehicles (`fuel_type=="DIESEL"`) skip the FPS loop, capacity correction and the
 patchers; EV is the default branch.
 
+### General fallback pipeline (un-onboarded registrations, v3.1.0)
+
+A registration that is **not** in `vehicles.json` no longer raises "onboard first".
+Before the pipeline runs, `generate_report` builds a **runtime** vehicle config via
+`general_pipeline.build_runtime_vehicle_config(reg, reg_input, ds, de, srf_data=…)` and
+injects it into the in-memory `VEHICLE_CONFIG` (by reference — never written to
+`vehicles.json`). Steps:
+
+1. **SRF resolution** — `resolve_srf_vehicle()` tries `reg_spacing_variants()` (verbatim
+   no-space form → UK `LLNN LLL` spacing → NI alpha/digit split → generic short-form
+   split) via `srf_data.vehicles.get(obj_id=…)`. The SRF-stored `registration` becomes
+   `srf_reg` (used verbatim for the leg / transaction filters). If **no** spelling
+   resolves → `VehicleNotFoundError` (the one legitimate failure: no data exists on SRF;
+   the CLI reports it as a single-line error, exit code 3, no traceback).
+2. **Fuel-type routing** — SRF `vehicle.fuel` `ELECTRIC` → EV, `DIESEL` → diesel; unknown
+   → probe the fetched legs (an FPS leg's raw telematics carrying the SOC column → EV,
+   else SRFLOGGER_V1 legs present → diesel, else EV with degradation).
+3. **Runtime config** — EV: `detect_ev_columns()` auto-detects the energy / speed / mass /
+   altitude column names against the fleet candidate sets from the first fetched leg's raw
+   telematics; a missing column degrades exactly as it already does for a configured
+   vehicle lacking it (no mass split/merge without a mass column; `soc_estimate` energy
+   without counters; no elevation correction without altitude). Pipeline = `default_soc`
+   when the SOC column is present, else `default_speed`. Capacity = the SRF vehicle's
+   `fuel_capacity` (→ `srf_capacity_kwh`) if exposed, else `None` (`soc_estimate` energies
+   stay NaN rather than crashing — see the `_correct_effective_capacity` all-fallback
+   guards). Diesel: the standard SRFLOGGER_V1 channel set + `diesel_pipeline`'s `DEFAULT_*`
+   constants + SRF `weight_class` (tonnes) as `weight_class_t`.
+
+Guarantees: **both** fuel types always produce a structurally valid xlsx; the
+`effective_capacity` write-back is **skipped** for a runtime config (the computed capacity
+is logged, never persisted — no invented `vehicles.json` entries); zero paid OpenWeather
+calls (weather columns only ever come from the SRF Logger channel, as for onboarded
+vehicles); and zero usable segments still writes a structurally complete header-only
+report rather than failing. The runtime config carries an internal `_runtime_fallback`
+marker (`is_runtime_config()`) so a repeat generation in the same process is still treated
+as a fallback.
+
 ### Module responsibilities (core)
 
 | Module | Responsibility |
 |--------|----------------|
-| `_generator.py` | orchestrates fetch → segment → correct → write; EV / `is_diesel` branch switch |
+| `_generator.py` | orchestrates fetch → segment → correct → write; EV / `is_diesel` branch switch; un-onboarded regs → general fallback |
 | `data_fetcher.py` | `fetch_events()` — SRF legs + charging events; `date_end` inclusive |
+| `general_pipeline.py` | general fallback for un-onboarded regs: SRF-registration spacing resolution, EV column auto-detection, runtime-config assembly (`build_runtime_vehicle_config()`), `VehicleNotFoundError` |
 | `segmentation/` | unified charge/discharge segmentation (SOC + speed detection, mass cluster/merge/split, energy-source cascade); `run_segment_detection()` is the entry point (paints figures only via an external `figure_hook`) |
 | `segment_algorithms.py` | facade re-exporting the whole `segmentation/` surface (public + internally-used privates) on the historical import path |
 | `capacity.py` | effective-capacity post-processing `_correct_effective_capacity()`, ledger persistence `_persist_effective_capacity()`, donor helpers; re-exposed as `JOLTReportGenerator` staticmethods for back-compat |

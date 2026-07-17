@@ -127,6 +127,25 @@ writes **no** inspect HTML — render those from the persisted raw data via the
 report-visuals skill. Production report runs need none of this — use plain mode (or
 `--fast` to skip the Logger/Charger fetch entirely).
 
+## Un-onboarded registrations (general fallback pipeline)
+
+Any registration works — it does **not** need a `vehicles.json` entry. When the reg is
+not configured, the generator resolves it on SRF (trying UK/NI registration-spacing
+variants), auto-detects the fuel type and (for EV) the telematics column names, and runs
+a **generic** pipeline. The output is a normal, structurally valid xlsx; only the
+segmentation quality is generic (onboard the vehicle for tuned parameters + validation).
+Key platform properties:
+
+- **No writable-state side effects**: a runtime (un-onboarded) config is **never** written
+  to `vehicles.json` — no invented entries, no capacity-ledger write-back (the computed
+  capacity is logged only). Safe on a read-only config mount.
+- **Zero paid API calls**: the fallback path makes **zero** OpenWeather calls (same as the
+  onboarded default — weather stays empty unless the optional post-step is run).
+- **Never an "onboard first" error**: worst case (no usable legs/channels) is a
+  structurally complete, header-only report plus log warnings — not a crash.
+- **The one hard failure**: a registration that does not exist on SRF at all → a single
+  clear error line and a non-zero exit (rc **3**); no stack trace.
+
 ## Optional weather post-step
 
 Weather columns are back-filled after generation (they are not part of the core write).

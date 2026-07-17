@@ -115,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from jolt_toolkit import __version__
     from jolt_toolkit.report_generator._generator import JOLTReportGenerator
+    from jolt_toolkit.report_generator.general_pipeline import VehicleNotFoundError
 
     logger.info("JOLT Report Generator v%s", __version__)
 
@@ -133,11 +134,19 @@ def main(argv: list[str] | None = None) -> int:
         fast_mode=args.fast,
         save_figures=save_figures,
     )
-    generator.generate_report(
-        vehicle_registration=args.vehicle_registration,
-        date_start=args.date_start,
-        date_end=args.date_end,
-    )
+    # v3.1.0: an un-onboarded registration no longer errors — the generator falls
+    # back to the general pipeline automatically. The ONE clean failure is a
+    # registration that does not exist on SRF at all: report it as a single-line
+    # error (no traceback spew) with a distinct non-zero exit code.
+    try:
+        generator.generate_report(
+            vehicle_registration=args.vehicle_registration,
+            date_start=args.date_start,
+            date_end=args.date_end,
+        )
+    except VehicleNotFoundError as exc:
+        logger.error("%s", exc)
+        return 3
     return 0
 
 

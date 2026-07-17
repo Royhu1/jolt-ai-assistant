@@ -585,6 +585,14 @@ def _correct_effective_capacity(
                     n_fallback += 1
                 else:
                     n_global += 1
+                # v3.1.0: an un-onboarded vehicle with no capacity donors AND no
+                # srf/nominal fallback leaves ``avg_eff_cap`` None. There is no
+                # capacity to attribute, so leave this soc_estimate row's capacity
+                # / energy as-is (NaN) instead of crashing on round(None). For any
+                # onboarded vehicle ``fallback_kwh`` is always a number, so this
+                # guard never fires and the numeric path stays byte-identical.
+                if cap is None:
+                    continue
             elif half <= CAP_WINDOW_HALF_DAYS:
                 n_local += 1
             else:
@@ -710,6 +718,12 @@ def _correct_effective_capacity(
         if final_caps:
             avg_eff_cap = float(np.mean(final_caps))
 
+    # v3.1.0: an all-fallback report on an un-onboarded vehicle with no capacity
+    # source leaves ``avg_eff_cap`` None; return None rather than crashing on
+    # round(None). For onboarded vehicles ``avg_eff_cap`` is always a number here
+    # (fallback_kwh is never None), so this is a no-op for them.
+    if avg_eff_cap is None:
+        return rows, None, cap_source
     return rows, round(avg_eff_cap, 1), cap_source
 
 
