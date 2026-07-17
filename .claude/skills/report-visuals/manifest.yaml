@@ -1,0 +1,43 @@
+name: report-visuals
+version: 1.0.0   # per-skill SemVer (see .claude/rules/git-workflow.md "Per-skill versions")
+description: >
+  Declarative manifest for the static/dynamic split. Code-owner skill
+  (self-contained rendering code in code/, driven by render_visuals.py):
+  repaints validation figures (EV + diesel, one figure per day + .boxes.json
+  overlay sidecars) and (re)writes inspect_*.html viewers from on-disk raw
+  artefacts. Created in v3.1.0 P1 by copying the rendering modules out of
+  src/jolt_toolkit (package originals removed in P2). No axes — the two CLI
+  modes are documented in the always-loaded core contract; per the
+  proportionality rule there are no fragments or padding references.
+
+always_load:
+  # The rendering contract: CLI modes + exact commands, artefact naming,
+  # append-only / *_finetuned discipline, and the P1/P2 delegation status.
+  - static/core/rendering-contract.md
+
+gates:
+  target_resolved: |
+    BLOCKING. `repaint` needs an explicit vehicle report directory (or a DB
+    base dir plus --reg); `rerender-html` needs --version + --db-root. If the
+    user names only a REG, ASK which report-database version / directory to
+    operate on (e.g. excel_report_database/2.2.8/<REG>) — never guess between
+    versions, and never repaint canonical DB artefacts the user did not name.
+
+references:
+  on_demand:
+    - condition: >
+        directory map, pipeline (data in → processing → artefacts out),
+        ownership boundaries, neighbouring skills, per-module provenance and
+        the deferred --finetuned TODO
+      path: README.md
+
+assets:
+  code: |
+    code/render_visuals.py is the single entry CLI (subcommands: repaint,
+    rerender-html). Library modules: validation_figure.py (EV painter),
+    diesel_visuals.py (diesel painter + in-place repaint),
+    validation_generator.py (overlay-regenerate orchestrator), html_viewer.py
+    + assets/inspect_viewer_template.html (inspect viewer),
+    rerender_inspect.py / refresh_inspect_html.py (HTML-only refresh paths).
+    All are skill-local copies of the former package modules (v3.1.0 P1);
+    segmentation itself stays in jolt_toolkit and is called read-only.
