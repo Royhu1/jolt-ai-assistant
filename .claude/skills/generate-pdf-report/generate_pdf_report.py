@@ -2740,9 +2740,8 @@ def _emit_diesel_briefing(args, tr_all_full, tr_full, ch_full, fname, veh_no_mas
         f"Over {ndays} active days the vehicle covered {tot_km:,.0f} km (~{daily_avg_km:.0f} km/day), "
         f"using {tot_fuel:,.0f} litres of diesel at an average {mean_fc:.1f} L/100km.",
         # per-km figure NOT repeated here — it is a card row directly above on the same page.
-        f"Tank-to-wheel greenhouse-gas emissions were ~{co2_t:,.1f} t CO₂e: total fuel × "
-        f"{CO2E_KG_PER_L_DIESEL} kg CO₂e/L — the UK Government 2026 factor (average biofuel "
-        f"blend), applied throughout.",
+        f"Tank-to-wheel greenhouse-gas emissions were ~{co2_t:,.1f} t CO₂e, calculated "
+        f"based on {CO2E_KG_PER_L_DIESEL} kg CO₂e/L, the UK Government 2026 factor.",
     ]
     if dist_basis == "raw":
         _gap_txt = (f", and both totals include the {n_gaps} telematics outages "

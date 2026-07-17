@@ -127,9 +127,9 @@ fitted/extrapolated values") besides the cleaning bounds. Page-1 timeline says
 
 Page-1 Summary: (1) fleet-overview line (active days, km, ~km/day, litres, mean L/100km);
 (2) **GHG line** — "greenhouse-gas emissions … t CO₂e" (the factor covers CO₂/CH₄/N₂O —
-never "CO₂ emissions" with a CO₂e unit), arithmetic inline with the factor's provenance +
-year: `Tank-to-wheel greenhouse-gas emissions were ~X t CO₂e: total fuel × 2.58354 kg
-CO₂e/L — the UK Government 2026 factor (average biofuel blend), applied throughout.`
+never "CO₂ emissions" with a CO₂e unit), factor + provenance stated simply (user
+simplification 2026-07-16): `Tank-to-wheel greenhouse-gas emissions were ~X t CO₂e,
+calculated based on 2.58354 kg CO₂e/L, the UK Government 2026 factor.`
 (verified against the GOV.UK 2026 conversion-factor set; do NOT repeat the per-km figure —
 it is a card row on the same page); (3) a **counter-basis line** when the raw basis is in
 use — idling accrues on the FUEL counter only (the odometer does not advance at idle, so

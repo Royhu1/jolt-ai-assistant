@@ -12,7 +12,9 @@ version: 2.2.0   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 =
                  # factor attribution) + tight diesel page-2 footer;
                  # 2.2.2 (2026-07-16) = "trunk-haul" label removed from partner-facing text
                  # (unsubstantiated operational designation) — the mass/temperature subset
-                 # is described only by its speed criterion (avg speed >= 50 km/h)
+                 # is described only by its speed criterion (avg speed >= 50 km/h);
+                 # 2.2.3 (2026-07-17) = simplified GHG summary line ("calculated based on
+                 # 2.58354 kg CO2e/L, the UK Government 2026 factor")
 description: >
   Declarative manifest for the static/dynamic split (pattern adapted from
   nature-skills/nature-figure). SKILL.md uses this to decide which fragments
