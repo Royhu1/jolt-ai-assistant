@@ -41,18 +41,19 @@ def _build_parser() -> argparse.ArgumentParser:
         "--debug",
         action="store_true",
         default=False,
-        help="Enable debug mode: generate validation figures and "
-        "save raw telematics CSV",
+        help="Enable debug mode: persist raw artefacts (raw telematics CSV "
+        "+ raw logger/charger CSVs). Since v3.1.0 the package no longer "
+        "draws validation figures or writes inspect HTML here — render "
+        "them via the report-visuals skill.",
     )
     parser.add_argument(
         "--raw-only",
         dest="raw_only",
         action="store_true",
         default=False,
-        help="Save raw telematics CSV + inspect HTML (like --debug) "
-        "but skip drawing the baked validation figures during "
-        "generation (they are re-drawn later via the overlay "
-        "regenerate step).",
+        help="Alias of --debug (both persist raw telematics + raw "
+        "logger/charger CSVs). No figures or inspect HTML are produced "
+        "by the package; render them via the report-visuals skill.",
     )
     parser.add_argument(
         "--fast",

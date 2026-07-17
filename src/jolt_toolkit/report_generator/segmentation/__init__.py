@@ -15,9 +15,20 @@ Module map:
   soc_detection       SOC-based charge / discharge segmentation
   speed_detection     speed-based trip / discharge segmentation
   mass_clustering     mass-cluster split / merge + energy-anchor recomputation
-  validation_figure   matplotlib per-leg validation figure (+ Agg backend,
-                      set on import) and overlay sidecar export
-  detection           run_segment_detection orchestrator
+  detection           run_segment_detection orchestrator (paints figures only via
+                      an external ``figure_hook`` — see v3.1.0 note below)
+
+Removed in v3.1.0 (now owned by the report-visuals skill)
+---------------------------------------------------------
+The per-leg validation-figure painter and its helpers left the package together
+with matplotlib. The following names are NO LONGER importable from
+``segmentation`` (or the ``segment_algorithms`` facade); the report-visuals skill
+carries them and passes its own painter to ``run_segment_detection(figure_hook=...)``:
+``plot_leg_validation``, ``_export_overlay_boxes``, ``_build_energy_series``,
+``_overlay``, ``_mark_anchors_stored``, ``_annotate_overlay_energy_delta``,
+``_parse_box_gid``, ``_HAS_MPL``, ``_TEXT_BBOX`` and the figure style constants
+(``_CHARGE_COLOR`` / ``_DISCHARGE_COLOR`` / ``_FIGURE_SIZE`` / ``_DPI`` /
+``_LABEL_FONT`` / ``_TICK_FONT`` / ``_LEGEND_FONT`` / ``_DSOC_FONT`` / ``_DATE_FMT``).
 """
 
 from __future__ import annotations
@@ -76,26 +87,6 @@ from .speed_detection import (
     find_speed_trips,
 )
 from .timeutil import _to_utc
-from .validation_figure import (
-    _CHARGE_COLOR,
-    _DATE_FMT,
-    _DISCHARGE_COLOR,
-    _DPI,
-    _DSOC_FONT,
-    _FIGURE_SIZE,
-    _HAS_MPL,
-    _LABEL_FONT,
-    _LEGEND_FONT,
-    _TEXT_BBOX,
-    _TICK_FONT,
-    _annotate_overlay_energy_delta,
-    _build_energy_series,
-    _export_overlay_boxes,
-    _mark_anchors_stored,
-    _overlay,
-    _parse_box_gid,
-    plot_leg_validation,
-)
 
 __all__ = [
     # constants
@@ -147,25 +138,6 @@ __all__ = [
     "_merge_two_discharge_segs",
     "merge_discharge_by_mass",
     "_enforce_anchor_ordering",
-    # validation_figure
-    "_HAS_MPL",
-    "_CHARGE_COLOR",
-    "_DISCHARGE_COLOR",
-    "_FIGURE_SIZE",
-    "_DPI",
-    "_LABEL_FONT",
-    "_TICK_FONT",
-    "_LEGEND_FONT",
-    "_DSOC_FONT",
-    "_DATE_FMT",
-    "_TEXT_BBOX",
-    "_build_energy_series",
-    "_overlay",
-    "_mark_anchors_stored",
-    "_annotate_overlay_energy_delta",
-    "_parse_box_gid",
-    "_export_overlay_boxes",
-    "plot_leg_validation",
     # detection
     "run_segment_detection",
 ]

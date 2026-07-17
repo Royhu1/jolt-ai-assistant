@@ -62,7 +62,6 @@ from jolt_toolkit.report_generator.report_builder import (
     _insert_stop_rows,
     _seg_to_row,
     _write_excel_report,
-    _write_html_viewer,
 )
 from jolt_toolkit.report_generator.segment_algorithms import (
     _ANCHOR_PRIVATE_KEYS,
@@ -170,14 +169,13 @@ class JOLTReportGenerator:
     ) -> None:
         """
         save_figures
-            Only meaningful when ``debug_mode=True``: whether to draw the
-            label-baked validation figures during the generate stage. When set to
-            ``False``, the raw telematics CSV + inspect HTML are still written to
-            disk, but plotting is skipped (the figures are later redrawn uniformly
-            in the new style by :class:`ValidationGenerator`'s overlay regenerate,
-            avoiding drawing twice). Raw-CSV writing and plotting are already
-            decoupled (the former gated on ``debug_mode``, the latter on
-            ``debug_mode and save_figures``).
+            **No-op since v3.1.0**, retained only for backward-compatible call
+            sites. The package no longer paints validation figures or writes the
+            inspect HTML during generation — that is the report-visuals skill's
+            job (it re-drives ``run_segment_detection`` / the diesel segmentation
+            with its own painter). ``debug_mode`` still governs raw-artefact
+            persistence (raw telematics + raw logger/charger CSVs); this flag no
+            longer changes any output.
         """
         self.srf_data = self._make_srf_data(
             api_key=os.environ.get("SRF_API_KEY"),
@@ -584,6 +582,11 @@ class JOLTReportGenerator:
             tqdm(logger_legs, desc="Processing diesel logger legs")
         ):
             try:
+                # v3.1.0: process_diesel_leg no longer paints figures (the
+                # report-visuals skill does). The diesel raw logger CSV is written
+                # independently by _save_logger_data (gated on debug_mode). The
+                # out_dir / reg / leg_idx / debug_mode args are retained for
+                # backward-compatible call-site parity but are inert here.
                 trip_rows, cumulative_km = process_diesel_leg(
                     leg,
                     cfg,
@@ -596,11 +599,6 @@ class JOLTReportGenerator:
                     trial_cache=trial_cache,
                     op_acc=op_acc,
                     debug_mode=self.debug_mode,
-                    # The diesel raw logger CSV is written independently by
-                    # _save_logger_data (gated on debug_mode); this only controls
-                    # the 4-panel diesel validation figure, so turning figures off
-                    # for --raw-only does not affect the raw write.
-                    generate_validation_fig=self.save_figures,
                     leg_idx=leg_idx,
                 )
                 all_rows.extend(trip_rows)
@@ -707,16 +705,16 @@ class JOLTReportGenerator:
                 except Exception:
                     leg_charger_meter = None
 
-            # Plotting is gated on debug_mode AND save_figures; the raw CSV was
-            # written independently above (gated on debug_mode), so --raw-only only
-            # turns figures off here and does not affect the raw write.
-            make_figs = self.debug_mode and self.save_figures
+            # v3.1.0: figures are painted by the report-visuals skill via an
+            # external figure_hook, never inline here — so no hook is passed and
+            # segmentation runs figure-free. The raw CSV was written independently
+            # above (gated on debug_mode).
             c_segs, d_segs = run_segment_detection(
                 df_leg,
                 reg=reg,
                 suffix=suffix,
-                out_dir=str(out_dir) if make_figs else None,
-                generate_validation_fig=make_figs,
+                out_dir=None,
+                generate_validation_fig=False,
                 cap_lo=cap_lo,
                 cap_hi=cap_hi,
                 logger_speed_df=leg_logger_spd,
@@ -961,7 +959,12 @@ class JOLTReportGenerator:
         )
 
         if self.debug_mode:
-            _write_html_viewer(out_dir, reg, period_start, period_end, report_name)
+            # v3.1.0: debug persists raw data only — no figures, no inspect HTML
+            # from the package. Render them via the report-visuals skill.
+            logger.info(
+                "Raw data persisted; render validation figures/inspect HTML "
+                "via the report-visuals skill."
+            )
 
         time_write = perf_counter()
 

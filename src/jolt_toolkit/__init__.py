@@ -3,7 +3,6 @@ JOLT Toolkit — telemetry data toolkit for electric heavy goods vehicles.
 
 Sub-packages:
   report_generator              report-generation pipeline
-  vehicle_params_identificator  rolling-resistance / drag parameter identification
   analysis                      shared analysis utilities promoted from the
                                 data_analysis_workspace sub-projects
 

@@ -18,13 +18,14 @@ process.
 ```bash
 pip install .            # from the package directory (the dir containing pyproject.toml)
 # optional extras:
-pip install '.[params]'  # + scikit-learn, only for C_rr/C_dA identification (not the report path)
 pip install '.[dev]'     # + pytest / black / isort / mypy (for running the test suite)
 ```
 
-Python **≥ 3.10**. A wheel install ships the config JSONs and the HTML/asset templates
-(declared as package-data), so a non-editable install is self-contained — no repo
-checkout is required to generate a report.
+Python **≥ 3.10**. A wheel install ships the config JSONs (declared as package-data),
+so a non-editable install is self-contained — no repo checkout is required to generate
+a report. Since v3.1.0 the package is the report-generation surface only: it does not
+depend on matplotlib (the rendering / dashboard / params code was re-homed to the repo
+skills — see the last section), and there is no longer a `[params]` extra.
 
 Verify the install:
 
@@ -119,11 +120,12 @@ processed; size it for the full fleet-history you intend to (re)generate.
 `<start>`/`<end>` are `YYYYMMDD`. The workbook has three sheets: **Report** (one row
 per segment), **Graphs** (fixed-axis scatter charts), **Definitions** (column glossary).
 
-`--debug` additionally writes, under `<out_dir>/<REG>/`:
-`raw_telematics/*.csv` (per-leg raw data), `validation_figures/*.png` (segmentation
-figures) and `inspect_*.html` (an offline figure browser). `--raw-only` writes the raw
-CSV + inspect HTML but skips the baked figures. Production report runs need none of
-these — use plain mode (or `--fast` to skip the Logger/Charger fetch entirely).
+`--debug` additionally persists raw artefacts under `<out_dir>/<REG>/`:
+`raw_telematics/*.csv` (per-leg raw data) plus raw logger/charger CSVs. `--raw-only`
+is an alias of `--debug`. Since v3.1.0 the package draws **no** validation figures and
+writes **no** inspect HTML — render those from the persisted raw data via the
+report-visuals skill. Production report runs need none of this — use plain mode (or
+`--fast` to skip the Logger/Charger fetch entirely).
 
 ## Optional weather post-step
 
@@ -149,17 +151,20 @@ Requires `OPENWEATHER_API_KEYS`. Safe to re-run (cached).
 ## Not part of the platform scope
 
 These are in-repo developer/analysis tooling, **not** the deployed report path — do not
-wire them into the platform:
+wire them into the platform. In v3.1.0 they **left the package** and now live in the
+repo skills / research workspace (they consume the package only through its public API,
+e.g. `run_segment_detection(figure_hook=...)`):
 
-- **Dashboards** (`data_dashboard*.py`) — offline HTML data-availability views.
-- **Fine-tuning** (`finetune.py`, `validation_generator.py`, `rerender_inspect.py`) —
-  interactive segmentation correction producing `*_finetuned` artefacts.
-- **Parameter identification** (`vehicle_params_identificator/`) — C_rr/C_dA, needs the
-  `[params]` extra.
-- **Migration scripts** (`scripts/recompute_from_cache.py`, `refresh_inspect_html.py`).
-
-These modules keep their pre-v3 style (Chinese comments) and are exercised by the repo
-skills, not by a platform deploy.
+- **Validation figures + inspect HTML** — the report-visuals skill
+  (`.claude/skills/report-visuals/`): EV + diesel painters, overlay-regenerate, viewer.
+- **Dashboards** — the generate-data-dashboard skill (offline HTML data-availability views).
+- **Fine-tuning** — the report-finetuner skill (interactive segmentation correction →
+  `*_finetuned` artefacts; delegates figure/HTML regeneration to report-visuals).
+- **Parameter identification** (C_rr/C_dA) — `research_projects/parameter_identify/`
+  (the `param-identifier` agent; needs `scikit-learn`, a repo-level dep in
+  `requirements.txt`).
+- **Migration / maintenance scripts** — re-homed into the owning skills'
+  `tools/` / `code/` directories.
 
 ## Known quirks — do NOT "fix" these silently
 

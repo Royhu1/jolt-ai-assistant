@@ -1,9 +1,15 @@
-# JOLT project dependencies
+# JOLT project dependencies (repo-wide)
 #
-# This list mirrors the runtime dependencies declared in pyproject.toml
-# ([project].dependencies). Optional extras live in pyproject.toml:
-#   pip install -e .[params]   # scikit-learn — Crr/CdA parameter identification
-#   pip install -e .[dev]      # test + lint toolchain (also listed below)
+# This is the REPO-level dependency list — it is a superset of the slimmed
+# jolt_toolkit package deps declared in pyproject.toml ([project].dependencies).
+# Since v3.1.0 the package is the report-generation surface only and no longer
+# imports matplotlib / scikit-learn; those (plus scipy) are kept HERE because
+# SKILL-owned and research code in the repo still needs them:
+#   * matplotlib     — report-visuals (validation figures + inspect HTML),
+#                      generate-pdf-report, generate-data-dashboard, plot-figure
+#   * scikit-learn   — param-identifier (research_projects/parameter_identify)
+#   * scipy          — jolt_toolkit.analysis.stats (still in the package) + skills
+# The dev extra (test + lint toolchain) lives in pyproject.toml and is listed below.
 
 # Data processing
 pandas>=2.0.0
@@ -28,11 +34,13 @@ openpyxl>=3.1.0
 xlsxwriter>=3.1.0
 tqdm>=4.65.0
 
-# Visualisation
+# Visualisation (skill-owned code: report-visuals / generate-pdf-report /
+# generate-data-dashboard / plot-figure — no longer imported by the package)
 matplotlib>=3.7.0
 
-# Optional: parameter identification (pip install -e .[params])
-# scikit-learn
+# Parameter identification (param-identifier agent —
+# research_projects/parameter_identify; no longer part of the package)
+scikit-learn
 
 # Testing (development dependencies)
 pytest>=7.4.0

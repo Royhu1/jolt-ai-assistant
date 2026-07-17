@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -41,7 +42,6 @@ from .speed_detection import (
     find_discharge_segments_by_speed,
     find_speed_trips,
 )
-from .validation_figure import _HAS_MPL, plot_leg_validation
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,8 @@ def run_segment_detection(
     logger_mass_df: pd.DataFrame | None = None,
     charger_meter_df: pd.DataFrame | None = None,
     export_dsoc_overlay: bool = False,
+    *,
+    figure_hook: Callable | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """
     Run the charge and discharge segmentation algorithms together on one leg's raw data.
@@ -78,19 +80,59 @@ def run_segment_detection(
     df_raw   : raw telemetry DataFrame (single leg)
     reg      : vehicle registration (e.g. 'AV24LXK'), used to look up VEHICLE_CONFIG
     suffix   : leg identifier (e.g. '2024-10-01_0000'), used in the figure file name
-    out_dir  : output directory (validation figures saved to out_dir/validation/)
-    generate_validation_fig : whether to generate the validation figure (default True)
+    out_dir  : output directory (validation figures saved to out_dir/validation_figures/)
+    generate_validation_fig : whether to invoke ``figure_hook`` (default True). Has
+                       no effect unless ``figure_hook`` is also provided.
     charge_params    : extra parameter dict passed to find_charge_segments_by_soc
     discharge_params : extra parameter dict passed to find_discharge_segments_by_soc
     cap_lo, cap_hi   : capacity thresholds, passed to both algorithms
     logger_speed_df  : optional Logger speed DataFrame (for validation figure Panel 1 right axis)
     logger_mass_df   : optional Logger CVW mass DataFrame (for validation figure Panel 4)
-    export_dsoc_overlay : passed through to plot_leg_validation. When True, the
+    export_dsoc_overlay : passed through to ``figure_hook``. When True, the
                        rounded-corner data annotation boxes on all panels
                        (dSOC / energy delta / charger / regen / mass) are NOT baked
                        into the PNG; instead a ``<png>.boxes.json`` sidecar is
-                       written for the inspect HTML to do the interactive overlay
-                       (see plot_leg_validation).
+                       written for the inspect HTML to do the interactive overlay.
+    figure_hook : optional keyword-only external painter (v3.1.0). The package no
+                       longer imports matplotlib or paints validation figures
+                       itself; the ``report-visuals`` skill supplies its own painter
+                       here so figures come out identical in a single pass. When
+                       ``None`` (the default), NO figure is drawn and everything
+                       else is unchanged.
+
+                       When provided AND ``generate_validation_fig`` is True AND
+                       ``out_dir`` is not None, it is invoked EXACTLY where the old
+                       ``plot_leg_validation`` call sat (after split / merge /
+                       ``_recompute_anchors`` / ``_enforce_anchor_ordering``), with
+                       the SAME argument names and values ``plot_leg_validation``
+                       received:
+
+                           figure_hook(
+                               df_raw,               # positional: augmented df,
+                                                     #   incl. mass_cluster / mass_moving
+                               charge_segs,          # positional
+                               discharge_segs,       # positional
+                               reg,                  # positional
+                               suffix,               # positional
+                               out_path,             # positional: out_dir /
+                                                     #   validation_figures /
+                                                     #   f"validation_{reg}_{suffix}.png"
+                               ac_col=...,
+                               dc_col=...,
+                               panel3_col=...,        # resolved total/moving energy col
+                               mass_col=...,
+                               speed_col=...,
+                               logger_speed_df=logger_speed_df,
+                               logger_mass_df=logger_mass_df,
+                               charger_meter_df=charger_meter_df,
+                               mass_from_logger=...,  # bool: Logger-CVW fallback used
+                               mass_agg=...,          # resolved robust aggregator
+                               export_dsoc_overlay=export_dsoc_overlay,
+                           )
+
+                       The hook is expected to create ``out_path.parent`` and write
+                       the PNG (+ optional ``.boxes.json`` sidecar); this function
+                       does not touch the filesystem for figures.
 
     Returns
     -------
@@ -371,7 +413,13 @@ def run_segment_detection(
             suffix,
         )
 
-    if generate_validation_fig and out_dir is not None and _HAS_MPL:
+    # ── Validation-figure seam (v3.1.0) ────────────────────────────────────
+    # The package no longer paints figures or imports matplotlib. When an external
+    # ``figure_hook`` is supplied (by the report-visuals skill), it is called here
+    # — at exactly the point, and with exactly the arguments, the former inline
+    # ``plot_leg_validation`` used — so the painter reproduces identical figures in
+    # a single pass. With no hook (the default) this block is a no-op.
+    if figure_hook is not None and generate_validation_fig and out_dir is not None:
         # Panel 3 column: prefer total_energy_col (if the discharge segments actually used it)
         panel3_col = _mov_col  # default
         if discharge_segs:
@@ -388,7 +436,7 @@ def run_segment_detection(
         _mass_col = cfg.get("mass_col", MASS_COL)
         _speed_col = cfg.get("speed_col", "wheel_based_speed")
         _mass_agg = resolve_mass_agg(reg, _pipeline_cfg)
-        plot_leg_validation(
+        figure_hook(
             df_raw,
             charge_segs,
             discharge_segs,

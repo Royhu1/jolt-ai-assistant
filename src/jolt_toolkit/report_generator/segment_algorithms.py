@@ -2,7 +2,10 @@
 segment_algorithms.py
 =====================
 Unified detection algorithm for charge segments (Volvo / Renault) and discharge
-segments (Scania), with optional per-leg validation figures.
+segments (Scania). Per-leg validation figures are painted externally since
+v3.1.0 (the report-visuals skill passes a painter via
+``run_segment_detection(figure_hook=...)``); this package no longer imports
+matplotlib.
 
 Unified output schema (v2)
 --------------------------
@@ -47,19 +50,26 @@ _ANCHOR_PRIVATE_KEYS
 """
 
 # =============================================================================
-# Backward-compatibility facade (v3.0.0)
+# Backward-compatibility facade (v3.0.0; slimmed in v3.1.0)
 # -----------------------------------------------------------------------------
 # The implementation was split into the ``segmentation/`` sub-package (a pure,
 # behaviour-preserving move — see ``segmentation/__init__.py`` for the module
-# map). This module re-exports EVERY name that was importable from the former
-# monolith so that all existing consumers
-# (``_generator`` / ``report_builder`` / ``diesel_pipeline`` / ``finetune`` /
-# ``validation_generator`` / ``data_dashboard_detail`` / the patchers / the
-# recompute script / archived analysis scripts) keep working unchanged.
+# map). This module re-exports the names that stay in the package so existing
+# consumers (``_generator`` / ``report_builder`` / ``diesel_pipeline`` / the
+# patchers / the recompute tool) keep working unchanged.
 #
-# Importing this module (or any name below) imports ``validation_figure``, which
-# sets the matplotlib ``Agg`` backend — preserving the monolith's import-time
-# side-effect.
+# Removed in v3.1.0 → now owned by the report-visuals skill
+# ---------------------------------------------------------
+# The validation-figure painter left the package with matplotlib. These names are
+# NO LONGER importable from this facade: ``plot_leg_validation``,
+# ``_export_overlay_boxes``, ``_build_energy_series``, ``_overlay``,
+# ``_mark_anchors_stored``, ``_annotate_overlay_energy_delta``, ``_parse_box_gid``,
+# ``_HAS_MPL``, ``_TEXT_BBOX`` and the figure style constants (``_CHARGE_COLOR`` /
+# ``_DISCHARGE_COLOR`` / ``_FIGURE_SIZE`` / ``_DPI`` / ``_LABEL_FONT`` /
+# ``_TICK_FONT`` / ``_LEGEND_FONT`` / ``_DSOC_FONT`` / ``_DATE_FMT``). The
+# report-visuals skill owns them and passes its own painter to
+# ``run_segment_detection(figure_hook=...)``. Consequently, importing this module
+# NO LONGER imports matplotlib or sets the ``Agg`` backend.
 #
 # New code should import from ``jolt_toolkit.report_generator.segmentation``
 # directly. Prefer explicit re-exports (below) over ``import *`` so the public
@@ -141,26 +151,4 @@ from jolt_toolkit.report_generator.segmentation.speed_detection import (  # noqa
 # ── timeutil ─────────────────────────────────────────────────────────────────
 from jolt_toolkit.report_generator.segmentation.timeutil import (  # noqa: F401
     _to_utc,
-)
-
-# ── validation figure (sets matplotlib Agg backend on import) ────────────────
-from jolt_toolkit.report_generator.segmentation.validation_figure import (  # noqa: F401
-    _CHARGE_COLOR,
-    _DATE_FMT,
-    _DISCHARGE_COLOR,
-    _DPI,
-    _DSOC_FONT,
-    _FIGURE_SIZE,
-    _HAS_MPL,
-    _LABEL_FONT,
-    _LEGEND_FONT,
-    _TEXT_BBOX,
-    _TICK_FONT,
-    _annotate_overlay_energy_delta,
-    _build_energy_series,
-    _export_overlay_boxes,
-    _mark_anchors_stored,
-    _overlay,
-    _parse_box_gid,
-    plot_leg_validation,
 )
