@@ -1,3 +1,7 @@
+# Canonical home since v3.1.0 (P1 copy, 2026-07-17): moved here from
+# src/jolt_toolkit/report_generator/data_dashboard.py — the generate-data-dashboard
+# skill now owns the dashboard code (the package original is removed in P2).
+# Entry point: code/generate_dashboard.py (run from the repo root).
 """Data-availability dashboard generator.
 
 Scans a report-database version directory (``excel_report_database/<version>/``)
@@ -126,9 +130,10 @@ Usage
 -----
 ::
 
-    python -m jolt_toolkit.report_generator.data_dashboard            # installed package version
-    python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.8
-    python -m jolt_toolkit.report_generator.data_dashboard --out /tmp/dash.html
+    # from the repo root (skill-owned runner; jolt_toolkit importable, e.g. PYTHONPATH=src)
+    python .claude/skills/generate-data-dashboard/code/generate_dashboard.py
+    python .claude/skills/generate-data-dashboard/code/generate_dashboard.py --version 2.2.8
+    python .claude/skills/generate-data-dashboard/code/generate_dashboard.py --out tmp/dash.html
 """
 
 from __future__ import annotations
@@ -148,6 +153,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from jolt_toolkit import __version__
+from jolt_toolkit.configs import get_config_path
 from jolt_toolkit.report_generator.report_builder import DIESEL_HEADERS, HEADERS
 
 LOG = logging.getLogger("data_dashboard")
@@ -404,7 +410,7 @@ def _combo_background(cats) -> str:
 # ── Config loading ───────────────────────────────────────────────────────────
 def _load_vehicles_cfg() -> dict:
     """Load ``configs/vehicles.json`` (make / model / capacity / fuel-type)."""
-    cfg_path = Path(__file__).resolve().parent.parent / "configs" / "vehicles.json"
+    cfg_path = get_config_path("vehicles.json")
     try:
         with cfg_path.open(encoding="utf-8") as fh:
             return json.load(fh)
@@ -421,7 +427,7 @@ def _load_plot_config() -> dict:
     operated each vehicle and when. A missing / unreadable file degrades the
     operator overlay gracefully (no borders, "—" trial type).
     """
-    cfg_path = Path(__file__).resolve().parent.parent / "configs" / "plot_config.json"
+    cfg_path = get_config_path("plot_config.json")
     try:
         with cfg_path.open(encoding="utf-8") as fh:
             return json.load(fh)
@@ -1818,8 +1824,12 @@ def _print_summary(full: dict[str, dict]) -> None:
 
 
 def _project_root() -> Path:
-    # src/jolt_toolkit/report_generator/data_dashboard.py -> repo root
-    return Path(__file__).resolve().parents[3]
+    # Skill-local copy: resolve the default --db-root against the CURRENT working
+    # directory. The documented invocation runs from the repo root (where
+    # excel_report_database/ lives), for which this is behaviourally identical to
+    # the package original (which derived the repo root from its own __file__ —
+    # meaningless from inside .claude/skills/).
+    return Path.cwd()
 
 
 def main(argv=None) -> int:
@@ -1866,7 +1876,7 @@ def main(argv=None) -> int:
 
     # One-off offline-asset fetch (the only network step in this module).
     if args.fetch_uplot:
-        from jolt_toolkit.report_generator.data_dashboard_detail import fetch_uplot
+        from data_dashboard_detail import fetch_uplot
 
         dest = fetch_uplot()
         LOG.info("uPlot assets refreshed under %s", dest)
@@ -1899,7 +1909,7 @@ def main(argv=None) -> int:
     detail_request = _parse_details_arg(args.details, sorted(legs_by_reg))
     written_detail: dict[str, Path] = {}
     if detail_request:
-        from jolt_toolkit.report_generator.data_dashboard_detail import (
+        from data_dashboard_detail import (
             write_detail_pages,
         )
 

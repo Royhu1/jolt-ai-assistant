@@ -1,3 +1,8 @@
+# Canonical home since v3.1.0 (P1 copy, 2026-07-17): moved here from
+# src/jolt_toolkit/vehicle_params_identificator/config.py — the param-identifier
+# agent's workspace (research_projects/parameter_identify/) now owns the
+# identification code (the package original is removed in P2). Standalone entry:
+#   python research_projects/parameter_identify/code/run_identification.py --help
 """
 参数辨识配置模块。
 物理常数、车辆配置、算法参数。
@@ -12,14 +17,17 @@ from pathlib import Path
 # ── 路径 ──────────────────────────────────────────────────────────────────
 from jolt_toolkit.configs import get_config_path as _get_config_path
 
-# 项目根目录（src/jolt_toolkit/vehicle_params_identificator → 上溯 4 层到项目根）
-JOLT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+# Workspace root = research_projects/parameter_identify/ (this file lives in
+# its code/ sub-directory), so data/results/logs sit next to code/.
+WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
+# Repo root (…/research_projects/parameter_identify/code/config.py → 3 dirs up);
+# used only for .env loading.
+JOLT_ROOT = WORKSPACE_ROOT.parents[1]
 VEHICLES_JSON = _get_config_path("vehicles.json")
 
-# 参数辨识工作目录放在项目根的 research_projects/ 下，而非包内
-DATA_DIR = JOLT_ROOT / "research_projects" / "parameter_identify" / "data"
-RESULTS_DIR = JOLT_ROOT / "research_projects" / "parameter_identify" / "results"
-LOGS_DIR = JOLT_ROOT / "research_projects" / "parameter_identify" / "logs"
+DATA_DIR = WORKSPACE_ROOT / "data"
+RESULTS_DIR = WORKSPACE_ROOT / "results"
+LOGS_DIR = WORKSPACE_ROOT / "logs"
 
 # ── 物理常数 ──────────────────────────────────────────────────────────────
 GRAVITY = 9.81  # m/s²

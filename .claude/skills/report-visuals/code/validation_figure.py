@@ -1,6 +1,17 @@
 """
 Per-leg validation figure (matplotlib) + interactive-overlay sidecar export.
 
+Skill-local copy (report-visuals skill, v3.1.0 P1) of
+``src/jolt_toolkit/report_generator/segmentation/validation_figure.py``
+(copied 2026-07-17; symbols: ``plot_leg_validation``, ``_export_overlay_boxes``,
+``_TEXT_BBOX``, ``_overlay``, ``_build_energy_series``,
+``_annotate_overlay_energy_delta``, ``_mark_anchors_stored``, ``_parse_box_gid``
+and the style constants). Function bodies are identical to the source; only the
+import header was adapted (relative ``segmentation`` imports → absolute package
+imports — those modules STAY in the package). Reason: the v3.1.0 platform-slim
+plan moves all validation-figure rendering out of the package into this skill
+(the package originals are removed in Phase P2).
+
 Behaviour-preserving split of the former ``segment_algorithms.py`` (v3.0.0).
 Importing this module sets the matplotlib ``Agg`` backend (headless) exactly as
 the monolith did, so the side-effect is preserved via the facade.
@@ -16,7 +27,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .constants import (
+from jolt_toolkit.report_generator.segmentation.constants import (
     AC_COL,
     DC_COL,
     MASS_COL,
@@ -27,8 +38,8 @@ from .constants import (
     TIME_COL,
     TOTAL_ENERGY_COL,
 )
-from .mass_aggregation import _agg_mass
-from .timeutil import _to_utc
+from jolt_toolkit.report_generator.segmentation.mass_aggregation import _agg_mass
+from jolt_toolkit.report_generator.segmentation.timeutil import _to_utc
 
 logger = logging.getLogger(__name__)
 

@@ -1,7 +1,9 @@
 # vehicle-onboarding — bring a new registration into the JOLT report pipeline
 
 > Brings a new registration into the report generator: SRF discovery → config →
-> first report → param-tuning → case study. Runs before `/generate-excel-report` can.
+> first report → param-tuning → case study. Since jolt_toolkit v3.1.0 generation
+> never *requires* onboarding (see the boundary note below) — onboarding is about
+> report quality and fleet registration, not about making generation possible.
 > This README is the skill's human-facing single source of truth; `SKILL.md` is the
 > agent-facing router over `manifest.yaml`.
 
@@ -69,6 +71,25 @@ python .claude/skills/generate-excel-report/generate_report.py -veh {REG} -ds {s
 ```
 
 Needs `SRF_API_KEY` (Phase 1) and `OPENWEATHER_API_KEYS` (Phase 5 weather patch) in `.env`.
+
+## Boundary with the general fallback pipeline (jolt_toolkit v3.1.0)
+
+Since v3.1.0 the package generates a report for **any** registration — an un-onboarded
+reg (EV or diesel) goes through the **general fallback pipeline** (runtime config from
+SRF metadata + column auto-detection; never written to `vehicles.json`), so generation
+never blocks on "onboard first". What onboarding adds — and why it still matters:
+
+- **Tuned segmentation parameters** (a dedicated pipeline entry + param-tuner pass)
+  instead of the generic `default_soc`/`default_speed` defaults;
+- **Validation review** (validation figures + inspect HTML inspected by a human/agent
+  before the vehicle's numbers are trusted);
+- **Fleet registration**: the dashboard, data-collection-monitor watching, and the
+  capacity ledger (`effective_capacity_*` write-back) all require a real
+  `vehicles.json` entry — the fallback deliberately persists nothing.
+
+Rule of thumb: a one-off exploratory report for an unknown reg → just run
+`/generate-excel-report` (the fallback handles it); a vehicle joining the fleet → this
+skill, as before.
 
 ## Ownership and neighbours
 

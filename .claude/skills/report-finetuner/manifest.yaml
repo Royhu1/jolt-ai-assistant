@@ -1,5 +1,5 @@
 name: report-finetuner
-version: 2.0.1   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline
+version: 2.2.0   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline; 2.1.0 = v3.1.0 re-homing (finetune library moved into code/finetune.py); 2.2.0 = P2b — rendering delegated to the report-visuals CLI (regenerate_figures / regenerate_inspect_html became subprocess wrappers; new dump_segs_json producer; no plotting imports left)
 description: >
   Declarative manifest for the static/dynamic split. SKILL.md uses this to
   decide which fragments to load for a given request. This skill is a thin
@@ -7,7 +7,12 @@ description: >
   registration + period — a single handoff path, so there are no axes and no
   gates (proportionality rule in .claude/rules/skill-design.md); the
   always-loaded core is the handoff contract, and the resource pointers stay
-  in one on-demand reference.
+  in one on-demand reference. Since v3.1.0 the skill also CARRIES the finetune
+  core library (code/finetune.py, moved out of the jolt_toolkit package) that
+  the agent drives; since P2b the library owns only the xlsx side (ops +
+  reconstruction + segments-JSON dump) and hands ALL rendering to the
+  report-visuals skill CLI (render_visuals.py repaint-finetuned) via
+  subprocess — never a cross-skill Python import.
 
 always_load:
   # Skill-local core: the single contract that applies to every invocation —

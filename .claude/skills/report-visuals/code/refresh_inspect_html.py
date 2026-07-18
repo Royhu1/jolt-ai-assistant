@@ -11,7 +11,7 @@ Logic
 -----
 - Scan the ``excel_report_database/<version>/<REG>/`` directory for all ``jolt_report_<REG>_<DS>_<DE>.xlsx``.
 - Parse period_start / period_end from the file name (YYYYMMDD → date).
-- Call ``report_builder._write_html_viewer(out_dir, reg, ds, de, report_name)`` directly.
+- Call ``html_viewer._write_html_viewer(out_dir, reg, ds, de, report_name)`` directly.
   That function itself reads the existing pngs under ``out_dir/validation_figures/``
   and the active dates from the xlsx, so no extra involvement is needed from us.
 - Does not touch the xlsx / figures / raw_telematics at all.
@@ -22,6 +22,13 @@ Notes
   figures file-name convention + the date columns in the xlsx, and is
   vehicle-type-agnostic.
 - Single-vehicle filtering is via the ``--reg`` argument; refreshes the whole fleet by default.
+
+Skill-local copy (report-visuals skill, v3.1.0 P1) of
+``src/jolt_toolkit/scripts/refresh_inspect_html.py`` (copied 2026-07-17;
+symbols: ``refresh_one``, ``main``). Function bodies are identical to the
+source except: the html-viewer helpers now come from the skill-local
+``html_viewer`` sibling, and ``_project_root()`` climbs from the skill's
+location instead of the package's.
 """
 
 from __future__ import annotations
@@ -29,10 +36,16 @@ from __future__ import annotations
 import argparse
 import logging
 import re
+import sys
 from datetime import date
 from pathlib import Path
 
-from jolt_toolkit.report_generator.report_builder import (
+# Bootstrap: make the skill's code/ importable when run as a plain script.
+_CODE_DIR = str(Path(__file__).resolve().parent)
+if _CODE_DIR not in sys.path:
+    sys.path.insert(0, _CODE_DIR)
+
+from html_viewer import (  # noqa: E402 (needs the bootstrap above)
     _compute_active_dates_from_xlsx,
     _write_html_viewer,
 )
@@ -50,8 +63,9 @@ def _ymd(s: str) -> date:
 
 
 def _project_root() -> Path:
-    # src/jolt_toolkit/scripts/refresh_inspect_html.py -> project root
-    return Path(__file__).resolve().parents[3]
+    # .claude/skills/report-visuals/code/refresh_inspect_html.py -> repo root
+    # (code -> report-visuals -> skills -> .claude -> root)
+    return Path(__file__).resolve().parents[4]
 
 
 def _iter_reports(reports_root: Path, reg_filter: str | None):

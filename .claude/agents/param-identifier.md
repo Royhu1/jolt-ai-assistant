@@ -1,6 +1,6 @@
 ---
 name: param-identifier
-description: "C_rr / C_dA vehicle-parameter identification from high-rate SRF Logger data for the JOLT electric HGVs. Owns the identification code in `src/jolt_toolkit/vehicle_params_identificator/` and the parameter-identification workspace `research_projects/parameter_identify/` (Logger data + experiment outputs). Use this agent when the user wants to: (1) Identify Crr/CdA for a vehicle (\"identify Crr/CdA for <REG>\"); (2) Re-run parameter identification (new data, changed filters or efficiency assumptions); (3) Probe a vehicle's available Logger channels / date range; (4) Review, extend, or debug the identification workflow (cruise-segment extraction, K-Means constraint intersection, filter combinations).\n\nExamples:\n\n- User: \"Identify Crr/CdA for YK73WFN\"\n  Assistant: \"Let me launch the param-identifier agent to run the identification pipeline for YK73WFN.\"\n  <uses Agent tool with subagent_type: param-identifier>\n\n- User: \"Re-run parameter identification with a stricter wind-speed filter\"\n  Assistant: \"I'll use the param-identifier agent to adjust the filter settings and re-run the identification.\"\n  <uses Agent tool with subagent_type: param-identifier>\n\n- User: \"Which Logger channels does YN25RSY expose for parameter identification?\"\n  Assistant: \"I'll launch the param-identifier agent to probe the vehicle's Logger channels and date range.\"\n  <uses Agent tool with subagent_type: param-identifier>"
+description: "C_rr / C_dA vehicle-parameter identification from high-rate SRF Logger data for the JOLT electric HGVs. Owns the parameter-identification workspace `research_projects/parameter_identify/` — including its identification code `research_projects/parameter_identify/code/` (canonical home; moved from the package in v3.1.0) plus the Logger data + experiment outputs. Use this agent when the user wants to: (1) Identify Crr/CdA for a vehicle (\"identify Crr/CdA for <REG>\"); (2) Re-run parameter identification (new data, changed filters or efficiency assumptions); (3) Probe a vehicle's available Logger channels / date range; (4) Review, extend, or debug the identification workflow (cruise-segment extraction, K-Means constraint intersection, filter combinations).\n\nExamples:\n\n- User: \"Identify Crr/CdA for YK73WFN\"\n  Assistant: \"Let me launch the param-identifier agent to run the identification pipeline for YK73WFN.\"\n  <uses Agent tool with subagent_type: param-identifier>\n\n- User: \"Re-run parameter identification with a stricter wind-speed filter\"\n  Assistant: \"I'll use the param-identifier agent to adjust the filter settings and re-run the identification.\"\n  <uses Agent tool with subagent_type: param-identifier>\n\n- User: \"Which Logger channels does YN25RSY expose for parameter identification?\"\n  Assistant: \"I'll launch the param-identifier agent to probe the vehicle's Logger channels and date range.\"\n  <uses Agent tool with subagent_type: param-identifier>"
 model: opus
 color: purple
 memory: project
@@ -28,35 +28,42 @@ Dedicated parameter-identification Agent. Uses the CRRCDA method to identify C_r
 
 ## Code location
 
-All parameter-identification code is located in the `src/jolt_toolkit/vehicle_params_identificator/` directory:
+Canonical home: `research_projects/parameter_identify/code/` (moved from the package
+`src/jolt_toolkit/vehicle_params_identificator/` in v3.1.0 — the workspace is now
+self-contained: `code/` + `data/` + `results/` + `logs/` side by side; the code keeps
+read-only `jolt_toolkit.configs` imports for `vehicles.json`):
 
 | File | Function |
 |------|------|
-| `config.py` | Physical constants, algorithm parameters, path configuration, vehicle max_torque_nm |
+| `config.py` | Physical constants, algorithm parameters, path configuration (workspace-relative data/results/logs), vehicle max_torque_nm |
 | `data_loader.py` | SRF Logger API data download + local CSV loading + channel probing |
 | `preprocessing.py` | Cruising-segment extraction (BrkPedalPos==0 or speed CV threshold) |
 | `identification.py` | Linear-constraint computation (SymPy symbolic solving) + K-Means identification + filtering |
 | `visualization.py` | 2×2 comprehensive analysis figure + mass histogram |
-| `run_identification.py` | CLI entry point and full identification workflow |
+| `run_identification.py` | Standalone CLI entry point and full identification workflow |
 | `test_identification.py` | Synthetic-data unit tests |
 
 ## How to run
 
+Run standalone from the repo root (`jolt_toolkit` importable — conda `jolt` env or
+`PYTHONPATH=src`; the former `python -m jolt_toolkit.vehicle_params_identificator.…`
+invocation is gone with the package move):
+
 ```bash
 # Probe channels
-python -m jolt_toolkit.vehicle_params_identificator.run_identification --probe --veh YN25RSY
+python research_projects/parameter_identify/code/run_identification.py --probe --veh YN25RSY
 
 # Single-vehicle identification (download + identify)
-python -m jolt_toolkit.vehicle_params_identificator.run_identification --veh YN25RSY
+python research_projects/parameter_identify/code/run_identification.py --veh YN25RSY
 
 # All vehicles that have Logger data
-python -m jolt_toolkit.vehicle_params_identificator.run_identification --all
+python research_projects/parameter_identify/code/run_identification.py --all
 
 # Use already-downloaded data only (offline)
-python -m jolt_toolkit.vehicle_params_identificator.run_identification --veh YN25RSY --no-download
+python research_projects/parameter_identify/code/run_identification.py --veh YN25RSY --no-download
 
 # Custom parameters
-python -m jolt_toolkit.vehicle_params_identificator.run_identification --veh YN25RSY --seg-distance 10000 --min-speed 60 --efficiency 0.95
+python research_projects/parameter_identify/code/run_identification.py --veh YN25RSY --seg-distance 10000 --min-speed 60 --efficiency 0.95
 ```
 
 ## Reference implementation

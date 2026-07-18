@@ -1,3 +1,8 @@
+# Canonical home since v3.1.0 (P1 copy, 2026-07-17): moved here from
+# src/jolt_toolkit/vehicle_params_identificator/visualization.py — the param-identifier
+# agent's workspace (research_projects/parameter_identify/) now owns the
+# identification code (the package original is removed in P2). Standalone entry:
+#   python research_projects/parameter_identify/code/run_identification.py --help
 """
 综合可视化模块。
 生成 2×2 子图的参数辨识分析图。
@@ -16,7 +21,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy import stats
 
-from jolt_toolkit.vehicle_params_identificator.config import (
+from config import (
     INTERSECTION_COLOR,
     LABEL_FONT_SIZE,
     LEGEND_FONT_SIZE,

@@ -1,3 +1,26 @@
+# Canonical home since v3.1.0 (P1 copy, 2026-07-17): moved here from
+# src/jolt_toolkit/report_generator/finetune.py — the report-finetuner skill now
+# owns the finetune library (the package original is removed in P2).
+# Invocation pattern (repo root, jolt_toolkit importable via the `jolt` env or
+# PYTHONPATH=src):
+#   import sys; sys.path.insert(0, r".claude/skills/report-finetuner/code")
+#   from finetune import MergeOp, SplitOp, DeleteOp, apply_operations, ...
+#
+# Rendering delegation (v3.1.0 P2b, 2026-07-17): this library no longer imports
+# ANY plotting/orchestrator code. The rendering half of the old
+# regenerate_figures / regenerate_inspect_html (painting loop, anchor
+# interpolation, logger fetch, HTML template) MOVED to the report-visuals skill
+# (.claude/skills/report-visuals/code/finetuned_visuals.py); the two functions
+# here kept their public signatures but are now thin wrappers that
+#   (a) do the xlsx-side reconstruction (reconstruct_segs_from_xlsx, still
+#       owned here) and dump the per-date segments to a temp JSON
+#       (dump_segs_json, schema "report-visuals.finetuned-segs/v1"), then
+#   (b) hand rendering to the report-visuals CLI via subprocess
+#       (render_visuals.py repaint-finetuned) — CLI contracts only, never
+#       cross-skill Python imports (v3.1.0 coupling rule).
+# The NON-rendering imports (report_builder HEADERS/DIESEL_HEADERS,
+# segment_algorithms constants / VEHICLE_CONFIG / _agg_mass / resolve_mass_agg)
+# stay on the package.
 """
 finetune.py
 ===========
@@ -29,9 +52,14 @@ inspect HTML。
 - :class:`MergeOp` / :class:`SplitOp` / :class:`DeleteOp` — 操作 dataclass
 - :func:`apply_operations` — 对 xlsx 应用操作清单并写出 ``*_finetuned.xlsx``
 - :func:`reconstruct_segs_from_xlsx` — 从 xlsx 反推出 (charge_segs,
-  discharge_segs) 列表，供 :func:`segment_algorithms.plot_leg_validation` 使用
+  discharge_segs) 列表（xlsx 侧；渲染侧的 painter 在 report-visuals skill）
+- :func:`dump_segs_json` — 把逐日 (finetuned + original) segs 序列化成
+  report-visuals CLI 消费的 JSON（schema ``report-visuals.finetuned-segs/v1``）
 - :func:`regenerate_figures` — 基于 ``_finetuned.xlsx`` 重新生成 validation PNG
+  （v3.1.0 P2b 起为 wrapper：本地重建 segs → 渲染委托给 report-visuals CLI
+  ``repaint-finetuned`` 子命令，subprocess 调用，禁止跨 skill import）
 - :func:`regenerate_inspect_html` — 基于 ``_finetuned.xlsx`` 重写 inspect HTML
+  （同样委托 report-visuals CLI 的 ``--html-only`` 模式）
 
 smoke test
 ----------
@@ -44,8 +72,13 @@ xlsx，然后对 ``2024-06-11_0000`` 这天做 :func:`reconstruct_segs_from_xlsx
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
+import subprocess
+import sys
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1181,117 +1214,163 @@ def _parse_point(s) -> tuple[float | None, float | None]:
         return None, None
 
 
-def _cumulative_relative_kwh(
-    df_leg: pd.DataFrame,
-    *cols: str,
-) -> tuple[pd.Series, pd.DatetimeIndex] | tuple[None, None]:
-    """Build a relative-kWh cumulative series from one or more Wh columns.
+# =============================================================================
+# Rendering delegation to the report-visuals skill CLI (v3.1.0 P2b)
+# =============================================================================
+# The anchor-interpolation helpers (_cumulative_relative_kwh / _interp_at /
+# attach_anchors_from_df), the seg-comparison + logger-slicing helpers and the
+# painting loop MOVED to the report-visuals skill
+# (.claude/skills/report-visuals/code/finetuned_visuals.py). This library only
+# produces the segments JSON and drives the CLI.
 
-    Returns ``(values_kwh, times_utc)`` where ``values_kwh[i]`` is the sum of
-    ``cols`` at time ``times_utc[i]`` minus the first sample (so the series
-    starts at 0). Mirrors :func:`segment_algorithms._build_energy_series`
-    exactly so ``_anchor_*_rel_kwh`` values land on the same curve the
-    original algorithm's triangles sit on.
-    """
-    if not cols or TIME_COL not in df_leg.columns:
-        return None, None
-    missing = [c for c in cols if c not in df_leg.columns]
-    if missing:
-        return None, None
-    sub = df_leg[[TIME_COL, *cols]].copy()
-    for c in cols:
-        sub[c] = pd.to_numeric(sub[c], errors="coerce")
-    sub[TIME_COL] = pd.to_datetime(sub[TIME_COL], errors="coerce", utc=True)
-    sub = sub.dropna(subset=[TIME_COL, *cols]).sort_values(TIME_COL)
-    if len(sub) < 2:
-        return None, None
-    combined = sub[list(cols)].sum(axis=1)
-    base = combined.iloc[0]
-    values_kwh = (combined - base) / 1000.0
-    times_utc = pd.DatetimeIndex(sub[TIME_COL].values, tz="UTC")
-    return values_kwh.reset_index(drop=True), times_utc
+# finetune.py sits at .claude/skills/report-finetuner/code/ → repo root is 4
+# levels up (holds in the main tree and in every git worktree of it).
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_VISUALS_CLI = (
+    _REPO_ROOT / ".claude" / "skills" / "report-visuals" / "code" / "render_visuals.py"
+)
+
+#: Schema tag of the segments JSON both sides of the CLI contract assert on.
+SEGS_JSON_SCHEMA = "report-visuals.finetuned-segs/v1"
 
 
-def _interp_at(
-    values: pd.Series,
-    times: pd.DatetimeIndex,
-    t: pd.Timestamp,
-) -> float:
-    """Linear interpolation of ``values[times]`` at timestamp ``t``.
-
-    Clamps to first / last sample when ``t`` falls outside the range so the
-    nearest-endpoint fallback still produces a sane anchor rather than NaN.
-    """
-    if values is None or times is None or len(values) == 0:
-        return float("nan")
-    if t <= times[0]:
-        return float(values.iloc[0])
-    if t >= times[-1]:
-        return float(values.iloc[-1])
-    idx_right = int(times.searchsorted(t, side="left"))
-    if idx_right <= 0:
-        return float(values.iloc[0])
-    if idx_right >= len(values):
-        return float(values.iloc[-1])
-    t_l = times[idx_right - 1]
-    t_r = times[idx_right]
-    v_l = float(values.iloc[idx_right - 1])
-    v_r = float(values.iloc[idx_right])
-    span = (t_r - t_l).total_seconds()
-    if span <= 0:
-        return v_r
-    frac = (t - t_l).total_seconds() / span
-    return v_l + (v_r - v_l) * frac
+def _seg_to_jsonable(seg: dict) -> dict:
+    """Make a reconstructed seg dict JSON-safe (Timestamps → ISO-8601 UTC)."""
+    out: dict = {}
+    for k, v in seg.items():
+        if isinstance(v, pd.Timestamp):
+            out[k] = v.isoformat()
+        elif isinstance(v, (np.floating, np.integer)):
+            f = float(v)
+            out[k] = None if np.isnan(f) else f
+        elif isinstance(v, float) and np.isnan(v):
+            out[k] = None
+        else:
+            out[k] = v
+    return out
 
 
-def attach_anchors_from_df(
-    segs: list[dict],
-    df_leg: pd.DataFrame,
+def dump_segs_json(
+    xlsx_path: str | Path,
+    raw_telematics_dir: str | Path,
+    out_json: str | Path,
     *,
-    kind: str,
-    ac_col: str,
-    dc_col: str,
-    panel3_col: str,
-) -> None:
-    """Populate ``_anchor_*`` fields on reconstructed segs in place.
+    original_xlsx_path: str | Path | None = None,
+) -> Path:
+    """Write the segments JSON consumed by the report-visuals CLI.
 
-    Charge segs → anchors sit on the AC+DC cumulative kWh curve (Panel 2).
-    Discharge segs → anchors sit on the ``panel3_col`` cumulative kWh curve
-    (Panel 3). The time axis is taken from each seg's own ``start_time`` /
-    ``end_time`` (the xlsx rows are the authoritative boundaries after
-    finetune); values are linearly interpolated from the raw CSV.
+    xlsx-side producer half of the finetuned-rendering contract (schema
+    ``report-visuals.finetuned-segs/v1``): for every ``raw_<date>_<idx>.csv``
+    date inside the xlsx's period, reconstruct the finetuned (and, when
+    ``original_xlsx_path`` is given, the original) charge/discharge segs via
+    :func:`reconstruct_segs_from_xlsx` and serialise them per date::
 
-    If required columns are missing or the leg CSV is empty the seg is left
-    untouched (``_mark_anchors_stored`` then silently skips it).
+        {"schema": ..., "reg": ..., "original_available": bool,
+         "by_date": {"YYYY-MM-DD": {"finetuned": {"charge": [...],
+         "discharge": [...]}, "original": {...}?}, ...}}
+
+    Timestamps are ISO-8601 UTC strings; anchors are NOT included (the
+    rendering side interpolates them from the raw CSVs). Returns ``out_json``.
     """
-    if not segs:
-        return
-    if kind == "charge":
-        values, times = _cumulative_relative_kwh(df_leg, ac_col, dc_col)
-    elif kind == "discharge":
-        values, times = _cumulative_relative_kwh(df_leg, panel3_col)
+    xlsx_path = Path(xlsx_path)
+    raw_dir = Path(raw_telematics_dir)
+    out_json = Path(out_json)
+
+    reg = _reg_from_name(xlsx_path.name)
+    m = re.search(r"(\d{8})_(\d{8})", xlsx_path.name)
+    if m:
+        period_start = f"{m.group(1)[:4]}-{m.group(1)[4:6]}-{m.group(1)[6:]}"
+        period_end = f"{m.group(2)[:4]}-{m.group(2)[4:6]}-{m.group(2)[6:]}"
     else:
-        raise ValueError(
-            f"attach_anchors_from_df: kind must be "
-            f'"charge" or "discharge", got {kind!r}'
+        period_start = "0000-00-00"
+        period_end = "9999-99-99"
+
+    dates: set[str] = set()
+    for csv_path in sorted(raw_dir.glob("raw_*.csv")):
+        m2 = re.match(r"raw_(\d{4}-\d{2}-\d{2})_(\d+)\.csv$", csv_path.name)
+        if m2 and period_start <= m2.group(1) <= period_end:
+            dates.add(m2.group(1))
+
+    by_date: dict[str, dict] = {}
+    for date_str in sorted(dates):
+        ft_c, ft_d = reconstruct_segs_from_xlsx(xlsx_path, date_str)
+        entry: dict = {
+            "finetuned": {
+                "charge": [_seg_to_jsonable(s) for s in ft_c],
+                "discharge": [_seg_to_jsonable(s) for s in ft_d],
+            }
+        }
+        if original_xlsx_path is not None:
+            og_c, og_d = reconstruct_segs_from_xlsx(original_xlsx_path, date_str)
+            entry["original"] = {
+                "charge": [_seg_to_jsonable(s) for s in og_c],
+                "discharge": [_seg_to_jsonable(s) for s in og_d],
+            }
+        by_date[date_str] = entry
+
+    payload = {
+        "schema": SEGS_JSON_SCHEMA,
+        "reg": reg,
+        "original_available": original_xlsx_path is not None,
+        "by_date": by_date,
+    }
+    out_json.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8"
+    )
+    return out_json
+
+
+def _visuals_cli_env() -> dict:
+    """Subprocess env: inherit everything, keep PYTHONPATH working from repo root.
+
+    The CLI runs with ``cwd=_REPO_ROOT``; a caller-relative PYTHONPATH entry
+    (e.g. ``PYTHONPATH=src`` set from elsewhere) would silently stop resolving
+    there, so absolutise entries against the CALLER's cwd — exactly what they
+    meant when this process imported from them. ``PYTHONUTF8=1`` is defaulted
+    because the pipeline's Unicode log text crashes cp1252 Windows consoles.
+    """
+    env = os.environ.copy()
+    pp = env.get("PYTHONPATH")
+    if pp:
+        env["PYTHONPATH"] = os.pathsep.join(
+            os.path.abspath(p) if p else p for p in pp.split(os.pathsep)
         )
-    if values is None or times is None:
-        return
-    for seg in segs:
-        t_s = _to_utc(seg.get("start_time"))
-        t_e = _to_utc(seg.get("end_time"))
-        if t_s is None or t_e is None:
-            continue
-        v_s = _interp_at(values, times, t_s)
-        v_e = _interp_at(values, times, t_e)
-        seg["_anchor_start_time"] = t_s
-        seg["_anchor_end_time"] = t_e
-        seg["_anchor_start_rel_kwh"] = (
-            round(v_s, 4) if not np.isnan(v_s) else float("nan")
+    env.setdefault("PYTHONUTF8", "1")
+    return env
+
+
+def _run_visuals_cli(cli_args: list[str]) -> str:
+    """Run ``render_visuals.py <cli_args>`` and return its stdout.
+
+    ``sys.executable`` + ``cwd=_REPO_ROOT`` (so ``./cache`` and ``.env``
+    resolve) + inherited env. Raises ``RuntimeError`` on a non-zero exit,
+    embedding the CLI's stderr/stdout for diagnosis.
+    """
+    if not _VISUALS_CLI.is_file():
+        raise RuntimeError(
+            f"report-visuals CLI not found: {_VISUALS_CLI} — the rendering "
+            "half of the finetune flow lives in the report-visuals skill"
         )
-        seg["_anchor_end_rel_kwh"] = (
-            round(v_e, 4) if not np.isnan(v_e) else float("nan")
+    cmd = [sys.executable, str(_VISUALS_CLI), *cli_args]
+    logger.info("finetune: delegating rendering to report-visuals CLI: %s",
+                " ".join(cli_args))
+    proc = subprocess.run(
+        cmd,
+        cwd=str(_REPO_ROOT),
+        env=_visuals_cli_env(),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    for line in (proc.stdout or "").splitlines():
+        logger.info("  [report-visuals] %s", line)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"report-visuals CLI failed (exit {proc.returncode}): "
+            f"{(proc.stderr or '').strip() or (proc.stdout or '').strip()}"
         )
+    return proc.stdout or ""
 
 
 # =============================================================================
@@ -1309,61 +1388,31 @@ def regenerate_figures(
 ) -> int:
     """Regenerate validation figures from ``xlsx_path``.
 
-    For every ``raw_<date>_<idx>.csv`` inside the xlsx's ``[start, end]``
-    date range we:
-      1. Reconstruct ``(charge_segs, discharge_segs)`` for that date from
-         ``xlsx_path`` (= the finetuned xlsx) via
-         :func:`reconstruct_segs_from_xlsx`
-      2. If ``original_xlsx_path`` is provided (or auto-detected by stripping
-         the ``_finetuned`` suffix from ``xlsx_path``), also reconstruct the
-         **original** segs and compare per date:
-           - Segs identical (same start/end + leg_type tuple)
-             → **skip** entirely — no ``_finetuned.png`` is produced. The
-             inspect HTML generator falls back to the original
-             ``validation_<...>.png`` for that day.
-           - Segs differ
-             → draw with base = original (red/green), overlay = finetuned
-             (orange/cyan) so visual comparison is obvious
-      3. If no original xlsx is available (legacy behaviour), draw with only
-         the finetuned segs and no overlay.
+    Same public contract as before v3.1.0 P2b; the implementation is now a
+    wrapper around the report-visuals skill CLI:
 
-    Returns the number of ``_finetuned.png`` files produced (overlay + plain
-    draws only; skipped-unchanged days contribute zero).
+    1. xlsx side (this library): resolve ``original_xlsx_path`` (auto-detected
+       by stripping the ``_finetuned`` suffix when not passed), reconstruct
+       the per-date finetuned + original segs and dump them to a temp JSON
+       (:func:`dump_segs_json`).
+    2. Rendering side (report-visuals skill, subprocess — never a cross-skill
+       import): ``render_visuals.py repaint-finetuned`` paints the figures
+       with the same per-leg semantics as before —
+         - original available + segs identical for a date → **skip**, no
+           ``_finetuned.png`` (a stale one is removed); the inspect HTML falls
+           back to the original ``validation_<...>.png``;
+         - segs differ → base = original (red/green), overlay = finetuned
+           (orange/cyan, ``[FT]`` labels);
+         - no original available → plain finetuned draw, no overlay.
+
+    Returns the number of ``_finetuned.png`` files produced (parsed from the
+    CLI's ``figures=<N>`` summary line; skipped-unchanged days contribute
+    zero). Raises ``RuntimeError`` when the CLI fails.
     """
-    from jolt_toolkit.report_generator.segment_algorithms import (
-        AC_COL,
-        DC_COL,
-        MOVING_COL,
-        TOTAL_ENERGY_COL,
-        cluster_mass_data,
-        plot_leg_validation,
-    )
-
     xlsx_path = Path(xlsx_path)
     raw_dir = Path(raw_telematics_dir)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    reg = _reg_from_name(xlsx_path.name)
-    cfg = _veh_cfg(reg)
-    ac_col = cfg.get("ac_col", AC_COL)
-    dc_col = cfg.get("dc_col", DC_COL)
-    total_col = cfg.get("total_energy_col", TOTAL_ENERGY_COL)
-    moving_col = cfg.get("moving_energy_col", MOVING_COL)
-    mass_col = cfg.get("mass_col", MASS_COL)
-    speed_col = cfg.get("speed_col", "wheel_based_speed")
-    mass_agg = resolve_mass_agg(reg)  # v2.2.6: 图上质量与报告同口径稳健聚合
-
-    # Derive [period_start, period_end] from xlsx name so we skip raw CSVs
-    # outside the report's date range (a vehicle's raw_telematics/ folder is
-    # shared across all periods).
-    m = re.search(r"(\d{8})_(\d{8})", xlsx_path.name)
-    if m:
-        period_start = f"{m.group(1)[:4]}-{m.group(1)[4:6]}-{m.group(1)[6:]}"
-        period_end = f"{m.group(2)[:4]}-{m.group(2)[4:6]}-{m.group(2)[6:]}"
-    else:
-        period_start = "0000-00-00"
-        period_end = "9999-99-99"
 
     # Resolve original xlsx path. If caller didn't pass one, try stripping the
     # _finetuned suffix from xlsx_path.stem to find the source xlsx.
@@ -1385,293 +1434,42 @@ def regenerate_figures(
             )
             original_xlsx_path = None
 
-    # Best-effort Logger fetch (optional)
-    logger_speed_all, logger_mass_all = _try_fetch_logger(reg, xlsx_path.name)
-
-    # Pre-scan segs for the entire period once (xlsx reload is expensive).
-    # - segs_by_date_ft  : from the finetuned xlsx
-    # - segs_by_date_orig: from the original xlsx (optional)
-    segs_by_date_ft: dict[str, tuple[list[dict], list[dict]]] = {}
-    segs_by_date_orig: dict[str, tuple[list[dict], list[dict]]] = {}
-
-    raw_csvs = sorted(raw_dir.glob("raw_*.csv"))
-    n_out = 0
-    n_skipped = 0
-    n_overlay = 0
-    n_plain = 0
-    for csv_path in raw_csvs:
-        m2 = re.match(r"raw_(\d{4}-\d{2}-\d{2})_(\d+)\.csv$", csv_path.name)
-        if not m2:
-            continue
-        date_str, idx_str = m2.group(1), m2.group(2)
-        if not (period_start <= date_str <= period_end):
-            continue
-        leg_suffix = f"{date_str}_{idx_str}"
-
-        df_leg = pd.read_csv(csv_path, dtype=str, low_memory=False)
-        if df_leg.empty or SOC_COL not in df_leg.columns:
-            continue
-        # 在 plot_leg_validation 之前跑 mass 聚类，生成 ``mass_cluster`` 列。
-        # Panel 4 的 seg-mean mass 标注（含 overlay ``[FT] XX.X t``）依赖该列
-        # 做去噪聚合；若缺失则 Panel 4 会退化为只画原始散点（见 v2.2.2
-        # 限制），finetune 图与 production 图因此不一致。
-        if mass_col in df_leg.columns:
-            try:
-                # v2.2.4: 传 speed_col 让 finetune 图的 mass 聚类与 production 一致
-                # （聚类均值只用行驶中读数；speed 列缺失时自动回退全部有效读数）。
-                df_leg = cluster_mass_data(
-                    df_leg, mass_col=mass_col, speed_col=speed_col
-                )
-            except Exception as exc:
-                logger.debug(
-                    "regenerate_figures: cluster_mass_data failed "
-                    "on %s (%s) — Panel 4 mass labels skipped",
-                    csv_path.name,
-                    exc,
-                )
-
-        if date_str not in segs_by_date_ft:
-            segs_by_date_ft[date_str] = reconstruct_segs_from_xlsx(xlsx_path, date_str)
-        ft_c_segs, ft_d_segs = segs_by_date_ft[date_str]
-
-        orig_c_segs: list[dict] = []
-        orig_d_segs: list[dict] = []
-        if original_xlsx_path is not None:
-            if date_str not in segs_by_date_orig:
-                segs_by_date_orig[date_str] = reconstruct_segs_from_xlsx(
-                    original_xlsx_path, date_str
-                )
-            orig_c_segs, orig_d_segs = segs_by_date_orig[date_str]
-
-        # Keep only segs that overlap this leg's time window
-        t_s, t_e = _leg_time_bounds(df_leg)
-        ft_c_segs = [s for s in ft_c_segs if _overlap(s, t_s, t_e)]
-        ft_d_segs = [s for s in ft_d_segs if _overlap(s, t_s, t_e)]
-        orig_c_segs = [s for s in orig_c_segs if _overlap(s, t_s, t_e)]
-        orig_d_segs = [s for s in orig_d_segs if _overlap(s, t_s, t_e)]
-
-        out_path = out_dir / f"validation_{reg}_{leg_suffix}{suffix}.png"
-
-        # ── Path 1: no original → fall back to plain finetuned draw ────────
-        if original_xlsx_path is None:
-            panel3_col = moving_col
-            if ft_d_segs and ft_d_segs[0].get("energy_source") == "total_energy":
-                panel3_col = total_col
-            leg_logger_spd = _slice_logger(logger_speed_all, t_s, t_e)
-            leg_logger_mass = _slice_logger(logger_mass_all, t_s, t_e)
-            # 从 df_leg 的累积能量列线性插值出 ▼▲ 锚点位置，使 plain 图的
-            # Panel 2 / 3 三角形与原 production 图风格一致。
-            attach_anchors_from_df(
-                ft_c_segs,
-                df_leg,
-                kind="charge",
-                ac_col=ac_col,
-                dc_col=dc_col,
-                panel3_col=panel3_col,
-            )
-            attach_anchors_from_df(
-                ft_d_segs,
-                df_leg,
-                kind="discharge",
-                ac_col=ac_col,
-                dc_col=dc_col,
-                panel3_col=panel3_col,
-            )
-            try:
-                plot_leg_validation(
-                    df_leg,
-                    ft_c_segs,
-                    ft_d_segs,
-                    reg,
-                    leg_suffix,
-                    out_path,
-                    ac_col=ac_col,
-                    dc_col=dc_col,
-                    panel3_col=panel3_col,
-                    mass_col=mass_col,
-                    speed_col=speed_col,
-                    logger_speed_df=leg_logger_spd,
-                    logger_mass_df=leg_logger_mass,
-                    mass_agg=mass_agg,
-                )
-                n_out += 1
-                n_plain += 1
-            except Exception as exc:
-                logger.warning("regenerate_figures: skip %s (%s)", leg_suffix, exc)
-            continue
-
-        # ── Path 2: segs unchanged → skip entirely ───────────────────────
-        # No ``_finetuned.png`` is produced for unchanged days; the inspect
-        # HTML falls back to the original ``validation_<...>.png`` so the
-        # viewer still shows every day. Stale ``_finetuned.png`` from a
-        # previous run is removed so the HTML falls back correctly.
-        if _segs_equal(ft_c_segs, orig_c_segs) and _segs_equal(ft_d_segs, orig_d_segs):
-            if out_path.exists():
-                try:
-                    out_path.unlink()
-                except Exception as exc:
-                    logger.warning(
-                        "regenerate_figures: could not remove stale %s " "(%s)",
-                        out_path.name,
-                        exc,
-                    )
-            n_skipped += 1
-            continue
-
-        # ── Path 3: segs changed → draw base=original + overlay=finetuned ─
-        panel3_col = moving_col
-        # Pick panel3 col based on the original (base) segs for consistency
-        # with how the original PNG was drawn.
-        if orig_d_segs and orig_d_segs[0].get("energy_source") == "total_energy":
-            panel3_col = total_col
-        elif ft_d_segs and ft_d_segs[0].get("energy_source") == "total_energy":
-            panel3_col = total_col
-        leg_logger_spd = _slice_logger(logger_speed_all, t_s, t_e)
-        leg_logger_mass = _slice_logger(logger_mass_all, t_s, t_e)
-        # 为 base（原 segs）和 overlay（finetuned segs）都补齐 ▼▲ 锚点，
-        # 让 Panel 2 / 3 能同时画出红绿 ▼▲（original）+ 橙青 ▼▲（[FT]）。
-        attach_anchors_from_df(
-            orig_c_segs,
-            df_leg,
-            kind="charge",
-            ac_col=ac_col,
-            dc_col=dc_col,
-            panel3_col=panel3_col,
+    fd, tmp_name = tempfile.mkstemp(prefix="finetune_segs_", suffix=".json")
+    os.close(fd)
+    tmp_json = Path(tmp_name)
+    try:
+        dump_segs_json(
+            xlsx_path, raw_dir, tmp_json, original_xlsx_path=original_xlsx_path
         )
-        attach_anchors_from_df(
-            orig_d_segs,
-            df_leg,
-            kind="discharge",
-            ac_col=ac_col,
-            dc_col=dc_col,
-            panel3_col=panel3_col,
+        stdout = _run_visuals_cli(
+            [
+                "repaint-finetuned",
+                "--xlsx",
+                str(xlsx_path.resolve()),
+                "--segs-json",
+                str(tmp_json),
+                "--raw-dir",
+                str(raw_dir.resolve()),
+                "--out-dir",
+                str(out_dir.resolve()),
+                "--fig-suffix",
+                suffix,
+                "--figures-only",
+            ]
         )
-        attach_anchors_from_df(
-            ft_c_segs,
-            df_leg,
-            kind="charge",
-            ac_col=ac_col,
-            dc_col=dc_col,
-            panel3_col=panel3_col,
-        )
-        attach_anchors_from_df(
-            ft_d_segs,
-            df_leg,
-            kind="discharge",
-            ac_col=ac_col,
-            dc_col=dc_col,
-            panel3_col=panel3_col,
-        )
+    finally:
         try:
-            plot_leg_validation(
-                df_leg,
-                orig_c_segs,
-                orig_d_segs,
-                reg,
-                leg_suffix,
-                out_path,
-                ac_col=ac_col,
-                dc_col=dc_col,
-                panel3_col=panel3_col,
-                mass_col=mass_col,
-                speed_col=speed_col,
-                logger_speed_df=leg_logger_spd,
-                logger_mass_df=leg_logger_mass,
-                overlay_charge_segs=ft_c_segs,
-                overlay_discharge_segs=ft_d_segs,
-                mass_agg=mass_agg,
-            )
-            n_out += 1
-            n_overlay += 1
-        except Exception as exc:
-            logger.warning("regenerate_figures: skip %s (%s)", leg_suffix, exc)
+            tmp_json.unlink()
+        except OSError:
+            pass
 
-    logger.info(
-        "regenerate_figures: skipped %d, overlaid %d (plain=%d) — "
-        "wrote %d PNG(s) to %s",
-        n_skipped,
-        n_overlay,
-        n_plain,
-        n_out,
-        out_dir,
-    )
-    return n_out
-
-
-def _segs_equal(a: list[dict], b: list[dict]) -> bool:
-    """Compare two seg lists by (start_time, end_time) tuples.
-
-    Used by :func:`regenerate_figures` to decide whether a date's finetuned
-    segs match the original segs byte-for-byte (so we can skip redrawing and
-    just copy the original PNG). We intentionally ignore numeric fields
-    (kwh, soc_estimate floating-point noise) and compare only the temporal
-    boundary tuples, which fully determine segment identity.
-    """
-    if len(a) != len(b):
-        return False
-    ka = sorted((_to_utc(s["start_time"]), _to_utc(s["end_time"])) for s in a)
-    kb = sorted((_to_utc(s["start_time"]), _to_utc(s["end_time"])) for s in b)
-    return ka == kb
-
-
-def _leg_time_bounds(df: pd.DataFrame):
-    times = pd.to_datetime(df[TIME_COL], errors="coerce", utc=True).dropna()
-    if times.empty:
-        return None, None
-    return times.min(), times.max()
-
-
-def _overlap(seg: dict, t_s, t_e) -> bool:
-    if t_s is None or t_e is None:
-        return True
-    try:
-        s = _to_utc(seg["start_time"])
-        e = _to_utc(seg["end_time"])
-    except KeyError:
-        return True
-    return s <= t_e and e >= t_s
-
-
-def _slice_logger(df: pd.DataFrame | None, t_s, t_e):
-    if df is None or df.empty or t_s is None or t_e is None:
-        return None
-    try:
-        sliced = df.loc[t_s:t_e]
-        return sliced if not sliced.empty else None
-    except Exception:
-        return None
-
-
-def _try_fetch_logger(reg: str, xlsx_name: str):
-    """Best-effort SRF fetch for Logger speed / mass.
-
-    Returns ``(speed_df, mass_df)`` or ``(None, None)`` on any failure. Do not
-    block finetune on missing Logger data. Skips silently if
-    ``SRF_API_KEY`` is not set in the environment.
-    """
-    import os as _os
-
-    if not _os.environ.get("SRF_API_KEY"):
-        return None, None
-    try:
-        from jolt_toolkit.report_generator.validation_generator import (
-            ValidationGenerator,
+    m = re.search(r"repaint-finetuned: figures=(\d+)", stdout)
+    if not m:
+        raise RuntimeError(
+            "report-visuals CLI did not report a figure count "
+            "(expected a 'repaint-finetuned: figures=<N>' line)"
         )
-
-        cfg = _veh_cfg(reg)
-        reg_srf = cfg.get("srf_reg")
-        if not reg_srf:
-            return None, None
-        m = re.search(r"(\d{8})_(\d{8})", xlsx_name)
-        if not m:
-            return None, None
-        ds = datetime.strptime(m.group(1), "%Y%m%d")
-        de = datetime.strptime(m.group(2), "%Y%m%d")
-        gen = ValidationGenerator()
-        return gen._fetch_logger_data(reg_srf, ds, de)
-    except Exception as exc:
-        logger.info("regenerate_figures: Logger fetch skipped (%s)", exc)
-        return None, None
+    return int(m.group(1))
 
 
 # =============================================================================
@@ -1686,191 +1484,49 @@ def regenerate_inspect_html(
 ) -> Path:
     """Generate an inspect HTML pointing at ``validation_*{fig_suffix}.png``.
 
-    If ``out_path`` is None, writes
-    ``inspect_<basename>_finetuned.html`` next to the xlsx.
-
-    This is a lightweight variant of
-    :func:`report_builder._write_html_viewer` — we can't reuse the original
-    directly because it globs ``validation_{REG}_*.png`` unconditionally and
-    would pick up the non-finetuned figures too.
+    If ``out_path`` is None, writes ``inspect_<basename>_finetuned.html`` next
+    to the xlsx. Same public contract as before v3.1.0 P2b; the HTML writer
+    itself (a lightweight finetuned variant of the base viewer, with the
+    per-day ``[modified]`` / ``(unchanged — original)`` fallback tags) moved
+    to the report-visuals skill
+    (``finetuned_visuals.write_finetuned_inspect_html``) and this wrapper
+    drives it through the ``render_visuals.py repaint-finetuned --html-only``
+    CLI (subprocess, never a cross-skill import). Rendering-side failures
+    (missing ``validation_figures/`` or no figures in the period — previously
+    raised here as ``FileNotFoundError``) now surface as ``RuntimeError``
+    carrying the CLI output.
     """
     xlsx_path = Path(xlsx_path)
-    reg = _reg_from_name(xlsx_path.name)
-    m = re.search(r"(\d{8})_(\d{8})", xlsx_path.name)
-    if not m:
+    # Keep the pre-P2b early failures (and their exception types) local:
+    _reg_from_name(xlsx_path.name)  # ValueError on an unparseable name
+    if not re.search(r"(\d{8})_(\d{8})", xlsx_path.name):
         raise ValueError(f"Cannot parse date range from {xlsx_path.name}")
-    ds_str, de_str = m.group(1), m.group(2)
-    period_start = f"{ds_str[:4]}-{ds_str[4:6]}-{ds_str[6:]}"
-    period_end = f"{de_str[:4]}-{de_str[4:6]}-{de_str[6:]}"
-
-    out_dir = xlsx_path.parent
-    fig_dir = out_dir / "validation_figures"
-    if not fig_dir.exists():
-        raise FileNotFoundError(f"{fig_dir} does not exist")
-
-    # Enumerate every original ``validation_<reg>_<date>_<idx>.png`` in the
-    # period. For each one, if a ``*_finetuned.png`` sibling exists → the
-    # day was modified by apply_operations / regenerate_figures; else →
-    # unchanged, fall back to the original. This lets the HTML cover every
-    # day of the period even when most days have no finetuned output.
-    all_originals = sorted(
-        p
-        for p in fig_dir.glob(f"validation_{reg}_*.png")
-        if not p.stem.endswith(fig_suffix)
-    )
-    if not all_originals:
-        raise FileNotFoundError(f"No validation_{reg}_*.png figures in {fig_dir}")
-
-    date_re = re.compile(rf"validation_{re.escape(reg)}_(\d{{4}}-\d{{2}}-\d{{2}})_")
-    figs: list[Path] = []
-    is_modified: list[bool] = []
-    for p in all_originals:
-        dm = date_re.match(p.name)
-        if not (dm and period_start <= dm.group(1) <= period_end):
-            continue
-        ft_png = p.with_name(p.stem + fig_suffix + p.suffix)
-        if ft_png.exists():
-            figs.append(ft_png)
-            is_modified.append(True)
-        else:
-            figs.append(p)
-            is_modified.append(False)
-    if not figs:
-        raise FileNotFoundError(
-            f"No figures in date range {period_start}..{period_end}"
-        )
-
-    rel = [f"validation_figures/{p.name}" for p in figs]
-    # Append a lightweight tag so users can see at a glance which days were
-    # touched by the finetune pass and which fell back to the original PNG.
-    labels = [
-        p.stem + (" [modified]" if mod else " (unchanged — original)")
-        for p, mod in zip(figs, is_modified)
-    ]
 
     if out_path is None:
         # Avoid doubling the suffix when xlsx stem already ends with it
         # (e.g. jolt_report_X_..._finetuned.xlsx → inspect_..._finetuned.html,
-        # NOT ..._finetuned_finetuned.html).
+        # NOT ..._finetuned_finetuned.html). Mirrors the CLI's own default so
+        # the returned Path is exactly what the CLI wrote.
         stem = xlsx_path.stem
         if not stem.endswith(fig_suffix):
             stem += fig_suffix
-        out_path = out_dir / ("inspect_" + stem + ".html")
+        out_path = xlsx_path.parent / ("inspect_" + stem + ".html")
     else:
         out_path = Path(out_path)
 
-    imgs_js = "[\n" + ",\n".join(f'        "{r}"' for r in rel) + "\n    ]"
-    labels_js = "[\n" + ",\n".join(f'        "{l}"' for l in labels) + "\n    ]"
-
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>JOLT Inspection (finetuned) — {reg} {period_start} – {period_end}</title>
-<style>
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{ display: flex; height: 100vh; font-family: Arial, sans-serif; }}
-  #sidebar {{ width: 260px; min-width: 160px; background: #1e1e2e; color: #cdd6f4;
-              overflow-y: auto; flex-shrink: 0; padding: 8px 0; }}
-  #sidebar h2 {{ font-size: 13px; padding: 8px 12px 4px; color: #89b4fa;
-                 border-bottom: 1px solid #313244; margin-bottom: 4px; }}
-  #sidebar ul {{ list-style: none; }}
-  #sidebar li {{ padding: 5px 12px; cursor: pointer; font-size: 12px;
-                  border-left: 3px solid transparent; }}
-  #sidebar li:hover {{ background: #313244; }}
-  #sidebar li.active {{ background: #313244; border-left-color: #f9e2af;
-                         color: #f9e2af; }}
-  #main {{ flex: 1; display: flex; flex-direction: column;
-            background: #11111b; overflow: hidden; }}
-  #toolbar {{ display: flex; align-items: center; gap: 10px;
-               padding: 8px 16px; background: #181825; border-bottom: 1px solid #313244; }}
-  #toolbar button {{ padding: 4px 14px; background: #313244; color: #cdd6f4;
-                      border: 1px solid #45475a; border-radius: 4px;
-                      cursor: pointer; font-size: 13px; }}
-  #toolbar button:hover {{ background: #45475a; }}
-  #counter {{ color: #a6adc8; font-size: 13px; }}
-  #label {{ color: #f9e2af; font-size: 12px; font-family: monospace;
-             flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-  #img-wrap {{ flex: 1; display: flex; align-items: center;
-               justify-content: center; overflow: auto; padding: 12px; }}
-  #fig {{ max-width: 100%; max-height: 100%; object-fit: contain; }}
-  #badge {{ background: #f9e2af; color: #1e1e2e; padding: 2px 8px;
-            border-radius: 3px; font-size: 11px; font-weight: bold; }}
-  /* Row tags: subtle grey 'unchanged' vs amber 'modified', small size */
-  .tag {{ font-size: 10px; margin-left: 6px; padding: 1px 4px;
-          border-radius: 2px; font-family: sans-serif; }}
-  .tag-mod {{ background: #f9e2af; color: #1e1e2e; font-weight: bold; }}
-  .tag-unchanged {{ background: transparent; color: #7f849c;
-                    font-style: italic; }}
-</style>
-</head>
-<body>
-<div id="sidebar">
-  <h2>{reg} &nbsp;{period_start} – {period_end}<br><span id="badge">FINETUNED</span></h2>
-  <ul id="list"></ul>
-</div>
-<div id="main">
-  <div id="toolbar">
-    <button onclick="go(-1)">&#9664; Prev</button>
-    <button onclick="go(1)">Next &#9654;</button>
-    <span id="counter"></span>
-    <span id="label"></span>
-  </div>
-  <div id="img-wrap"><img id="fig" src="" alt="validation figure"></div>
-</div>
-<script>
-const imgs   = {imgs_js};
-const labels = {labels_js};
-let cur = 0;
-const listEl    = document.getElementById("list");
-const figEl     = document.getElementById("fig");
-const counterEl = document.getElementById("counter");
-const labelEl   = document.getElementById("label");
-labels.forEach((lb, i) => {{
-  const li = document.createElement("li");
-  // Strip the ``validation_<REG>_`` prefix so the sidebar shows
-  // ``<date>_<idx>[_finetuned] [modified]`` (or the unchanged variant).
-  // Split off the bracketed tag and render it as a coloured pill.
-  const short = lb.replace(/^validation_[^_]+_/, "");
-  const m = short.match(/^(.*?)\s+(\[modified\]|\(unchanged — original\))$/);
-  if (m) {{
-    const base = document.createTextNode(m[1]);
-    li.appendChild(base);
-    const tag = document.createElement("span");
-    tag.textContent = m[2];
-    tag.className = "tag " + (m[2] === "[modified]" ? "tag-mod" : "tag-unchanged");
-    li.appendChild(tag);
-  }} else {{
-    li.textContent = short;
-  }}
-  li.onclick = () => show(i);
-  listEl.appendChild(li);
-}});
-function show(i) {{
-  cur = i;
-  figEl.src = imgs[i];
-  counterEl.textContent = (i + 1) + " / " + imgs.length;
-  labelEl.textContent   = labels[i];
-  document.querySelectorAll("#list li").forEach((el, j) =>
-    el.classList.toggle("active", j === i));
-  document.querySelectorAll("#list li")[i]
-    .scrollIntoView({{block: "nearest"}});
-}}
-function go(d) {{ show((cur + d + imgs.length) % imgs.length); }}
-document.addEventListener("keydown", e => {{
-  if (e.key === "ArrowLeft"  || e.key === "ArrowUp")   go(-1);
-  if (e.key === "ArrowRight" || e.key === "ArrowDown")  go(1);
-}});
-show(0);
-</script>
-</body>
-</html>
-"""
-    out_path.write_text(html, encoding="utf-8")
-    logger.info(
-        "finetune: wrote inspect HTML %s (%d figures)", out_path.name, len(figs)
+    _run_visuals_cli(
+        [
+            "repaint-finetuned",
+            "--xlsx",
+            str(xlsx_path.resolve()),
+            "--html-only",
+            "--html-out",
+            str(Path(out_path).resolve()),
+            "--fig-suffix",
+            fig_suffix,
+        ]
     )
-    return out_path
+    return Path(out_path)
 
 
 # =============================================================================
@@ -1878,14 +1534,13 @@ show(0);
 # =============================================================================
 
 if __name__ == "__main__":
-    import sys
-    import tempfile
-
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
 
-    project_root = Path(__file__).resolve().parents[3]
+    # Repo root (this file sits at .claude/skills/report-finetuner/code/;
+    # the old parents[3] belonged to the package-era location).
+    project_root = _REPO_ROOT
     xlsx = (
         project_root
         / "excel_report_database"

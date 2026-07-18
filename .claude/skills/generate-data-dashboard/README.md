@@ -1,7 +1,9 @@
-# generate-data-dashboard — data-availability dashboard (jolt_toolkit CLI wrapper)
+# generate-data-dashboard — data-availability dashboard (self-contained code owner)
 
-> Runs the `jolt_toolkit` dashboard CLI (a thin wrapper): scans one version's report
-> database and builds a single self-contained, offline `data_dashboard.html`.
+> Runs the skill-owned dashboard generator: scans one version's report database and
+> builds a single self-contained, offline `data_dashboard.html`. Since v3.1.0 the
+> dashboard code lives in this skill's `code/` (moved out of the `jolt_toolkit`
+> package — this skill is its self-contained owner, like `generate-pdf-report`).
 > This README is the skill's human-facing single source of truth; `SKILL.md` is the
 > agent-facing router over `manifest.yaml`.
 
@@ -15,6 +17,11 @@ generate-data-dashboard/
 ├── SKILL.md        # router: routing protocol only (agent entry point)
 ├── manifest.yaml   # always_load core + on-demand reference table (no axes — single path)
 ├── README.md       # this file — human-facing map + pipeline
+├── code/           # skill-owned dashboard code (canonical home since v3.1.0):
+│   ├── generate_dashboard.py       # thin CLI runner (same args as the former package CLI)
+│   ├── data_dashboard.py           # dashboard generator (scan + render)
+│   ├── data_dashboard_detail.py    # per-vehicle drill-down detail pages
+│   └── assets/uplot/               # vendored uPlot JS/CSS (+ PROVENANCE.txt)
 ├── static/core/    # conventions.md (always loaded: inputs to confirm, preconditions, conventions)
 └── references/     # run-and-verify.md (exact command + overrides + verify checklist)
 ```
@@ -37,7 +44,8 @@ generate-data-dashboard/
 ## How to run
 
 ```bash
-python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.8
+# from the repo root (jolt_toolkit importable: `jolt` conda env or PYTHONPATH=src)
+python .claude/skills/generate-data-dashboard/code/generate_dashboard.py --version 2.2.8
 # → excel_report_database/2.2.8/dashboard/data_dashboard.html (open offline by double-click)
 # overrides: --db-root <reports root>   --out <html path>
 ```
@@ -49,11 +57,16 @@ and conventions: [static/core/conventions.md](static/core/conventions.md).
 
 ## Ownership and neighbours
 
-All detection/layout logic lives in `jolt_toolkit.report_generator.data_dashboard`
-(route changes to `jolt-toolkit-dev`); this skill only RUNS it. A routine refresh — never bump
-the version, never commit the output (gitignored). Full dashboard documentation:
-`src/jolt_toolkit/README.md` ("Data-availability dashboard" section + the
-`data_dashboard.py` module-table row). Regenerate it after `/generate-excel-report`
-regens, or after a `/data-collection-monitor` run that skipped the refresh
-(`--no-dashboard` / `--dry-run`) — a normal monitor run already refreshes the
-dashboard automatically.
+Since v3.1.0 all detection/layout logic lives in THIS skill's `code/`
+(`data_dashboard.py` / `data_dashboard_detail.py` / vendored `assets/uplot/`) —
+**route dashboard CODE changes here, not to `jolt-toolkit-dev`**. The code still
+imports the `jolt_toolkit` package read-only for shared names (`HEADERS` /
+`DIESEL_HEADERS`, segmentation constants such as `_agg_mass` / `resolve_mass_agg` /
+`cluster_mass_data`, and the config loaders); route to `jolt-toolkit-dev` only when a
+new xlsx field or package-shared name is needed. A routine refresh — never bump the
+package version, never commit the output (gitignored). The
+`data-collection-monitor` skill drives this runner CLI in its weekly refresh (CLI
+contract: `--version` / `--db-root` / `--out` / `--details`). Regenerate after
+`/generate-excel-report` regens, or after a `/data-collection-monitor` run that
+skipped the refresh (`--no-dashboard` / `--dry-run`) — a normal monitor run already
+refreshes the dashboard automatically.

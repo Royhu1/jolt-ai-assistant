@@ -1,3 +1,8 @@
+# Canonical home since v3.1.0 (P1 copy, 2026-07-17): moved here from
+# src/jolt_toolkit/vehicle_params_identificator/preprocessing.py — the param-identifier
+# agent's workspace (research_projects/parameter_identify/) now owns the
+# identification code (the package original is removed in P2). Standalone entry:
+#   python research_projects/parameter_identify/code/run_identification.py --help
 """
 巡航段提取模块。
 从 Logger per-leg CSV 中提取满足条件的近似恒速段 (cruise segments)。
@@ -23,7 +28,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from jolt_toolkit.vehicle_params_identificator.config import (
+from config import (
     MAX_SPEED_CV,
     MIN_AVG_SPEED_KMPH,
     MIN_SPEED_FLOOR_KMPH,

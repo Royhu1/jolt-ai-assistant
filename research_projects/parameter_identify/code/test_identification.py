@@ -1,3 +1,8 @@
+# Canonical home since v3.1.0 (P1 copy, 2026-07-17): moved here from
+# src/jolt_toolkit/vehicle_params_identificator/test_identification.py — the param-identifier
+# agent's workspace (research_projects/parameter_identify/) now owns the
+# identification code (the package original is removed in P2). Standalone entry:
+#   python research_projects/parameter_identify/code/run_identification.py --help
 """
 参数辨识算法单元测试。
 使用合成数据验证能量平衡方程和约束线交点法的正确性。
@@ -69,7 +74,7 @@ def _make_cruise_segment(
 
 def test_single_constraint():
     """验证单个约束线的斜率和截距方向。"""
-    from jolt_toolkit.vehicle_params_identificator.identification import (
+    from identification import (
         calculate_linear_constraint,
     )
 
@@ -92,7 +97,7 @@ def test_identification_with_synthetic_data():
     使用两组不同质量的合成数据验证交线法辨识。
     真实值: C_rr = 0.007, C_dA = 6.0
     """
-    from jolt_toolkit.vehicle_params_identificator.identification import (
+    from identification import (
         calculate_all_constraints,
         identify_parameters,
     )
@@ -163,7 +168,7 @@ def test_identification_with_synthetic_data():
 
 def test_cruise_segment_extraction():
     """验证巡航段提取的筛选逻辑。"""
-    from jolt_toolkit.vehicle_params_identificator.preprocessing import (
+    from preprocessing import (
         get_cruise_segments,
     )
 
@@ -194,7 +199,7 @@ def test_cruise_segment_extraction():
 
 def test_preprocessing_filters():
     """验证：低速/停车段应被过滤掉。"""
-    from jolt_toolkit.vehicle_params_identificator.preprocessing import (
+    from preprocessing import (
         get_cruise_segments,
     )
 
@@ -219,11 +224,11 @@ def test_visualization():
     import os
     import tempfile
 
-    from jolt_toolkit.vehicle_params_identificator.identification import (
+    from identification import (
         calculate_all_constraints,
         identify_parameters,
     )
-    from jolt_toolkit.vehicle_params_identificator.visualization import (
+    from visualization import (
         plot_comprehensive_analysis,
     )
 

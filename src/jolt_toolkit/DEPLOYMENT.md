@@ -1,9 +1,10 @@
 # jolt_toolkit — deployment guide
 
 > For an engineer deploying the **Excel-report generation path** (`REG + start/end
-> dates → .xlsx`) on the SRF platform. This covers only the core report path; the
-> AUX tooling (dashboards, fine-tuning, parameter identification) is out of platform
-> scope — see the last section. Architecture reference → [README.md](README.md).
+> dates → .xlsx`) on the SRF platform. Since v3.1.0 that path is the whole package —
+> the developer tooling (rendering, dashboards, fine-tuning, parameter identification)
+> is skill/workspace-owned, no longer in the package, and out of platform scope — see
+> the last section. Architecture reference → [README.md](README.md).
 
 ## What it does
 
@@ -18,13 +19,14 @@ process.
 ```bash
 pip install .            # from the package directory (the dir containing pyproject.toml)
 # optional extras:
-pip install '.[params]'  # + scikit-learn, only for C_rr/C_dA identification (not the report path)
 pip install '.[dev]'     # + pytest / black / isort / mypy (for running the test suite)
 ```
 
-Python **≥ 3.10**. A wheel install ships the config JSONs and the HTML/asset templates
-(declared as package-data), so a non-editable install is self-contained — no repo
-checkout is required to generate a report.
+Python **≥ 3.10**. A wheel install ships the config JSONs (declared as package-data),
+so a non-editable install is self-contained — no repo checkout is required to generate
+a report. Since v3.1.0 the package is the report-generation surface only: it does not
+depend on matplotlib (the rendering / dashboard / params code was re-homed to the repo
+skills — see the last section), and there is no longer a `[params]` extra.
 
 Verify the install:
 
@@ -119,23 +121,50 @@ processed; size it for the full fleet-history you intend to (re)generate.
 `<start>`/`<end>` are `YYYYMMDD`. The workbook has three sheets: **Report** (one row
 per segment), **Graphs** (fixed-axis scatter charts), **Definitions** (column glossary).
 
-`--debug` additionally writes, under `<out_dir>/<REG>/`:
-`raw_telematics/*.csv` (per-leg raw data), `validation_figures/*.png` (segmentation
-figures) and `inspect_*.html` (an offline figure browser). `--raw-only` writes the raw
-CSV + inspect HTML but skips the baked figures. Production report runs need none of
-these — use plain mode (or `--fast` to skip the Logger/Charger fetch entirely).
+`--debug` additionally persists raw artefacts under `<out_dir>/<REG>/`:
+`raw_telematics/*.csv` (per-leg raw data) plus raw logger/charger CSVs. `--raw-only`
+is an alias of `--debug`. Since v3.1.0 the package draws **no** validation figures and
+writes **no** inspect HTML — render those from the persisted raw data via the
+report-visuals skill. Production report runs need none of this — use plain mode (or
+`--fast` to skip the Logger/Charger fetch entirely).
+
+## Un-onboarded registrations (general fallback pipeline)
+
+Any registration works — it does **not** need a `vehicles.json` entry. When the reg is
+not configured, the generator resolves it on SRF (trying UK/NI registration-spacing
+variants), auto-detects the fuel type and (for EV) the telematics column names, and runs
+a **generic** pipeline. **Both fuel types — EV and diesel — always produce a report**: a
+normal, structurally valid xlsx; only the segmentation quality is generic (onboard the
+vehicle for tuned parameters + validation).
+Key platform properties:
+
+- **No writable-state side effects**: a runtime (un-onboarded) config is **never** written
+  to `vehicles.json` — no invented entries, no capacity-ledger write-back (the computed
+  capacity is logged only). Safe on a read-only config mount.
+- **Zero paid API calls**: the fallback path makes **zero** OpenWeather calls (same as the
+  onboarded default — weather stays empty unless the optional post-step is run).
+- **Never an "onboard first" error**: worst case (no usable legs/channels) is a
+  structurally complete, header-only report plus log warnings — not a crash.
+- **The one hard failure**: a registration that does not exist on SRF at all → a single
+  clear error line and a non-zero exit (rc **3**); no stack trace.
 
 ## Optional weather post-step
 
-Weather columns are back-filled after generation (they are not part of the core write).
-The default coarse patcher is quota-friendly (~2 OpenWeather lookups per trip):
+**Platform contract: default generation makes ZERO OpenWeather (paid-API) calls.**
+Weather columns are filled during generation only from the SRF Logger weather channel
+(EV via `LoggerPatcher`; diesel from Logger Channel 7 in-pipeline) — where no Logger
+data exists they simply stay empty. The OpenWeather back-fill below is **optional,
+quota-consuming, and excluded from the platform default workflow** — run it only as a
+deliberate, separate post-step. The default coarse patcher is quota-friendly
+(~2 OpenWeather lookups per trip):
 
 ```bash
 python -m jolt_toolkit.report_generator.weather_patch <folder-or-xlsx>
 # default coarse; add --fine-grained only if you accept the ~17k-calls/vehicle volume
 ```
 
-Requires `OPENWEATHER_API_KEYS`. Safe to re-run (cached).
+Requires `OPENWEATHER_API_KEYS` (without it the patcher loads no keys, logs a warning
+and patches nothing). Safe to re-run (cached).
 
 ## Concurrency
 
@@ -149,17 +178,20 @@ Requires `OPENWEATHER_API_KEYS`. Safe to re-run (cached).
 ## Not part of the platform scope
 
 These are in-repo developer/analysis tooling, **not** the deployed report path — do not
-wire them into the platform:
+wire them into the platform. In v3.1.0 they **left the package** and now live in the
+repo skills / research workspace (they consume the package only through its public API,
+e.g. `run_segment_detection(figure_hook=...)`):
 
-- **Dashboards** (`data_dashboard*.py`) — offline HTML data-availability views.
-- **Fine-tuning** (`finetune.py`, `validation_generator.py`, `rerender_inspect.py`) —
-  interactive segmentation correction producing `*_finetuned` artefacts.
-- **Parameter identification** (`vehicle_params_identificator/`) — C_rr/C_dA, needs the
-  `[params]` extra.
-- **Migration scripts** (`scripts/recompute_from_cache.py`, `refresh_inspect_html.py`).
-
-These modules keep their pre-v3 style (Chinese comments) and are exercised by the repo
-skills, not by a platform deploy.
+- **Validation figures + inspect HTML** — the report-visuals skill
+  (`.claude/skills/report-visuals/`): EV + diesel painters, overlay-regenerate, viewer.
+- **Dashboards** — the generate-data-dashboard skill (offline HTML data-availability views).
+- **Fine-tuning** — the report-finetuner skill (interactive segmentation correction →
+  `*_finetuned` artefacts; delegates figure/HTML regeneration to report-visuals).
+- **Parameter identification** (C_rr/C_dA) — `research_projects/parameter_identify/`
+  (the `param-identifier` agent; needs `scikit-learn`, a repo-level dep in
+  `requirements.txt`).
+- **Migration / maintenance scripts** — re-homed into the owning skills'
+  `tools/` / `code/` directories.
 
 ## Known quirks — do NOT "fix" these silently
 

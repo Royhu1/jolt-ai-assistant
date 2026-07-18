@@ -21,15 +21,35 @@ Logger 速度 / 质量数据有两条来源路径：
 xlsx / inspect HTML（``feat/full-range-report`` 全量布局）。:meth:`regenerate`
 会为目录下 *每一个* 非 finetuned 周期 xlsx 各重写一份 inspect HTML。
 
-用法：
-    from jolt_toolkit.report_generator.validation_generator import ValidationGenerator
+用法（skill-local; run via ``render_visuals.py repaint``, which puts ``code/``
+on ``sys.path``）：
+    from validation_generator import ValidationGenerator
     gen = ValidationGenerator()
     gen.regenerate("excel_report_database/2.2.3/YN25RSY")
+
+Skill-local copy (report-visuals skill, v3.1.0 P1) of
+``src/jolt_toolkit/report_generator/validation_generator.py`` (copied
+2026-07-17; symbol: ``ValidationGenerator``). Function bodies are identical to
+the source; only imports were adapted: the html-viewer helpers and the diesel
+repaint entry now come from the skill-local ``html_viewer`` / ``diesel_visuals``
+modules, while the segmentation constants + ``run_segment_detection`` keep
+coming from the package (segmentation STAYS in ``jolt_toolkit``). Reason: the
+v3.1.0 platform-slim plan moves all validation-figure + inspect-HTML rendering
+out of the package into this skill (package originals removed in Phase P2).
+
+P2b note (2026-07-17): the package no longer paints figures or imports
+matplotlib — ``run_segment_detection`` grew a keyword-only ``figure_hook``
+seam and this module passes the skill-local painter
+(``validation_figure.plot_leg_validation``) as the hook, so figures come out
+identical to the former inline path in a single pass (the hook is invoked at
+exactly the point, and with exactly the arguments, the old inline call used —
+see the docstring in ``segmentation/detection.py``).
 """
 
 from __future__ import annotations
 
 import datetime
+import inspect
 import io
 import logging
 import os
@@ -40,19 +60,62 @@ import pandas as pd
 import srf_client
 from srf_client import paging
 
-from jolt_toolkit.report_generator.report_builder import (
+from jolt_toolkit.report_generator.segmentation.constants import (
+    SOC_COL,
+    TIME_COL,
+    VEHICLE_CONFIG,
+)
+from jolt_toolkit.report_generator.segmentation.detection import (
+    run_segment_detection,
+)
+
+# Skill-local siblings (require code/ on sys.path — the entry CLIs bootstrap it).
+from html_viewer import (
     _clear_day_validation_figures,
     _group_paths_by_date,
     _write_html_viewer,
 )
-from jolt_toolkit.report_generator.segment_algorithms import (
-    SOC_COL,
-    TIME_COL,
-    VEHICLE_CONFIG,
-    run_segment_detection,
-)
+from validation_figure import plot_leg_validation
 
 logger = logging.getLogger(__name__)
+
+# ── figure_hook contract check (v3.1.0 P2b) ─────────────────────────────
+# ``run_segment_detection`` invokes the hook with EXACTLY the positional args
+# (df_raw, charge_segs, discharge_segs, reg, suffix, out_path) plus the kwargs
+# below (contract documented in ``segmentation/detection.py``). The skill-local
+# painter's signature matches because it IS the former inline callee — assert
+# once at import time so any future signature drift fails loudly here instead
+# of deep inside a repaint run.
+_HOOK_POSITIONAL = [
+    "df_raw",
+    "charge_segs",
+    "discharge_segs",
+    "reg",
+    "suffix",
+    "out_path",
+]
+_HOOK_KWARGS = {
+    "ac_col",
+    "dc_col",
+    "panel3_col",
+    "mass_col",
+    "speed_col",
+    "logger_speed_df",
+    "logger_mass_df",
+    "charger_meter_df",
+    "mass_from_logger",
+    "mass_agg",
+    "export_dsoc_overlay",
+}
+_painter_params = inspect.signature(plot_leg_validation).parameters
+assert list(_painter_params)[:6] == _HOOK_POSITIONAL, (
+    "plot_leg_validation's leading positional parameters no longer match the "
+    f"figure_hook contract: {list(_painter_params)[:6]}"
+)
+assert _HOOK_KWARGS <= set(_painter_params), (
+    "plot_leg_validation no longer accepts the figure_hook kwargs: missing "
+    + ", ".join(sorted(_HOOK_KWARGS - set(_painter_params)))
+)
 
 # ── Logger 数据列名 ──────────────────────────────────────────────────────
 _CVW_COL = "CVW gross combination vehicle weight"
@@ -154,9 +217,9 @@ class ValidationGenerator:
         # 重建 4 面板柴油图 + inspect HTML，并以 ``export_overlay=True`` 外置
         # ``<png>.boxes.json`` 叠加（与 EV 的 ``export_dsoc_overlay`` 对齐）。
         if str(cfg.get("fuel_type", "")).upper() == "DIESEL":
-            from jolt_toolkit.report_generator.diesel_pipeline import (
-                regenerate_diesel_validation,
-            )
+            # Skill-local diesel painter (was jolt_toolkit...diesel_pipeline's
+            # regenerate_diesel_validation — the plotting half now lives here).
+            from diesel_visuals import regenerate_diesel_validation
 
             return regenerate_diesel_validation(report_dir, reg=reg, cfg=cfg)
 
@@ -235,6 +298,11 @@ class ValidationGenerator:
                 # Externalise every panel's data label → sidecar JSON for the inspect
                 # HTML's interactive hover overlay (the PNG no longer bakes them).
                 export_dsoc_overlay=True,
+                # v3.1.0 P2b: the package no longer paints — supply the
+                # skill-local painter through the figure_hook seam (invoked
+                # with exactly the former inline-call arguments, so the
+                # figures are identical in a single pass).
+                figure_hook=plot_leg_validation,
             )
             fig_count += 1
 

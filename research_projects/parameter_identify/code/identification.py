@@ -1,3 +1,8 @@
+# Canonical home since v3.1.0 (P1 copy, 2026-07-17): moved here from
+# src/jolt_toolkit/vehicle_params_identificator/identification.py — the param-identifier
+# agent's workspace (research_projects/parameter_identify/) now owns the
+# identification code (the package original is removed in P2). Standalone entry:
+#   python research_projects/parameter_identify/code/run_identification.py --help
 """
 参数辨识核心算法模块。
 基于能量平衡的线性约束法辨识 C_rr 和 C_dA。
@@ -22,7 +27,7 @@ import sympy as sp
 from scipy import stats
 from sklearn.cluster import KMeans
 
-from jolt_toolkit.vehicle_params_identificator.config import (
+from config import (
     AIR_DENSITY,
     GRAVITY,
     MOTOR_EFFICIENCY,

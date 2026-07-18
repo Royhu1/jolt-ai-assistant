@@ -4,9 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jolt-toolkit"
-version = "3.0.0"
-description = "JOLT EV telematics toolkit — report generation, plotting, and parameter identification"
+version = "3.1.0"
+description = "JOLT EV telematics toolkit — Excel report-generation surface (SRF platform)"
 requires-python = ">=3.10"
+# v3.1.0 slim: the package is now the report-generation surface only. matplotlib
+# left with the validation-figure/dashboard/params code (re-homed to skills /
+# research_projects); the report-visuals + generate-pdf-report + plot-figure
+# skills own their own plotting deps. scipy stays (analysis.stats uses it).
 dependencies = [
     "pandas>=2.0.0",
     "numpy>=1.24.0",
@@ -17,18 +21,11 @@ dependencies = [
     "filelock>=3.12.0",
     "geopy",
     "srf_client",
-    "matplotlib>=3.7.0",
     "scipy>=1.10.0",
     "tqdm>=4.65.0",
 ]
 
 [project.optional-dependencies]
-# Crr/CdA vehicle-parameter identification (vehicle_params_identificator/).
-# Not needed for the Excel-report generation path; kept optional so a platform
-# deploy (pip install .) stays lean.
-params = [
-    "scikit-learn",
-]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
@@ -65,17 +62,9 @@ include = ["jolt_toolkit*"]
 # Config JSONs (vehicles / pipelines / plot_config). Without this a wheel install
 # ships no config → VEHICLE_CONFIG == {} → every run fails. Override the location
 # at runtime with JOLT_CONFIG_DIR (writable, for the capacity ledger write-back).
+# v3.1.0: the uPlot + inspect-HTML template assets left the package with the
+# dashboard / inspect-viewer code (re-homed to the generate-data-dashboard and
+# report-visuals skills), so no asset globs remain here.
 "jolt_toolkit.configs" = [
     "*.json",
-]
-# Vendored offline uPlot assets inlined into the dashboard drill-down detail
-# pages (see report_generator/assets/uplot/PROVENANCE.txt). Shipped so non-editable
-# installs can still render detail pages without a network fetch.
-"jolt_toolkit.report_generator" = [
-    "assets/uplot/*.js",
-    "assets/uplot/*.css",
-    "assets/uplot/*.txt",
-    # inspect_*.html viewer template (externalized from report_builder in v3.0.0;
-    # filled via str.format by report_generator.html_viewer).
-    "assets/*.html",
 ]

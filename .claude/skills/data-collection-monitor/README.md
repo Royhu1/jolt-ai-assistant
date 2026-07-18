@@ -50,7 +50,10 @@ Flow of one loop iteration:
    step, and it never overwrites existing reports or raw data.
 3. **Read window** — collect trip/charge detail within the lookback window (cadence-derived,
    default 7 days).
-4. **Refresh dashboard** — regenerate `excel_report_database/<version>/dashboard/data_dashboard.html`.
+4. **Refresh dashboard** — regenerate `excel_report_database/<version>/dashboard/data_dashboard.html`
+   by driving the `generate-data-dashboard` skill's runner
+   (`.claude/skills/generate-data-dashboard/code/generate_dashboard.py`, the dashboard
+   code's owner since v3.1.0 — CLI contract unchanged).
 5. **Digest** — build the single 14-column whole-fleet overview table → HTML → headless-Chrome
    PDF (`build_digest_pdf.py`) → `data_collection_digest_<start>_<end>.pdf`.
 6. **Status** — rewrite `MONITOR_STATUS.md` (cadence / last run / next due / per-vehicle

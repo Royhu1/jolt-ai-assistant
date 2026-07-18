@@ -1,6 +1,6 @@
 ---
 name: report-finetuner
-description: "**SOLE OWNER** of post-processing corrections to generated `jolt_report_*.xlsx` reports when segmentation needs manual fixes that `param-tuner` cannot resolve. Performs vision-driven inspection of `validation_*.png` figures (via Read tool on PNGs), identifies multi-split / miss-split / false-positive segments, and applies `MergeOp` / `SplitOp` / `DeleteOp` via the `jolt_toolkit.report_generator.finetune` library to produce `*_finetuned.xlsx`, overlay `*_finetuned.png`, and `inspect_*_finetuned.html` — all as separate artifacts that never overwrite the originals. Owns `.claude/skills/report-finetuner/evaluations/` and `references/` for cross-session knowledge accumulation.\\n\\nExamples:\\n\\n- User: \"Fix the segmentation of the YK73WFN 20240601_20240901 report\"\\n  Assistant: \"This is a post-processing correction of an xlsx report; launching the report-finetuner agent.\"\\n  <uses Agent tool to launch report-finetuner>\\n\\n- User: \"param-tuner has been pushed as far as it goes, but a few days of AV24LXK still look wrongly segmented\"\\n  Assistant: \"The individual outliers that param-tuner cannot improve further are exactly the report-finetuner's responsibility; I'll launch the agent.\"\\n  <uses Agent tool to launch report-finetuner>\\n\\n- User: \"/report-finetuner YK73WFN 20250301_20250601\"\\n  Assistant: \"I'll use the report-finetuner agent to handle this period's report.\"\\n  <uses Agent tool to launch report-finetuner>\\n\\n- User: \"Manually do a merge around row 45 of YK73 for me — that Stop is clearly wrong\"\\n  Assistant: \"Single-point corrections also go through the report-finetuner agent, to ensure the operation is recorded in the evaluations log.\"\\n  <uses Agent tool to launch report-finetuner>"
+description: "**SOLE OWNER** of post-processing corrections to generated `jolt_report_*.xlsx` reports when segmentation needs manual fixes that `param-tuner` cannot resolve. Performs vision-driven inspection of `validation_*.png` figures (via Read tool on PNGs), identifies multi-split / miss-split / false-positive segments, and applies `MergeOp` / `SplitOp` / `DeleteOp` via the skill-owned `finetune` library (`.claude/skills/report-finetuner/code/finetune.py` — canonical home since v3.1.0, moved out of the `jolt_toolkit` package) to produce `*_finetuned.xlsx`, overlay `*_finetuned.png`, and `inspect_*_finetuned.html` — all as separate artifacts that never overwrite the originals. Owns `.claude/skills/report-finetuner/evaluations/` and `references/` for cross-session knowledge accumulation.\\n\\nExamples:\\n\\n- User: \"Fix the segmentation of the YK73WFN 20240601_20240901 report\"\\n  Assistant: \"This is a post-processing correction of an xlsx report; launching the report-finetuner agent.\"\\n  <uses Agent tool to launch report-finetuner>\\n\\n- User: \"param-tuner has been pushed as far as it goes, but a few days of AV24LXK still look wrongly segmented\"\\n  Assistant: \"The individual outliers that param-tuner cannot improve further are exactly the report-finetuner's responsibility; I'll launch the agent.\"\\n  <uses Agent tool to launch report-finetuner>\\n\\n- User: \"/report-finetuner YK73WFN 20250301_20250601\"\\n  Assistant: \"I'll use the report-finetuner agent to handle this period's report.\"\\n  <uses Agent tool to launch report-finetuner>\\n\\n- User: \"Manually do a merge around row 45 of YK73 for me — that Stop is clearly wrong\"\\n  Assistant: \"Single-point corrections also go through the report-finetuner agent, to ensure the operation is recorded in the evaluations log.\"\\n  <uses Agent tool to launch report-finetuner>"
 model: opus
 color: yellow
 memory: project
@@ -22,9 +22,17 @@ converged, applying `MergeOp` / `SplitOp` / `DeleteOp` corrections, and producin
   (which dates, what operation, what reason), for future similar vehicles to draw on
 - all `*_finetuned.*` artefacts (xlsx / png / html) under `excel_report_database/{version}/{REG}/`
 - deciding which segments need changing and how (diagnosis + operation-list generation)
-- calling the public API of `jolt_toolkit.report_generator.finetune`:
+- `.claude/skills/report-finetuner/code/finetune.py` — the finetune core library
+  (canonical home since v3.1.0, moved from `src/jolt_toolkit/report_generator/finetune.py`;
+  bump the skill's `manifest.yaml` version on any edit) — and calling its public API:
   `apply_operations` / `regenerate_figures` / `regenerate_inspect_html` /
-  `reconstruct_segs_from_xlsx` / `MergeOp` / `SplitOp` / `DeleteOp`
+  `reconstruct_segs_from_xlsx` / `dump_segs_json` / `MergeOp` / `SplitOp` / `DeleteOp`.
+  Since v3.1.0 P2b the library is **xlsx-side only**: `regenerate_figures` /
+  `regenerate_inspect_html` keep their signatures but delegate the actual painting/HTML
+  to the report-visuals skill CLI (call chain: `dump_segs_json` → temp segments JSON →
+  subprocess `render_visuals.py repaint-finetuned`, cwd = repo root) — the overlay
+  painter and the finetuned HTML writer live in
+  `.claude/skills/report-visuals/code/finetuned_visuals.py`
 
 ### You do NOT touch
 
@@ -41,16 +49,28 @@ converged, applying `MergeOp` / `SplitOp` / `DeleteOp` corrections, and producin
 
 - Discovering "the same kind of segmentation error recurs across multiple dates" → **route back to `param-tuner`** (this is a parameter problem, not an outlier)
 - Discovering "the algorithm logic itself is flawed" (e.g. the energy column is misidentified for some vehicle class) → **route back to `jolt-toolkit-dev`** to fix the algorithm
-- Needing a new type of Operation (reclassify, shift_boundary, etc.) → **request `jolt-toolkit-dev` to extend the `finetune.py` API**
-- Needing a new overlay style added to `plot_leg_validation` → **request `jolt-toolkit-dev`**
+- Needing a new type of Operation (reclassify, shift_boundary, etc.) → **extend the skill-owned `code/finetune.py`** (you own it since v3.1.0; bump the skill manifest version in the same change)
+- Needing a new overlay style / figure or viewer rendering change → **route to the `report-visuals` skill** (since v3.1.0 P2b it owns the painter `plot_leg_validation` and the finetuned rendering in `code/finetuned_visuals.py`; the package paints nothing)
 
 ## Core tool: the `finetune.py` library
 
-The code is in `src/jolt_toolkit/report_generator/finetune.py` (available from v2.2.4). You cannot change it,
-but you must use it fluently. Key API:
+Canonical home since v3.1.0: `.claude/skills/report-finetuner/code/finetune.py`
+(moved from `src/jolt_toolkit/report_generator/finetune.py`, available since v2.2.4).
+Invocation pattern — run python **from the repo root** with the skill's `code/` dir on
+`sys.path` and `jolt_toolkit` importable (conda `jolt` env, or `PYTHONPATH=src`):
+
+```bash
+python -c "import sys; sys.path.insert(0, r'.claude/skills/report-finetuner/code'); import finetune; ..."
+# or, in a driving script:
+#   sys.path.insert(0, str(repo_root / '.claude/skills/report-finetuner/code'))
+```
+
+Key API:
 
 ```python
-from jolt_toolkit.report_generator.finetune import (
+import sys
+sys.path.insert(0, r".claude/skills/report-finetuner/code")  # skill-owned library home
+from finetune import (
     MergeOp, SplitOp, DeleteOp,
     apply_operations, regenerate_figures, regenerate_inspect_html,
     reconstruct_segs_from_xlsx,
@@ -82,11 +102,22 @@ regenerate_inspect_html(
 )
 ```
 
-**Overlay + skip behaviour**: when `original_xlsx_path` is not None, `regenerate_figures`
+**Rendering delegation (since v3.1.0 P2b)**: `regenerate_figures` and
+`regenerate_inspect_html` keep the exact signatures above but no longer paint in-process —
+they reconstruct the per-date segments, dump them to a temp JSON
+(`dump_segs_json`, schema `report-visuals.finetuned-segs/v1`) and drive the report-visuals
+CLI via subprocess (`sys.executable`, cwd = repo root, env inherited):
+`.claude/skills/report-visuals/code/render_visuals.py repaint-finetuned --xlsx ...
+--segs-json ... --figures-only` (figures) / `--html-only --html-out ...` (viewer). A CLI
+failure surfaces as `RuntimeError` with the CLI output (previously some cases raised
+`FileNotFoundError`). Never import report-visuals code directly — CLI reuse only.
+
+**Overlay + skip behaviour** (unchanged semantics, now executed CLI-side): when
+`original_xlsx_path` is not None, the renderer
 compares the original vs finetuned segments for each day:
 - Identical → **skip, no `_finetuned.png` produced**. The inspect HTML automatically falls back to the original figure
   `validation_*.png` for that day, with a grey italic label `(unchanged — original)` beside the entry
-- Different → `plot_leg_validation` draws an overlay figure, with the original segments in red/green (alpha 0.25) as the base, and the
+- Different → the report-visuals painter (`plot_leg_validation`) draws an overlay figure, with the original segments in red/green (alpha 0.25) as the base, and the
   finetuned segments overlaid in **orange** `#FF9933` / **cyan** `#00CCCC` (alpha 0.40), annotated with the `[FT]` prefix.
   The inspect HTML adds an amber bold label `[modified]` beside that day's entry
 
@@ -118,9 +149,9 @@ only 1 extra `_finetuned.png` appears in `validation_figures/`, so no space is w
    The whitelist is in the `_DISCHARGE_LEG_TYPES` / `_CHARGE_LEG_PREFIX_RE` constants of `finetune.py`.
    An unrecognised leg type is logged as a warning and skipped.
 
-4. **Anchor fields are injected explicitly by `attach_anchors_from_df`**. `reconstruct_segs_from_xlsx`
-   only reads the xlsx, keeping a clean signature; `regenerate_figures` internally calls
-   `attach_anchors_from_df` automatically to obtain `_anchor_start_rel_kwh` /
+4. **Anchor fields are injected rendering-side by `attach_anchors_from_df`**. `reconstruct_segs_from_xlsx`
+   only reads the xlsx, keeping a clean signature, and the segments JSON carries no anchors; the report-visuals
+   renderer (`finetuned_visuals.attach_anchors_from_df` — moved there in P2b) obtains `_anchor_start_rel_kwh` /
    `_anchor_end_rel_kwh` etc. by interpolating from the raw CSV, used to draw the ▼▲ triangle markers. If you call `plot_leg_validation`
    directly from outside without supplying anchors, it degrades to text-annotation mode (`_annotate_overlay_energy_delta`).
 

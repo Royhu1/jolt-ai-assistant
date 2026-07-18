@@ -27,6 +27,9 @@ generate-excel-report/
 ├── batch_generate.py     # CLI: whole-range quarter-split / standard test fleet
 ├── test_data_config.json # standard test-fleet date ranges (⚠️ hand-maintained ends can be stale)
 ├── patch_graphs_2_2_3.py # in-place Graphs-sheet re-chart tool (maintenance pass, no pipeline re-run)
+├── tools/                # recompute_from_cache.py — SRF-free cached-recompute migration tool
+│                         #   (canonical home since v3.1.0, moved from src/jolt_toolkit/scripts/;
+│                         #   run from the repo root with jolt_toolkit importable)
 ├── static/
 │   ├── core/             # conventions.md — always-loaded contracts (inputs, preconditions,
 │   │                     #   output artefacts, weather/elevation cache-first)

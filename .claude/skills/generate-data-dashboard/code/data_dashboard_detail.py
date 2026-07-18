@@ -1,3 +1,7 @@
+# Canonical home since v3.1.0 (P1 copy, 2026-07-17): moved here from
+# src/jolt_toolkit/report_generator/data_dashboard_detail.py — the
+# generate-data-dashboard skill now owns the dashboard code (the package original
+# is removed in P2). Vendored uPlot assets live in the sibling assets/uplot/.
 """Per-day drill-down detail pages for the data-availability dashboard.
 
 The three-panel ``data_dashboard.html`` (see :mod:`data_dashboard`) shows *which*
@@ -63,7 +67,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from jolt_toolkit.report_generator.data_dashboard import (
+from data_dashboard import (
     _LOGGER_FNAME_RE,
     _TELEMATICS_FNAME_RE,
     RAW_CHARGER_CSV,
@@ -1117,8 +1121,8 @@ def _load_uplot_assets() -> tuple[str, str]:
     if not _UPLOT_JS.is_file() or not _UPLOT_CSS.is_file():
         raise FileNotFoundError(
             "Vendored uPlot assets missing under "
-            f"{_UPLOT_DIR} — run `python -m "
-            "jolt_toolkit.report_generator.data_dashboard --fetch-uplot` first."
+            f"{_UPLOT_DIR} — run `python .claude/skills/generate-data-dashboard/"
+            "code/generate_dashboard.py --fetch-uplot` first."
         )
     return (
         _UPLOT_JS.read_text(encoding="utf-8"),
@@ -1130,7 +1134,7 @@ def fetch_uplot(dest: Path | None = None) -> Path:
     """Download the vendored uPlot JS + CSS from jsDelivr (one-off network step).
 
     Writes ``uPlot.iife.min.js`` and ``uPlot.min.css`` into ``dest`` (default: the
-    package ``assets/uplot`` directory). Returns the destination directory.
+    skill-local ``assets/uplot`` directory). Returns the destination directory.
     """
     dest = dest or _UPLOT_DIR
     dest.mkdir(parents=True, exist_ok=True)
@@ -1245,7 +1249,7 @@ def write_detail_pages(
     ``cfg_by_reg`` (vehicles.json) may be supplied to avoid re-reading; otherwise
     they are loaded here. Returns ``{REG: detail_path}`` for the pages written.
     """
-    from jolt_toolkit.report_generator.data_dashboard import (  # local: avoid cycle
+    from data_dashboard import (  # local: avoid cycle
         _collect_legs_by_reg,
         _load_plot_config,
         _load_vehicles_cfg,

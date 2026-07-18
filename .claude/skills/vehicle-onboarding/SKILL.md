@@ -13,6 +13,11 @@ description: |
   ORCHESTRATES the downstream artefacts — weather backfill, the data-availability
   dashboard, and data-collection-monitor registration — by INVOKING the existing
   skills rather than re-implementing them. Handles both EV and DIESEL vehicles.
+  Boundary (jolt_toolkit v3.1.0): generation never REQUIRES onboarding — an
+  un-onboarded reg still produces a report via the package's general fallback
+  pipeline (generic quality, nothing persisted). This skill's value is tuned
+  segmentation parameters, validation review, and fleet registration
+  (dashboard / data-collection-monitor / capacity ledger).
 ---
 
 # Vehicle Onboarding — Router

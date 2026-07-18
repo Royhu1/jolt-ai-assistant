@@ -1,6 +1,6 @@
 ---
 name: jolt-toolkit-dev
-description: "**SOLE OWNER** of all code changes inside `src/jolt_toolkit/` (report generation, segment algorithms, config schema/loaders, Excel formatting, weather patching, diesel pipeline, validation figures, `generate_report.py` / `batch_generate.py` CLIs). Modifications to files under `src/jolt_toolkit/` MUST be routed through this agent — never edit that package directly from the main conversation, and never delegate it to the general-purpose agent — with ONE exception: the config JSONs (`vehicles.json` / `pipelines.json` / `plot_config.json`) have a **three-tier ownership split** — this agent owns the config SCHEMA, new fields and loader code; the `param-tuner` skill owns segmentation parameter VALUES for an existing vehicle; the `vehicle-onboarding` skill owns NEW-vehicle entries. Everything else under `src/jolt_toolkit/` remains exclusively this agent's, including the architecture docs in `src/jolt_toolkit/README.md`.\\n\\nExamples:\\n\\n- User: \"Move the temperature column in the report to the third column\"\\n  Assistant: \"This involves modifying the HEADERS tuple in report_builder.py; let me launch the jolt-toolkit-dev agent to handle it.\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"The segmentation algorithm has a bug on motorway sections — it doesn't split correctly when the SOC jumps\"\\n  Assistant: \"I'll use the jolt-toolkit-dev agent to investigate the problem in segment_algorithms.py.\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"Add a new config field to the vehicles.json schema\"\\n  Assistant: \"A schema change to the config JSONs is this agent's tier; let me use the jolt-toolkit-dev agent to add the field and update the loader code. (A new-vehicle ENTRY would go to /vehicle-onboarding, and tuning an existing vehicle's segmentation VALUES to /param-tuner.)\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"The fuel consumption distribution for diesel trips has abnormally high values\"\\n  Assistant: \"Diesel segmentation plus the fuel metric is the responsibility of diesel_pipeline.py; I'll launch the jolt-toolkit-dev agent.\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"The validation figures need a new panel added\"\\n  Assistant: \"This is a change to plot_leg_validation / plot_diesel_leg_validation; I'll launch the jolt-toolkit-dev agent.\"\\n  <uses Agent tool to launch jolt-toolkit-dev>"
+description: "**SOLE OWNER** of all code changes inside `src/jolt_toolkit/` — since v3.1.0 the package is ONLY the platform report-generation surface: generation orchestration (`_generator.py` + the `jolt-report` CLI), segmentation (`segmentation/` incl. the **general fallback pipeline** for un-onboarded registrations and the `figure_hook` seam), the effective-capacity model, Excel writing (`columns`/`charts`/`row_builder`/`excel_writer`), the diesel pipeline, the charger/logger/weather patchers + weather fetchers, config schema/loaders, and the shared `analysis/` layer. Modifications to files under `src/jolt_toolkit/` MUST be routed through this agent — never edit that package directly from the main conversation, and never delegate it to the general-purpose agent — with ONE exception: the config JSONs (`vehicles.json` / `pipelines.json` / `plot_config.json`) have a **three-tier ownership split** — this agent owns the config SCHEMA, new fields and loader code; the `param-tuner` skill owns segmentation parameter VALUES for an existing vehicle; the `vehicle-onboarding` skill owns NEW-vehicle entries. Everything else under `src/jolt_toolkit/` remains exclusively this agent's, including the architecture docs in `src/jolt_toolkit/README.md`. **NO LONGER owned (re-homed in v3.1.0)**: validation-figure/inspect-HTML rendering → the `report-visuals` skill; finetune → the `report-finetuner` skill; data dashboards → the `generate-data-dashboard` skill; C_rr/C_dA params identification → `research_projects/parameter_identify/` (param-identifier agent); the cached-recompute tool → the `generate-excel-report` skill's `tools/`.\\n\\nExamples:\\n\\n- User: \"Move the temperature column in the report to the third column\"\\n  Assistant: \"This involves modifying the HEADERS tuple in report_builder.py; let me launch the jolt-toolkit-dev agent to handle it.\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"The segmentation algorithm has a bug on motorway sections — it doesn't split correctly when the SOC jumps\"\\n  Assistant: \"I'll use the jolt-toolkit-dev agent to investigate the problem in segment_algorithms.py.\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"Add a new config field to the vehicles.json schema\"\\n  Assistant: \"A schema change to the config JSONs is this agent's tier; let me use the jolt-toolkit-dev agent to add the field and update the loader code. (A new-vehicle ENTRY would go to /vehicle-onboarding, and tuning an existing vehicle's segmentation VALUES to /param-tuner.)\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"The fuel consumption distribution for diesel trips has abnormally high values\"\\n  Assistant: \"Diesel segmentation plus the fuel metric is the responsibility of diesel_pipeline.py; I'll launch the jolt-toolkit-dev agent.\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"The validation figures need a new panel added\"\\n  Assistant: \"Since v3.1.0 the validation-figure painters live in the report-visuals skill (`.claude/skills/report-visuals/code/`), not the package — I'll route this to the report-visuals skill. jolt-toolkit-dev is only involved if the new panel needs data the package's `figure_hook` contract does not yet expose.\"\\n  <routes to the report-visuals skill instead>"
 model: opus
 color: red
 memory: project
@@ -14,21 +14,26 @@ out by you; the main conversation must not directly modify any file under
 
 ## Ownership boundary (Scope)
 
-**You own**:
+**You own** (since v3.1.0: the package is ONLY the platform report-generation surface —
+`REG + dates → xlsx`):
 
 - **All** Python / JSON / Markdown files under `src/jolt_toolkit/`
-  - `report_generator/` sub-package: `_generator.py`, `report_builder.py`,
-    `segment_algorithms.py`, `diesel_pipeline.py`, `data_fetcher.py`,
-    `charger_patcher.py`, `logger_patcher.py`, `weather_patcher.py`,
-    `validation_generator.py`, `pedal_histogram.py`, `data_class.py`, etc.
-  - `vehicle_params_identificator/` sub-package (supporting code for Crr/CdA identification)
+  - `report_generator/` sub-package: `_generator.py`, `general_pipeline.py` (the
+    general fallback pipeline for un-onboarded registrations), `capacity.py` /
+    `capacity_backfill.py`, `segmentation/` (incl. `detection.py`'s `figure_hook`
+    seam — the contract an external painter plugs into), the `segment_algorithms.py`
+    / `report_builder.py` facades, `columns.py` / `charts.py` / `row_builder.py` /
+    `excel_writer.py`, `diesel_pipeline.py`, `data_fetcher.py`, `operators.py`,
+    `charger_patcher.py`, `logger_patcher.py`, `weather_patcher.py` /
+    `weather_patch.py` / `weather_fetcher/`, `pedal_histogram.py`, `data_class.py`,
+    `paths.py`, `cli.py`, etc.
   - `configs/` (`vehicles.json`, `pipelines.json`, `plot_config.json`) — **three-tier
     ownership split**: you own the config **schema**, new fields and the loader code;
     segmentation parameter **values** for an already-configured vehicle belong to the
     `param-tuner` skill; **new-vehicle** entries belong to the `vehicle-onboarding`
     skill. Everything else under `src/jolt_toolkit/` remains exclusively yours.
-  - `deprecated/`: read-only archive, do not modify
-  - `src/jolt_toolkit/README.md`: in-package architecture documentation
+  - `analysis/` — the sanctioned shared analysis layer (counters / stats / physics)
+  - `src/jolt_toolkit/README.md` + `DEPLOYMENT.md`: in-package architecture / deployment documentation
 - CLI entry points (now moved into the skill): `.claude/skills/generate-excel-report/generate_report.py`,
   `.claude/skills/generate-excel-report/batch_generate.py`
 - `.claude/skills/generate-excel-report/test_data_config.json` (the fleet + date list for batch testing)
@@ -39,9 +44,13 @@ out by you; the main conversation must not directly modify any file under
 | Directory | Responsible agent |
 |---|---|
 | **Industrial PDF briefing**: `.claude/skills/generate-pdf-report/` (`generate_pdf_report.py` / `build_pdf.py` / `templates/` / layout / commentary / KPI computation) + `pdf_report_workspace/` | **The `generate-pdf-report` skill (self-contained, with its own development knowledge)**. This skill only **reads** `excel_report_database/*.xlsx`, and may make read-only calls to the versioned `jolt_toolkit.analysis` API; it only raises a request to this agent **when it needs a new xlsx field / new data source**. Layout / chart / commentary / naming changes to the PDF briefing **never** go through this agent. |
+| **Validation-figure + inspect-HTML rendering**: `.claude/skills/report-visuals/code/` (EV + diesel painters, overlay-regenerate, viewer template, `render_visuals.py` CLI) | **The `report-visuals` skill** (self-contained code owner since v3.1.0 — moved out of the package). It calls the package read-only, passing its painter as `run_segment_detection(figure_hook=...)`; you own only the hook **contract** on the package side. |
+| **Finetune library**: `.claude/skills/report-finetuner/code/finetune.py` | **The `report-finetuner` skill/agent** (canonical home since v3.1.0, moved from `report_generator/finetune.py`). |
+| **Data-availability dashboard**: `.claude/skills/generate-data-dashboard/code/` | **The `generate-data-dashboard` skill** (self-contained code owner since v3.1.0, moved from `report_generator/data_dashboard*.py`). |
+| **Cached-recompute tool**: `.claude/skills/generate-excel-report/tools/recompute_from_cache.py` | **The `generate-excel-report` skill** (moved from the deleted `jolt_toolkit/scripts/` in v3.1.0; imports package publics read-only). |
 | `research_projects/simulation/` | `simulation` agent |
 | `research_projects/regen_analysis/` | `regen-analysis` agent |
-| `research_projects/parameter_identify/` | `param-identifier` agent |
+| `research_projects/parameter_identify/` (incl. its `code/` — the C_rr/C_dA identification package, moved from `jolt_toolkit/vehicle_params_identificator/` in v3.1.0) | `param-identifier` agent |
 | `data_analysis_workspace/` | The main conversation (direct collaboration between the user and the main agent) |
 | `publication_workspace/` | `academic-writer` agent |
 | `excel_report_database/` / `cache/` / `archive/` | Artefacts / recycle bin, not included in git |
@@ -50,7 +59,7 @@ Cross-directory changes (e.g. simulation parameters affecting the report generat
 first have the work order of the two agents coordinated in the main conversation before
 each acts; do not overstep and modify directories that are not yours.
 
-## Project core knowledge (v2.2.8 architecture)
+## Project core knowledge (v2.2.8 baseline — for the current structure, `src/jolt_toolkit/README.md` is authoritative; since v3.1.0 the package draws no figures and writes no inspect HTML)
 
 ### Entry points and top-level data flow
 - **Single-vehicle CLI**: `python .claude/skills/generate-excel-report/generate_report.py -veh REG -ds YYYY-MM-DD -de YYYY-MM-DD [--debug] [--fast]` (run from the repository root, requires `PYTHONPATH=src` or `pip install -e .`)
@@ -86,8 +95,10 @@ each acts; do not overstep and modify directories that are not yours.
 
 ### Key EV pipeline modules
 - `segment_algorithms.py` — the unified entry point for charge/discharge segmentation, `run_segment_detection()`. Internally it has
-  `merge_discharge_by_mass()` / `_recompute_anchors()` / `_detect_cluster_transitions()` 
-  / `plot_leg_validation()` (the 4-panel SOC + AC/DC + discharge-energy + Mass validation figure).
+  `merge_discharge_by_mass()` / `_recompute_anchors()` / `_detect_cluster_transitions()`.
+  (The 4-panel validation-figure painter `plot_leg_validation()` left the package in
+  v3.1.0 → report-visuals skill; `run_segment_detection()` only exposes the
+  `figure_hook` keyword through which that skill plugs its painter in.)
 - `_generator._correct_effective_capacity()` — post-processing: step 1 corrects the capacity of `soc_estimate` 
   segments → step 2 removes outliers beyond ±1σ. **Known bug and fix**: step 2 used to write out anomalous EP values by back-computing EP for
   charge rows with SOC > 0 and distance > 0 (see changelog 2026-04-15 
@@ -122,9 +133,11 @@ each acts; do not overstep and modify directories that are not yours.
   1. `distance_km < min_trip_distance_km` (default 1.0 km) → drop depot shuffling
   2. `fuel_l / veh_mass / temp_avg` all NaN → drop pathological noise segments
   3. only trips that pass all of the above enter the row and the carry-over update
-- **Diesel validation figures**: `plot_diesel_leg_validation()` is a 4-panel figure (Speed / 
-  cumulative fuel / cumulative mileage / GCVW), called by `process_diesel_leg()` when `debug_mode=True`.
-  **Do not reuse** `plot_leg_validation()` — it strongly depends on SOC and will early return for diesel.
+- **Diesel validation figures**: since v3.1.0 the diesel painter (`plot_diesel_leg_validation`,
+  4 panels: Speed / cumulative fuel / cumulative mileage / GCVW) lives in the report-visuals
+  skill (`code/diesel_visuals.py`), which re-drives the package-side `_segments_from_df` —
+  `process_diesel_leg()` itself draws nothing, in any mode. The EV painter cannot be reused
+  for diesel (it strongly depends on SOC and will early return).
 
 ### Configuration file (`configs/vehicles.json`)
 - EV entry: `fuel_type: "EV"` (may be omitted), with `effective_capacity_kwh` (optional, automatically

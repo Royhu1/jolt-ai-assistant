@@ -1,3 +1,8 @@
+# Canonical home since v3.1.0 (P1 copy, 2026-07-17): moved here from
+# src/jolt_toolkit/vehicle_params_identificator/data_loader.py — the param-identifier
+# agent's workspace (research_projects/parameter_identify/) now owns the
+# identification code (the package original is removed in P2). Standalone entry:
+#   python research_projects/parameter_identify/code/run_identification.py --help
 """
 数据加载模块。
 从 SRF API 下载 Logger 遥测数据（1s 分辨率），保存为 per-leg CSV。
@@ -20,7 +25,7 @@ import srf_client
 from srf_client import filter as srf_filter
 from srf_client import paging, sort
 
-from jolt_toolkit.vehicle_params_identificator.config import DATA_DIR
+from config import DATA_DIR
 
 logger = logging.getLogger(__name__)
 

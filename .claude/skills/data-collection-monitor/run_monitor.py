@@ -411,7 +411,12 @@ def _charger_backfill_sweep(repo_root: Path, version: str) -> str:
 # dashboard + PDF + status
 # --------------------------------------------------------------------------- #
 def _refresh_dashboard(repo_root: Path, version: str) -> str:
-    cmd = [sys.executable, "-m", "jolt_toolkit.report_generator.data_dashboard", "--version", version]
+    # v3.1.0: the dashboard code is owned by the generate-data-dashboard skill
+    # (self-contained, like generate-pdf-report); drive its runner CLI instead of
+    # the former `python -m jolt_toolkit.report_generator.data_dashboard`.
+    # The CLI contract is unchanged (--version / --db-root / --out / --details).
+    runner = SKILL_DIR.parent / "generate-data-dashboard" / "code" / "generate_dashboard.py"
+    cmd = [sys.executable, str(runner), "--version", version]
     log.info("refreshing dashboard: %s", " ".join(cmd))
     proc = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True)
     if proc.returncode != 0:

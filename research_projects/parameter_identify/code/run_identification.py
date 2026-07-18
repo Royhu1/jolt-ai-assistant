@@ -1,21 +1,26 @@
+# Canonical home since v3.1.0 (P1 copy, 2026-07-17): moved here from
+# src/jolt_toolkit/vehicle_params_identificator/run_identification.py — the param-identifier
+# agent's workspace (research_projects/parameter_identify/) now owns the
+# identification code (the package original is removed in P2). Standalone entry:
+#   python research_projects/parameter_identify/code/run_identification.py --help
 """
 JOLT 电动重卡参数辨识 CLI 入口。
 
 用法:
     # 探测通道
-    python -m jolt_toolkit.vehicle_params_identificator.run_identification --probe --veh YN25RSY
+    python research_projects/parameter_identify/code/run_identification.py --probe --veh YN25RSY
 
     # 单辆车辨识（自动从 IDENTIFICATION_CONFIGS 读取 max_torque + 日期范围）
-    python -m jolt_toolkit.vehicle_params_identificator.run_identification --veh YN25RSY
+    python research_projects/parameter_identify/code/run_identification.py --veh YN25RSY
 
     # 全部有 Logger 的车辆
-    python -m jolt_toolkit.vehicle_params_identificator.run_identification --all
+    python research_projects/parameter_identify/code/run_identification.py --all
 
     # 仅从已下载数据辨识
-    python -m jolt_toolkit.vehicle_params_identificator.run_identification --veh YN25RSY --no-download
+    python research_projects/parameter_identify/code/run_identification.py --veh YN25RSY --no-download
 
     # 自定义参数
-    python -m jolt_toolkit.vehicle_params_identificator.run_identification --veh YN25RSY --max-torque 1200 --seg-distance 10000 --min-speed 60
+    python research_projects/parameter_identify/code/run_identification.py --veh YN25RSY --max-torque 1200 --seg-distance 10000 --min-speed 60
 """
 
 from __future__ import annotations
@@ -30,7 +35,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from jolt_toolkit.vehicle_params_identificator import config as cfg
+import config as cfg
 
 
 def setup_logging(vehicle_reg: str = "all") -> logging.Logger:
@@ -54,7 +59,7 @@ def setup_logging(vehicle_reg: str = "all") -> logging.Logger:
 
 def probe_vehicle(vehicle_reg: str, srf_reg: str, srf=None):
     """探测车辆的全日期范围 Logger 数据。"""
-    from jolt_toolkit.vehicle_params_identificator.data_loader import (
+    from data_loader import (
         discover_logger_channels,
     )
 
@@ -90,7 +95,7 @@ def _apply_filters(
     log: logging.Logger,
 ) -> list[dict]:
     """应用指定过滤器组合。"""
-    from jolt_toolkit.vehicle_params_identificator.identification import (
+    from identification import (
         filter_by_elevation_change,
         filter_by_mass_deviation,
         filter_by_wind_mean,
@@ -126,18 +131,18 @@ def run_single_vehicle(
     log: logging.Logger,
 ) -> dict | None:
     """对单辆车执行完整辨识流程。"""
-    from jolt_toolkit.vehicle_params_identificator.data_loader import (
+    from data_loader import (
         download_logger_data,
         load_vehicle_csvs,
     )
-    from jolt_toolkit.vehicle_params_identificator.identification import (
+    from identification import (
         calculate_all_constraints,
         identify_parameters,
     )
-    from jolt_toolkit.vehicle_params_identificator.preprocessing import (
+    from preprocessing import (
         extract_all_cruise_segments,
     )
-    from jolt_toolkit.vehicle_params_identificator.visualization import (
+    from visualization import (
         plot_comprehensive_analysis,
         plot_mass_histogram,
     )
@@ -368,7 +373,7 @@ def main():
     # SRF 客户端
     srf = None
     if not args.no_download or args.probe:
-        from jolt_toolkit.vehicle_params_identificator.data_loader import (
+        from data_loader import (
             _make_srf_client,
         )
 

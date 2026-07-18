@@ -3,7 +3,9 @@
 ## Related resources
 
 - Agent definition: `.claude/agents/report-finetuner.md`
-- Core library: `src/jolt_toolkit/report_generator/finetune.py` (maintained by `jolt-toolkit-dev`)
+- Core library: `.claude/skills/report-finetuner/code/finetune.py` (canonical home since
+  v3.1.0 — moved from `src/jolt_toolkit/report_generator/finetune.py`; import it with the
+  skill's `code/` dir on `sys.path`, `jolt_toolkit` importable for shared names)
 - Past case studies: `.claude/skills/report-finetuner/references/{REG}.md`
 - Past logs: `.claude/skills/report-finetuner/evaluations/{REG}_{period}_finetune_log.md`
 

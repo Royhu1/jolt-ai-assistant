@@ -1,11 +1,20 @@
 """
-report_generator.html_viewer
-============================
+html_viewer (report-visuals skill)
+==================================
 Builds the ``inspect_*.html`` validation-figure viewer for a vehicle/period and
 the per-day figure bookkeeping helpers (active-date extraction from the xlsx,
 per-day path grouping, stale-figure sweep). The viewer's HTML/CSS/JS body lives
-in the packaged data file ``assets/inspect_viewer_template.html`` and is filled
-via ``str.format`` (byte-identical to the former inline f-string).
+in the skill-local data file ``assets/inspect_viewer_template.html`` and is
+filled via ``str.format`` (byte-identical to the former inline f-string).
+
+Skill-local copy (report-visuals skill, v3.1.0 P1) of
+``src/jolt_toolkit/report_generator/html_viewer.py`` (copied 2026-07-17;
+symbols: ``_write_html_viewer``, ``_compute_active_dates_from_xlsx``,
+``_group_paths_by_date``, ``_clear_day_validation_figures``). Function bodies
+are identical to the source; the ``assets/`` template lookup is unchanged and
+now resolves to the skill's own ``code/assets/inspect_viewer_template.html``.
+Reason: the v3.1.0 platform-slim plan moves all inspect-HTML rendering out of
+the package into this skill (the package originals are removed in Phase P2).
 
 Split out of report_builder.py in v3.0.0 (pure move + template externalization).
 """

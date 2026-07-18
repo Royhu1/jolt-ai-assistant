@@ -3,7 +3,8 @@
 ## How to run
 
 ```bash
-python -m jolt_toolkit.report_generator.data_dashboard --version 2.2.8
+# from the repo root (jolt_toolkit importable: `jolt` conda env or PYTHONPATH=src)
+python .claude/skills/generate-data-dashboard/code/generate_dashboard.py --version 2.2.8
 # → excel_report_database/2.2.8/dashboard/data_dashboard.html (open offline by double-click)
 # overrides: --db-root <reports root>   --out <html path>
 ```

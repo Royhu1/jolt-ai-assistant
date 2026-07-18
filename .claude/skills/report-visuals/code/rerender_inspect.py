@@ -1,10 +1,17 @@
 """Standalone CLI: re-render ``inspect_*.html`` viewers from existing artefacts.
 
+Skill-local copy (report-visuals skill, v3.1.0 P1) of
+``src/jolt_toolkit/report_generator/rerender_inspect.py`` (copied 2026-07-17;
+symbols: ``rerender_report``, ``rerender_version``, ``main``). Function bodies
+are identical to the source; only the import was adapted —
+``_write_html_viewer`` now comes from the skill-local ``html_viewer`` sibling
+(the skill owns the viewer template), so the emitted HTML tracks the SKILL's
+template, not the package's.
+
 Rewrites every report's ``inspect_*.html`` with the *current* HTML template by
-re-running :func:`report_builder._write_html_viewer` against the validation
+re-running :func:`html_viewer._write_html_viewer` against the validation
 figures and ``<stem>.boxes.json`` sidecars already on disk — no PNG / sidecar is
-re-rendered. Because it simply delegates to whatever ``_write_html_viewer`` is in
-the package, it always emits the current viewer: the v2.2.6 interactive renderer
+re-rendered. It always emits the current viewer: the v2.2.6 interactive renderer
 (``renderInteractive`` — default-hidden overlay labels, hover hotzones, a pinned
 SoC info box and de-collided markers), which reads both the new
 ``{boxes, segments, soc_axis}`` dict sidecar and the legacy flat-list sidecars.
@@ -12,7 +19,10 @@ This lets HTML-template fixes ship without an expensive figure regeneration.
 
 Usage
 -----
-    python -m jolt_toolkit.report_generator.rerender_inspect \
+    python .claude/skills/report-visuals/code/render_visuals.py \
+        rerender-html --version 2.2.5 --db-root <db-root> [--reg <REG>]
+    # or directly:
+    python .claude/skills/report-visuals/code/rerender_inspect.py \
         --version 2.2.5 --db-root <db-root> [--reg <REG>]
 
 For each ``jolt_report_<REG>_<YYYYMMDD>_<YYYYMMDD>.xlsx`` under
@@ -29,9 +39,15 @@ from __future__ import annotations
 import argparse
 import datetime
 import re
+import sys
 from pathlib import Path
 
-from jolt_toolkit.report_generator.report_builder import _write_html_viewer
+# Bootstrap: make the skill's code/ importable when run as a plain script.
+_CODE_DIR = str(Path(__file__).resolve().parent)
+if _CODE_DIR not in sys.path:
+    sys.path.insert(0, _CODE_DIR)
+
+from html_viewer import _write_html_viewer  # noqa: E402 (needs the bootstrap above)
 
 # 报告文件名解析：jolt_report_<REG>_<YYYYMMDD>_<YYYYMMDD>[_finetuned].xlsx
 # （与 validation_generator / diesel_pipeline 中的 _XLSX_RE 保持一致）
@@ -95,7 +111,8 @@ def rerender_version(db_root: Path, version: str, reg_filter: str | None = None)
 
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(
-        prog="python -m jolt_toolkit.report_generator.rerender_inspect",
+        # Skill-local since v3.1.0 (the package module was removed in P2).
+        prog="python .claude/skills/report-visuals/code/rerender_inspect.py",
         description=(
             "Re-render inspect_*.html viewers from existing figures/sidecars "
             "(no PNG / sidecar regeneration)."

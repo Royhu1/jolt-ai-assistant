@@ -1,3 +1,8 @@
+# Canonical home since v3.1.0 (P1 copy, 2026-07-17): moved here from
+# src/jolt_toolkit/scripts/recompute_from_cache.py — the generate-excel-report
+# skill now carries this manual migration tool (the package original is removed
+# in P2). All imports stay on the jolt_toolkit package (public pipeline
+# functions); run from the repo root with jolt_toolkit importable.
 """
 recompute_from_cache
 ====================
@@ -8,7 +13,8 @@ Provenance: moved in v3.0.0 from
 ``report_generator/recompute_v227.py`` to ``scripts/recompute_from_cache.py`` (a
 reusable one-off migration tool, not part of the deployed report-generation path).
 The historical name ``recompute_v227`` is retained in the changelogs. Invoke via
-``python -m jolt_toolkit.scripts.recompute_from_cache --src-ver <old> --dst-ver <new>``.
+``python .claude/skills/generate-excel-report/tools/recompute_from_cache.py
+--src-ver <old> --dst-ver <new>`` (from the repo root, jolt_toolkit importable).
 
 Despite the historical name, this is the **general** cached-recompute tool for any
 release whose changes are all post-segmentation; it is ``--src-ver`` / ``--dst-ver``
