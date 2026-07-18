@@ -13,7 +13,9 @@ write-back (:func:`_persist_effective_capacity`).
 The two big functions were ``@staticmethod``s on ``JOLTReportGenerator``; they
 are re-exposed there (``JOLTReportGenerator._correct_effective_capacity`` /
 ``_persist_effective_capacity``) by ``_generator`` so existing call sites keep
-working (:mod:`jolt_toolkit.scripts.recompute_from_cache`,
+working (the cached-recompute tool
+``.claude/skills/generate-excel-report/tools/recompute_from_cache.py`` — moved
+out of the package in v3.1.0 — and
 :mod:`jolt_toolkit.report_generator.capacity_backfill`).
 """
 

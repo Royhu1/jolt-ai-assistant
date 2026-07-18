@@ -1,9 +1,10 @@
 # jolt_toolkit — deployment guide
 
 > For an engineer deploying the **Excel-report generation path** (`REG + start/end
-> dates → .xlsx`) on the SRF platform. This covers only the core report path; the
-> AUX tooling (dashboards, fine-tuning, parameter identification) is out of platform
-> scope — see the last section. Architecture reference → [README.md](README.md).
+> dates → .xlsx`) on the SRF platform. Since v3.1.0 that path is the whole package —
+> the developer tooling (rendering, dashboards, fine-tuning, parameter identification)
+> is skill/workspace-owned, no longer in the package, and out of platform scope — see
+> the last section. Architecture reference → [README.md](README.md).
 
 ## What it does
 
@@ -132,8 +133,9 @@ report-visuals skill. Production report runs need none of this — use plain mod
 Any registration works — it does **not** need a `vehicles.json` entry. When the reg is
 not configured, the generator resolves it on SRF (trying UK/NI registration-spacing
 variants), auto-detects the fuel type and (for EV) the telematics column names, and runs
-a **generic** pipeline. The output is a normal, structurally valid xlsx; only the
-segmentation quality is generic (onboard the vehicle for tuned parameters + validation).
+a **generic** pipeline. **Both fuel types — EV and diesel — always produce a report**: a
+normal, structurally valid xlsx; only the segmentation quality is generic (onboard the
+vehicle for tuned parameters + validation).
 Key platform properties:
 
 - **No writable-state side effects**: a runtime (un-onboarded) config is **never** written
@@ -148,15 +150,21 @@ Key platform properties:
 
 ## Optional weather post-step
 
-Weather columns are back-filled after generation (they are not part of the core write).
-The default coarse patcher is quota-friendly (~2 OpenWeather lookups per trip):
+**Platform contract: default generation makes ZERO OpenWeather (paid-API) calls.**
+Weather columns are filled during generation only from the SRF Logger weather channel
+(EV via `LoggerPatcher`; diesel from Logger Channel 7 in-pipeline) — where no Logger
+data exists they simply stay empty. The OpenWeather back-fill below is **optional,
+quota-consuming, and excluded from the platform default workflow** — run it only as a
+deliberate, separate post-step. The default coarse patcher is quota-friendly
+(~2 OpenWeather lookups per trip):
 
 ```bash
 python -m jolt_toolkit.report_generator.weather_patch <folder-or-xlsx>
 # default coarse; add --fine-grained only if you accept the ~17k-calls/vehicle volume
 ```
 
-Requires `OPENWEATHER_API_KEYS`. Safe to re-run (cached).
+Requires `OPENWEATHER_API_KEYS` (without it the patcher loads no keys, logs a warning
+and patches nothing). Safe to re-run (cached).
 
 ## Concurrency
 

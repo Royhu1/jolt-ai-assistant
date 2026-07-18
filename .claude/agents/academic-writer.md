@@ -36,7 +36,7 @@ citations and review feedstock; do not rewrite each other's files.
 | Single-vehicle scatter + fit | `plot-figure` skill (style source: `data_analysis_workspace/shared/generate_figures.py`) | per-vehicle kWh/km vs mass |
 | Multi-vehicle summary | `plot-figure` skill (same style source) | all vehicle×operation combined |
 | OEM comparison | `plot-figure` skill (per-OEM chart mode) | aggregated by OEM |
-| Validation figure | `segment_algorithms.plot_leg_validation()` | segmentation quality validation |
+| Validation figure | `report-visuals` skill (`.claude/skills/report-visuals/` — the painter moved out of `jolt_toolkit` in v3.1.0) | segmentation quality validation |
 
 The submission version uses anonymised mode (OEM A/B/C/D), internal discussion uses named mode.
 
