@@ -142,6 +142,6 @@ default key).
 | P2b — skill-side rewiring (figure_hook adoption + CLI-delegated finetuned rendering) | **Done** (repaint byte-identical to the P1 smoke; finetuned wrapper smoke green) | `4416361` |
 | P3 — general fallback pipeline | **Done** (+19 tests → 249 passed; un-onboarded EV + diesel smokes green, onboarded regression 0 diffs, nonexistent reg → exit 3) | `cb3834e` |
 | P4 — governance sync | **Done** (jolt-toolkit-dev scope shrink; root README rows; package README v3.1.0 migration notes + DEPLOYMENT contracts; vehicle-onboarding boundary note 2.0.2; capacity.py docstring path; straggler sweep; registry + independence checks green) | P4 commit (this change) |
-| P5 — verification | **In flight** — the 7-vehicle v3.1.0 candidate generation (`tmp/v310_compare/candidate_310*`, main repo) has completed; the cell-by-cell golden compare vs `candidate_300` + remaining AUX smokes are pending | — |
+| P5 — verification | **DONE (2026-07-18)** — 7-vehicle golden compare v3.1.0 vs v3.0.0 `candidate_300`: **7/7 IDENTICAL, 0 differing cells** (`tmp/v310_compare/comparison_report_310_vs_300.md`); AUX smokes covered in P1/P2b (repaint PNGs byte-identical, dashboard parity, finetuned repaint); un-onboarded EV/diesel + nonexistent-reg tests in P3; suite 249 passed / 2 skipped | — |
 
 Detailed change log: main repo `tmp/v310_changes_log.md`.
