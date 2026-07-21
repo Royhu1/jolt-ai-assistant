@@ -4,6 +4,64 @@
 > decision: context → options considered → decision → consequences. Newest at the top.
 > Plan documents for in-flight changes live beside this file.
 
+## 2026-07-21 — ADR-003: v3.2.0 workspace form — de-packaging, comment cleanup, versions.md
+
+**Context**: user decision 2026-07-21 — the SRF platform will **vendor the toolkit
+folder**, not pip-install it. The installable-package form (build-system, wheel +
+package-data metadata, `jolt-report` console script, `importlib.metadata` version
+resolution) is now dead weight and a second dependency-declaration surface that can
+drift from `requirements.txt`. Separately, the code carries accumulated version-history
+narration in comments (survey 2026-07-21: 96 `vX.Y.Z` mentions across 26 package files
+— "added in v2.2.3", "since v3.1.0", facade "Removed in v3.1.0" storytelling) that
+duplicates changelog/README-migration content and rots in place; the user wants it
+stripped and a standalone `versions.md` created instead.
+
+**Options considered**:
+1. *Form*: (a) keep the installable package (status quo); (b) plain code workspace,
+   code staying at `src/jolt_toolkit/` — **chosen**; (c) workspace + relocate out of
+   `src/` — rejected: form ≠ location, and dozens of `PYTHONPATH=src` references
+   repo-wide make relocation pure churn.
+2. *Version identity*: (a) 4.0.0 (formally breaking — console script + dist metadata
+   disappear); (b) **3.2.0 minor — chosen** (user preference; every consumer is in-repo
+   and rewired in the same change; ADR-002 precedent).
+3. *Version-history knowledge*: (a) leave in code comments (rots, duplicates); (b)
+   delete outright (loses facts); (c) **move condensed into `src/jolt_toolkit/versions.md`
+   — chosen** (travels with the vendored folder; append-forward from now on, wired into
+   the release procedure).
+4. *Dependency source*: requirements.txt becomes the single source (pre-decision).
+   Mechanical refinement adopted at plan level: runtime deps live in
+   `src/jolt_toolkit/requirements.txt` (the vendorable folder is self-describing — same
+   "travels with the workspace" logic as versions.md), and the root `requirements.txt`
+   includes it via `-r` plus repo-level extras; each dep declared exactly once.
+   Flat-single-file fallback documented in the plan if the user prefers.
+
+**Decision**: proceed per `plan_v320_workspace_form.md` (beside this file). Shape:
+`pyproject.toml` keeps only `[tool.black]`/`[tool.isort]`/`[tool.pytest.ini_options]`
+(with `pythonpath=["src"]` — what keeps `pytest` working uninstalled); `__init__.py`
+gets a plain `__version__ = "3.2.0"` constant; the CLI's documented entry points become
+`python -m jolt_toolkit.report_generator.cli` + library import; DEPLOYMENT.md rewritten
+for vendoring; comment cleanup per crisp DELETE/KEEP rules (delete the *when*, keep the
+*why*: units, ordering warnings, cache-key/column-index/`=NA()` contracts, figure_hook
+docstring, routing facts). Local env continuity post-merge via a `.pth` file pointing at
+`<repo>/src` — zero call-site changes for skills/agents. Implementation: W1/W2 →
+jolt-toolkit-dev (the two repo-root form files `pyproject.toml`/`requirements.txt`
+explicitly in its brief), W3 → general agent, W4 → architect review + user merge call.
+
+**Verification decision (reasoned)**: no fresh 7-vehicle golden regen. The `__version__`
+constant was audited as outside the xlsx numeric surface (feeds only the wrapper default
+out-dir + CLI display), W2 is AST-invariant by construction (AST-mask proof: strip
+docstrings, mask strings, identical dumps), and the residual import/path risk is fully
+exercised by the 249-test suite + fast EV (YK73WFN) and short diesel (WU70GLV) smokes vs
+the standing goldens (0 diffs required) — a regen would re-test the same paths at ~100×
+cost.
+
+**Consequences**: `pip install .` intentionally stops working (the signal that
+installing is no longer the supported form); the git-workflow rule "version belongs to
+pyproject" moves to the `__version__` constant + versions.md; release-procedure step 3
+gains "append the versions.md section"; the health-check LESSONS gotcha "re-`pip
+install -e .` after a version bump" becomes obsolete under the `.pth` setup; the
+dist-repo sync for James reduces to "vendor `src/jolt_toolkit` as-is".
+
 ## 2026-07-17 — ADR-002: v3.1.0 platform slimming — package = report generation only
 
 **Context**: jolt_toolkit v3.0.0 will be deployed on the SRF platform (James). The user
