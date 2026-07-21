@@ -1,4 +1,4 @@
-"""CLI contract for the ``jolt-report`` console entry point.
+"""CLI contract for the ``python -m jolt_toolkit.report_generator.cli`` entry point.
 
 Exercised via subprocess (a real ``python -m jolt_toolkit.report_generator.cli``
 invocation) so the __main__ / argparse / fail-fast path is tested end-to-end.
@@ -45,7 +45,8 @@ def test_help_exits_zero():
     assert proc.returncode == 0, proc.stderr
     out = proc.stdout + proc.stderr
     assert "usage" in out.lower()
-    assert "jolt-report" in out
+    # The module-form prog string (no console script since v3.2.0).
+    assert "python -m jolt_toolkit.report_generator.cli" in out
 
 
 def test_missing_srf_api_key_exits_2():

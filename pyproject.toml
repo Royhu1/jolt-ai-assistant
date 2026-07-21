@@ -1,47 +1,15 @@
-[build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "jolt-toolkit"
-version = "3.1.0"
-description = "JOLT EV telematics toolkit — Excel report-generation surface (SRF platform)"
-requires-python = ">=3.10"
-# v3.1.0 slim: the package is now the report-generation surface only. matplotlib
-# left with the validation-figure/dashboard/params code (re-homed to skills /
-# research_projects); the report-visuals + generate-pdf-report + plot-figure
-# skills own their own plotting deps. scipy stays (analysis.stats uses it).
-dependencies = [
-    "pandas>=2.0.0",
-    "numpy>=1.24.0",
-    "requests>=2.31.0",
-    "python-dotenv>=1.0.0",
-    "xlsxwriter>=3.1.0",
-    "openpyxl>=3.1.0",
-    "filelock>=3.12.0",
-    "geopy",
-    "srf_client",
-    "scipy>=1.10.0",
-    "tqdm>=4.65.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
-    "pytest-mock>=3.11.0",
-    "black>=23.0.0",
-    "isort>=5.12.0",
-    "mypy>=1.5.0",
-]
-
-[project.scripts]
-jolt-report = "jolt_toolkit.report_generator.cli:main"
+# Tool configuration only. Since v3.2.0 jolt_toolkit is a vendored code
+# workspace, NOT an installable package: there is no build-system / [project]
+# table, no wheel, and no console script. Runtime dependencies live in
+# src/jolt_toolkit/requirements.txt (so they travel with the vendored folder),
+# the package version in src/jolt_toolkit/__init__.py, and the version history
+# in src/jolt_toolkit/versions.md. `pip install .` here intentionally fails —
+# put src/ on the import path (PYTHONPATH=src or a site-packages .pth) instead.
 
 [tool.pytest.ini_options]
 # Put the src-layout package on sys.path for the test session (pytest >=7 built-in
-# rootdir-relative prepend) so `pytest` from the repo root works without exporting
-# PYTHONPATH. Prepending means the worktree src wins over any editable install.
+# rootdir-relative prepend) so `pytest` from the repo root works without any
+# install or exported PYTHONPATH.
 pythonpath = ["src"]
 testpaths = ["tests"]
 
@@ -53,18 +21,3 @@ line-length = 88
 # formatting (trailing commas, parenthesised multi-line imports) so the two
 # tools do not fight. Three groups: stdlib / third-party / first-party.
 profile = "black"
-
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["jolt_toolkit*"]
-
-[tool.setuptools.package-data]
-# Config JSONs (vehicles / pipelines / plot_config). Without this a wheel install
-# ships no config → VEHICLE_CONFIG == {} → every run fails. Override the location
-# at runtime with JOLT_CONFIG_DIR (writable, for the capacity ledger write-back).
-# v3.1.0: the uPlot + inspect-HTML template assets left the package with the
-# dashboard / inspect-viewer code (re-homed to the generate-data-dashboard and
-# report-visuals skills), so no asset globs remain here.
-"jolt_toolkit.configs" = [
-    "*.json",
-]

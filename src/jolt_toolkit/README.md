@@ -1,29 +1,36 @@
-# jolt_toolkit — package architecture documentation
+# jolt_toolkit — workspace architecture documentation
 
-> Developer-facing internal architecture reference for the `jolt_toolkit` package.
-> Current version **v3.1.0** (platform slimming — the package is now the
-> report-generation surface only; validation-figure/inspect-HTML rendering,
-> dashboards, finetune and Crr/CdA params were re-homed to skills /
-> `research_projects`, matplotlib left the package deps, and a `figure_hook` seam
-> lets an external painter draw figures. Onboarded-vehicle report output stays
-> numerically identical to v3.0.0 / v2.2.8). Project overview & repo-wide usage →
-> [root README.md](../../README.md) | deployment guide → [DEPLOYMENT.md](DEPLOYMENT.md).
+> Developer-facing internal architecture reference for the `jolt_toolkit` workspace.
+> Current version **v3.2.0** (workspace form — the toolkit is now a **vendored code
+> workspace**, not an installable package: no wheel, no `pip install`, no console
+> script; runtime deps in [`requirements.txt`](requirements.txt), version in
+> `__init__.py`, history in [`versions.md`](versions.md)). Behaviour is unchanged —
+> the report-generation surface is the report-generation surface (SRF
+> telematics/logger/charger → `.xlsx`), the shared `analysis/` helpers, and the
+> optional weather back-fill post-step; the former AUX tooling
+> (validation-figure/inspect-HTML rendering, dashboards, fine-tuning, C_rr/C_dA
+> identification) lives in the repo's skills / research workspace and consumes this
+> workspace read-only. Project overview & repo-wide usage →
+> [root README.md](../../README.md) | deployment guide → [DEPLOYMENT.md](DEPLOYMENT.md)
+> | version history → [versions.md](versions.md).
 
-The package generates a formatted Excel report for a vehicle over a date range from
-SRF telematics/logger/charger data: user supplies `REG + start/end` → `.xlsx`. Since
-v3.1.0 that report-generation surface (plus the optional weather back-fill post-step
-and the shared `analysis/` helpers) is **all** the package contains — the former AUX
-tooling (dashboards, fine-tuning, rendering, C_rr/C_dA identification) lives in the
-repo's skills / research workspace and consumes the package read-only (see the
-v3.1.0 re-homing note below).
+The workspace generates a formatted Excel report for a vehicle over a date range from
+SRF telematics/logger/charger data: user supplies `REG + start/end` → `.xlsx`. That
+report-generation surface (plus the optional weather back-fill post-step and the
+shared `analysis/` helpers) is **all** it contains.
 
-## Installation and usage
+## Setup and usage
 
-### Install
+### Setup (workspace form)
+
+The workspace is vendored, not installed — put `src/` on the import path and install
+its runtime deps:
 
 ```bash
-pip install -e .          # editable, for local development
-# or:  pip install .      # a normal install ships the config JSONs + assets (package-data)
+pip install -r src/jolt_toolkit/requirements.txt   # the workspace's own runtime deps
+export PYTHONPATH=/path/to/repo/src                # or a .pth file in site-packages
+# (for the repo dev checkout: `pip install -r requirements.txt` adds the test/lint
+#  toolchain, and the jolt conda env carries a .pth pointing at <repo>/src.)
 ```
 
 Provide credentials in a `.env` in the working directory (or export them):
@@ -35,16 +42,13 @@ OPENWEATHER_API_KEYS=key1,key2     # optional, only for the weather post-step
 
 ### Generate a report
 
-Three equivalent entry points (all take the same flags):
+Two equivalent entry points (both take the same flags):
 
 ```bash
-# 1. Console script (installed by pip; the deployment entry point)
-jolt-report -veh KY24LHT -ds 2025-01-01 -de 2025-01-31 [--debug] [--fast] [--raw-only] [--out-dir DIR]
+# 1. Module form (the deployment entry point)
+python -m jolt_toolkit.report_generator.cli -veh KY24LHT -ds 2025-01-01 -de 2025-01-31 [--debug] [--fast] [--raw-only] [--out-dir DIR]
 
-# 2. Module form (no console-script shim needed)
-python -m jolt_toolkit.report_generator.cli -veh KY24LHT -ds 2025-01-01 -de 2025-01-31
-
-# 3. The generate-excel-report skill CLI (used inside the repo workflow)
+# 2. The generate-excel-report skill CLI (used inside the repo workflow)
 python .claude/skills/generate-excel-report/generate_report.py -veh KY24LHT -ds 2025-01-01 -de 2025-01-31
 ```
 
@@ -73,8 +77,8 @@ from the sibling `test_data_config.json` and drives the same generator per vehic
 
 ```python
 from jolt_toolkit.report_generator import JOLTReportGenerator, generate_report, patch_logger
-gen = JOLTReportGenerator(report_output_folder="./excel_report_database/3.1.0",
-                          debug_mode=True, fast_mode=False)  # save_figures is a v3.1.0 no-op
+gen = JOLTReportGenerator(report_output_folder="./excel_report_database/3.2.0",
+                          debug_mode=True, fast_mode=False)  # save_figures is a no-op
 gen.generate_report("AV24LXK", "2024-06-01", "2024-09-01")   # returns the xlsx path or None
 
 # shared analysis helpers (used by sub-projects; sub-project independence)
@@ -85,9 +89,9 @@ from jolt_toolkit.analysis import build_interp, delta, to_utc, ols, ols_hc1, vif
 
 ```
 src/jolt_toolkit/
-├── __init__.py                    # package __version__ (importlib.metadata + pyproject fallback)
+├── __init__.py                    # __version__ (plain constant, read from source)
 ├── configs/                       # shared config (accessed via get_config_path(); JOLT_CONFIG_DIR override)
-│   ├── __init__.py                # get_config_path() — honours env JOLT_CONFIG_DIR, else the packaged dir
+│   ├── __init__.py                # get_config_path() — honours env JOLT_CONFIG_DIR, else the workspace configs/ dir
 │   ├── vehicles.json  pipelines.json  plot_config.json
 ├── report_generator/              # the report-generation pipeline (CORE + AUX)
 │   │  ── CORE (the deployed REG+dates → xlsx path) ──
@@ -100,7 +104,7 @@ src/jolt_toolkit/
 │   ├── diesel_pipeline.py         # process_diesel_leg() — SRFLOGGER_V1 Logger-only path (fuel_type=="DIESEL")
 │   ├── pedal_histogram.py         # accelerator/brake pedal position histograms
 │   ├── paths.py                   # get_cache_dir() / get_srf_api_root() — env-overridable roots
-│   ├── cli.py                     # jolt-report console entry point (argparse main())
+│   ├── cli.py                     # module CLI entry point (python -m …report_generator.cli; argparse main())
 │   ├── xlsx_patch_common.py       # shared patcher scaffolding: make_srf_client + filename/cell/timestamp helpers
 │   ├── charger_patcher.py         # ChargerPatcher — backfill Charger Link + energy (EV)
 │   ├── logger_patcher.py          # LoggerPatcher — backfill Logger Link + weather/mass (EV)
@@ -256,13 +260,13 @@ All default to today's repo-root behaviour, so nothing needs setting for a repo-
 |----------|---------|---------|
 | `SRF_API_KEY` | SRF platform API key (required to fetch) | — (CLI fails fast, rc 2) |
 | `OPENWEATHER_API_KEYS` | comma-separated OpenWeather keys (weather post-step only) | — (weather skipped) |
-| `JOLT_CONFIG_DIR` | directory holding the three config JSONs; **also where the capacity ledger is written back** | the packaged `configs/` dir |
+| `JOLT_CONFIG_DIR` | directory holding the three config JSONs; **also where the capacity ledger is written back** | the workspace's own `configs/` dir |
 | `JOLT_CACHE_DIR` | cache root (`srf_http/`, `srf_raw/`, weather, postcode) | `./cache` |
 | `SRF_API_ROOT` | SRF REST API root | `https://data.csrf.ac.uk/api/` |
 | `WEATHER_CACHE_FILE` / `WEATHER_CACHE_FILE_FINE` | override the coarse / fine weather cache file paths | `<cache>/.weather_cache.json` / `<cache>/weather/.weather_cache_fine.json` |
 
 Config missing at `get_config_path()` now **fails loudly** (`FileNotFoundError` naming
-the package-data + `JOLT_CONFIG_DIR` remedy) instead of silently degrading to `{}`.
+the workspace `configs/` + `JOLT_CONFIG_DIR` remedy) instead of silently degrading to `{}`.
 
 ## Configuration files
 
@@ -522,90 +526,29 @@ package draws **no** validation figures and writes **no** inspect HTML — a log
 points to the **report-visuals skill** (`.claude/skills/report-visuals/`), whose CLI
 paints the canonical one-figure-per-day overlay PNGs (+ `<stem>.boxes.json` sidecars)
 and (re)writes the `inspect_*.html` viewer from those persisted raw artefacts. The
-skill plugs its EV painter into `run_segment_detection(figure_hook=...)` (see the
-v3.1.0 migration notes) and re-drives `diesel_pipeline._segments_from_df` for diesel.
+skill plugs its EV painter into `run_segment_detection(figure_hook=...)` (the
+`figure_hook` seam; contract in `segmentation/detection.py`'s docstring) and re-drives
+`diesel_pipeline._segments_from_df` for diesel.
 
-## v3.0.0 migration notes
+## Version history
 
-v3.0.0 is a **behaviour-preserving** refactor — the generated xlsx is numerically identical
-to v2.2.8 cell-for-cell. What moved (every old import path keeps working via facades):
+The per-version change history — what shipped in each release, and the "added in
+vX" / "changed in vX" facts that used to be narrated in code comments — lives in
+[`versions.md`](versions.md) (append-forward: every release adds a section there in
+the same change). Highlights relevant to the current architecture:
 
-- **`segment_algorithms.py`** (3,453 lines) → `segmentation/` sub-package (`constants`,
-  `timeutil`, `mass_aggregation`, `soc_detection`, `speed_detection`, `mass_clustering`,
-  `validation_figure`, `detection`). `segment_algorithms` is now a **facade** re-exporting
-  every name (public + internally-used privates). `VEHICLE_CONFIG`/`PIPELINE_CONFIGS` load
-  once in `constants.py`.
-- **`report_builder.py`** (2,688 lines) → `columns` / `charts` / `row_builder` /
-  `excel_writer` / `html_viewer`; `report_builder` is a **facade**. The inspect HTML template
-  moved to `assets/inspect_viewer_template.html`. (The viewer + template later left the
-  package in v3.1.0 — see below.)
-- **`_generator.py`**: the effective-capacity model was extracted to **`capacity.py`**
-  (re-exposed as `JOLTReportGenerator` staticmethods for `capacity_backfill`/`recompute`);
-  `generate_report` was decomposed into private methods (pure block extractions).
-- **New**: `cli.py` (`jolt-report` console script), `paths.py` (`JOLT_CACHE_DIR` /
-  `SRF_API_ROOT`), `xlsx_patch_common.py` (shared SRF-client factory), `weather_fetcher/
-  openweather.py` (shared weather infra). `configs/get_config_path()` honours
-  `JOLT_CONFIG_DIR`; config JSONs + assets now ship in wheel installs (package-data).
-- **Dead code removed**: `deprecated/`, `bootstrap.py`, the old weather trio,
-  `LegRecord`/`Link` dataclasses; `recompute_v227.py` → `scripts/recompute_from_cache.py`.
-  (The `scripts/` tools later left the package in v3.1.0 — see below.)
-- **Hygiene**: core modules translated to English + black/isort + public-surface type
-  annotations + traceable (`logger.debug`) silent excepts; patchers gained import-time
-  `_COL_* == HEADERS.index(...)+1` assertions. AUX modules keep their pre-v3 style.
-
-**Compatibility guarantee**: every name external consumers import from
-`segment_algorithms` / `report_builder` (including privates like `_agg_mass`,
-`_ANCHOR_PRIVATE_KEYS`, `_seg_to_row`, `_write_excel_report`, `HEADERS`, `VEHICLE_CONFIG`,
-`run_segment_detection`, `resolve_mass_agg`, …) still resolves on its original path — locked
-in by `tests/test_imports.py` and `tests/test_column_contracts.py`. (v3.1.0 subsequently
-**dropped** the rendering-related names from these facades — see the v3.1.0 notes below.)
-
-## v3.1.0 migration notes
-
-v3.1.0 slims the package to the report-generation surface the SRF platform deploys, and
-adds the general fallback pipeline. Onboarded-vehicle xlsx output is numerically
-identical to v3.0.0 / v2.2.8 (golden-compared cell-by-cell).
-
-**Removed surface** (deleted from the package — 23 files, ~12.3k lines; every capability
-kept working from its new home, which consumes the package read-only):
-
-| Removed from the package | New home (owner) |
-|---|---|
-| `segmentation/validation_figure.py` (EV painter + overlay-box export), `validation_generator.py` (overlay-regenerate), `html_viewer.py` + `assets/inspect_viewer_template.html`, `rerender_inspect.py`, the plotting half of `diesel_pipeline.py` (`plot_diesel_leg_validation`, `regenerate_diesel_validation`, …), `scripts/refresh_inspect_html.py` | `.claude/skills/report-visuals/code/` (**report-visuals** skill — single rendering CLI `render_visuals.py`) |
-| `finetune.py` (Merge/Split/Delete ops, xlsx reconstruct/rewrite) | `.claude/skills/report-finetuner/code/finetune.py` (**report-finetuner** skill; rendering delegated to the report-visuals CLI `repaint-finetuned` mode) |
-| `data_dashboard.py`, `data_dashboard_detail.py`, vendored `assets/uplot/` | `.claude/skills/generate-data-dashboard/code/` (**generate-data-dashboard** skill) |
-| `vehicle_params_identificator/` (whole sub-package) | `research_projects/parameter_identify/code/` (**param-identifier** agent's workspace) |
-| `scripts/` (whole sub-package, incl. `recompute_from_cache.py`) | `.claude/skills/generate-excel-report/tools/recompute_from_cache.py` (**generate-excel-report** skill) |
-
-**Facade name drops** (breaking for the removed names only; all in-repo consumers were
-re-homed in the same change): `segment_algorithms` / `segmentation` no longer export
-`plot_leg_validation` (or the `_HAS_MPL` gating); `report_builder` no longer exports
-`_write_html_viewer` / `_compute_active_dates_from_xlsx` / `_group_paths_by_date` /
-`_clear_day_validation_figures`; `diesel_pipeline` lost its plotting half (kept:
-`process_diesel_leg`, `_finalise_logger_df`, `_segments_from_df`, `_build_logger_df`,
-`_trip_metrics`, all `DEFAULT_*`). Importing the package no longer imports matplotlib —
-it left `[project.dependencies]`, and the `[params]` (scikit-learn) extra was removed.
-
-**`figure_hook` seam**: `run_segment_detection()` gained a keyword-only
-`figure_hook: Callable | None = None`. When provided — and `generate_validation_fig`
-is set and `out_dir` is not `None` — it is invoked at the exact former inline-paint
-call site with exactly the arguments `plot_leg_validation` used to receive (augmented
-df incl. `mass_cluster`, both segment lists, resolved params, out path, export flag).
-Default `None` → no painting, everything else identical. The full contract is in
-`segmentation/detection.py`'s docstring; report-visuals passes its own painter as the
-hook (identical figures, single pass).
-
-**`--debug` semantics**: `--debug` / `--raw-only` persist raw CSVs only — no figures,
-no inspect HTML (see the Debug-mode section above).
-
-**General fallback pipeline**: new `report_generator/general_pipeline.py` — any
-registration always produces a structurally valid report, EV and diesel alike; the CLI
-maps `VehicleNotFoundError` (the one legitimate failure: the reg exists nowhere on SRF)
-to a single-line error, exit code 3. Details in the pipeline-overview section above.
-
-**No-paid-weather-API default (platform contract)**: default generation makes **zero**
-OpenWeather calls — weather columns are filled only from the SRF Logger weather channel
-(EV `LoggerPatcher`; diesel Channel 7 in-pipeline). OpenWeather is reached solely via
-the explicit, optional post-step (`python -m jolt_toolkit.report_generator.weather_patch`),
-which is quota-consuming and excluded from the platform default workflow. The general
-fallback pipeline honours the same contract.
+- **v3.0.0** — behaviour-preserving refactor: `segment_algorithms.py` → the
+  `segmentation/` sub-package and `report_builder.py` →
+  `columns`/`charts`/`row_builder`/`excel_writer`, both fronted by unchanged-path
+  **facades**; the capacity model extracted to `capacity.py`. Every historical import
+  path still resolves (locked by `tests/test_imports.py`). Golden-identical to v2.2.8.
+- **v3.1.0** — platform slimming: the rendering / dashboard / fine-tuning / params code
+  left the package (re-homed to the report-visuals, generate-data-dashboard,
+  report-finetuner skills and `research_projects/parameter_identify/`), matplotlib left
+  the deps, the `figure_hook` seam was added, and the general fallback pipeline
+  (`general_pipeline.py`) began guaranteeing a report for any registration.
+  Onboarded-vehicle output stays golden-identical.
+- **v3.2.0** — workspace form: de-packaged (no wheel / console script / dist metadata);
+  runtime deps in [`requirements.txt`](requirements.txt), version a plain constant in
+  `__init__.py`; version-history comments condensed into `versions.md`. Behaviour
+  unchanged.

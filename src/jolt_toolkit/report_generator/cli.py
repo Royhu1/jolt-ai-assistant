@@ -1,9 +1,9 @@
-"""Console entry point for JOLT Excel report generation.
+"""Module entry point for JOLT Excel report generation.
 
 Equivalent to the ``generate-excel-report`` skill's ``generate_report.py``, but
-shipped inside the package so a platform deploy can run
-``jolt-report -veh <REG> -ds <start> -de <end>`` (or
-``python -m jolt_toolkit.report_generator.cli``) without the skill checkout.
+inside the workspace so a platform deploy can run
+``python -m jolt_toolkit.report_generator.cli -veh <REG> -ds <start> -de <end>``
+without the skill checkout.
 
 Environment (loaded from a ``.env`` in the working directory if present):
   SRF_API_KEY          required — SRF platform API key
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="jolt-report",
+        prog="python -m jolt_toolkit.report_generator.cli",
         description="Generate a JOLT Excel report for a vehicle over a date range.",
     )
     parser.add_argument(

@@ -14,34 +14,46 @@ formatted multi-sheet Excel report. It is a pure batch tool: one invocation per
 `(vehicle, period)` produces one `.xlsx`. No server, no database, no long-running
 process.
 
-## Install
+## Install (vendoring)
+
+Since v3.2.0 `jolt_toolkit` is a **vendored code workspace**, not an installable
+package — there is no wheel, no `pip install`, and no console script. Deploy it by
+copying the folder, installing its dependencies, and putting `src/` on the import
+path:
 
 ```bash
-pip install .            # from the package directory (the dir containing pyproject.toml)
-# optional extras:
-pip install '.[dev]'     # + pytest / black / isort / mypy (for running the test suite)
+# 1. Vendor the folder into your platform tree (copy src/jolt_toolkit as-is).
+# 2. Install the workspace's own runtime dependencies:
+pip install -r src/jolt_toolkit/requirements.txt
+
+# 3. Put src/ on the import path — pick ONE:
+export PYTHONPATH=/path/to/repo/src            # (a) env var
+# (b) a .pth file in the target env's site-packages containing the absolute
+#     path to <repo>/src (persistent, no env var needed), or
+# (c) sys.path.insert(0, "<repo>/src") in the platform harness before import.
 ```
 
-Python **≥ 3.10**. A wheel install ships the config JSONs (declared as package-data),
-so a non-editable install is self-contained — no repo checkout is required to generate
-a report. Since v3.1.0 the package is the report-generation surface only: it does not
-depend on matplotlib (the rendering / dashboard / params code was re-homed to the repo
-skills — see the last section), and there is no longer a `[params]` extra.
+Python **≥ 3.10**. The config JSONs live in the folder itself (`configs/`), so the
+vendored workspace is self-contained — no repo checkout beyond the copied folder is
+required to generate a report. The package is the report-generation surface only: it
+does not depend on matplotlib / scikit-learn (the rendering / dashboard / params code
+is skill/research-owned — see the last section). For the test/lint toolchain, install
+the repo-level `requirements.txt` (a superset that adds `pytest` / `black` / `isort` /
+`mypy`).
 
-Verify the install:
+Verify:
 
 ```bash
-jolt-report --help                 # console script (exit 0)
+python -m jolt_toolkit.report_generator.cli --help          # exit 0
 python -c "import jolt_toolkit; print(jolt_toolkit.__version__)"
 ```
 
 ## Entry points
 
-Three equivalent forms (identical flags):
+The module CLI (identical flags to the skill's `generate_report.py`):
 
 ```bash
-jolt-report -veh KY24LHT -ds 2025-01-01 -de 2025-01-31 [--fast] [--debug] [--raw-only] [--out-dir DIR]
-python -m jolt_toolkit.report_generator.cli -veh KY24LHT -ds 2025-01-01 -de 2025-01-31
+python -m jolt_toolkit.report_generator.cli -veh KY24LHT -ds 2025-01-01 -de 2025-01-31 [--fast] [--debug] [--raw-only] [--out-dir DIR]
 ```
 
 Or from Python:
@@ -61,7 +73,7 @@ message) if `SRF_API_KEY` is unset or a required argument is missing, **0** on s
 |----------|----------|---------|---------|
 | `SRF_API_KEY` | **yes** | SRF platform API key (Bearer token) | — (fail fast, rc 2) |
 | `OPENWEATHER_API_KEYS` | no | comma-separated OpenWeather keys; only the optional weather post-step uses them | — (weather skipped) |
-| `JOLT_CONFIG_DIR` | recommended | directory holding the three config JSONs **and the writable capacity ledger** | packaged `configs/` (read-only under site-packages) |
+| `JOLT_CONFIG_DIR` | recommended | directory holding the three config JSONs **and the writable capacity ledger** | the workspace's own `configs/` dir |
 | `JOLT_CACHE_DIR` | recommended | cache root | `./cache` (relative to CWD) |
 | `SRF_API_ROOT` | no | SRF REST API root | `https://data.csrf.ac.uk/api/` |
 | `WEATHER_CACHE_FILE` / `WEATHER_CACHE_FILE_FINE` | no | override the weather cache file paths | under `JOLT_CACHE_DIR` |
@@ -76,8 +88,8 @@ a `.env`. Nothing is logged that contains the key.
 
 `configs/vehicles.json` is **not purely static config**: after each EV report the
 generator writes back that vehicle's measured battery capacity
-(`effective_capacity_kwh` + the `effective_capacity_quarterly` ledger). A packaged
-install puts `configs/` under a read-only `site-packages`, so:
+(`effective_capacity_kwh` + the `effective_capacity_quarterly` ledger). If the
+vendored folder sits on a read-only mount, that write-back cannot land, so:
 
 > **Copy `configs/` to a writable location and point `JOLT_CONFIG_DIR` at it.**
 

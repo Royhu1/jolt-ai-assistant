@@ -18,7 +18,6 @@ import pandas as pd
 from srf_client import paging
 from tqdm import tqdm
 
-from jolt_toolkit import __version__
 from jolt_toolkit.report_generator.capacity import (  # noqa: F401
     _DAY_NS,
     _IDX_BPOWER,
