@@ -11,8 +11,8 @@ package-shared name.
 ## Inputs to confirm with the user (ask only if ambiguous)
 
 - **Version** — the `excel_report_database/<version>/` sub-directory to scan
-  (e.g. `2.2.8`). **Default to the current `jolt_toolkit` version in `pyproject.toml`**
-  (2.2.8 at the time of writing) — confirm before running.
+  (e.g. `2.2.8`). **Default to the current `jolt_toolkit.__version__`** (the constant in
+  `src/jolt_toolkit/__init__.py`) — confirm before running.
 - **Output path** — defaults to `excel_report_database/<version>/dashboard/data_dashboard.html`;
   only override (`--out`) if the user asks.
 

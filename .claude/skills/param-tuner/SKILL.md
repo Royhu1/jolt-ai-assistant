@@ -75,7 +75,7 @@ Do not load the other mode's fragment.
 ### 4. Run the tuning loop using the loaded material
 
 Follow `static/core/workflow.md` steps 0–6 in order, applying the mode fragment where the
-workflow delegates to it (review-set selection in step 2, re-check scope in step 5.4), and
+workflow delegates to it (review-set selection in step 2, re-check scope in step 5.3), and
 obey `static/core/principles.md` throughout: holistic optimization over outlier-chasing,
 one parameter at a time, record every round in `evaluations/{REG}_review_results.md`, and
 `--fast --debug` validation → patcher backfill — never plain `--debug`.

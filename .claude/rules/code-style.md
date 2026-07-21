@@ -1,8 +1,9 @@
 > Python code style — referenced from the root `CLAUDE.md` "## Code Style" section via `@import`.
 > Editing here = editing the code-style conventions for the whole project (team-shared, committed with `.claude/`).
 
-Python code follows PEP 8, and uses the tools already configured under
-`[project.optional-dependencies].dev` in `pyproject.toml` for a uniform style:
+Python code follows PEP 8, and uses the dev toolchain declared in the root
+`requirements.txt` for a uniform style (the tool *configuration* — line width, isort
+profile, pytest options — lives in the `[tool.*]` tables of `pyproject.toml`):
 
 - **Formatting**: `black` (default line width 88).
 - **import ordering**: `isort` (standard library / third-party / local — three separated groups).

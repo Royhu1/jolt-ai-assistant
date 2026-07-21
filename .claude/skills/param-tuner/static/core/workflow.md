@@ -2,7 +2,7 @@
 
 Systematically review validation figures for a vehicle, diagnose segmentation
 issues, and adjust algorithm parameters to produce optimal trip/charging boundaries.
-Follow steps 0–6 in order. Steps 2 and 5.4 are mode-specific and delegate their exact
+Follow steps 0–6 in order. Steps 2 and 5.3 are mode-specific and delegate their exact
 scope to the loaded mode fragment (`static/fragments/mode/quick.md` or
 `static/fragments/mode/thorough.md`).
 
@@ -54,20 +54,20 @@ Present changes as a table: parameter, current value, proposed value, reason.
 
 ## 5. Apply and verify
 
-1. Edit the config file(s)
-2. Reinstall: `pip install -e . -q`
-3. **Fast validation** — first use `--fast --debug` to quickly check segmentation quality
+1. Edit the config file(s) — changes take effect on the next run (the workspace runs
+   from source via `PYTHONPATH=src` / the site-packages `.pth`; no reinstall step)
+2. **Fast validation** — first use `--fast --debug` to quickly check segmentation quality
    (telematics data only):
    ```bash
    python .claude/skills/generate-excel-report/batch_generate.py --debug --fast --veh {reg}
    ```
-4. Re-check validation figures per the loaded mode fragment's "Re-check scope"
+3. Re-check validation figures per the loaded mode fragment's "Re-check scope"
    (Quick: an ~10-figure spot-check; Thorough: a full re-check — exact scope in the
    fragment)
-5. **Update `evaluations/{REG}_review_results.md`**: add a new round section recording
+4. **Update `evaluations/{REG}_review_results.md`**: add a new round section recording
    each re-checked figure's status (resolved / still problematic / newly broken).
    Update the summary table at the top of the file.
-6. **Backfill via patchers** — once segmentation is verified, backfill Logger/Charger data
+5. **Backfill via patchers** — once segmentation is verified, backfill Logger/Charger data
    per the full statement (patcher snippet + never plain `--debug` warning) in
    `static/core/principles.md`, Phase 3 step 11.
 

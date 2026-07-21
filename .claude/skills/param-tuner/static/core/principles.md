@@ -19,7 +19,8 @@ expense of overall accuracy. Follow this process strictly:
 
 ## Phase 3 — Apply and validate
 
-7. Apply changes, reinstall (`pip install -e . -q`).
+7. Apply changes (no reinstall — the workspace runs from source, so config edits take
+   effect on the next run).
 8. **Fast validation**: `python .claude/skills/generate-excel-report/batch_generate.py --debug --fast --veh {reg}` — quickly check segmentation using telematics data only.
 9. Re-check validation figures per the loaded mode fragment's "Re-check scope"
    (`static/fragments/mode/quick.md` / `thorough.md`).
@@ -37,7 +38,7 @@ expense of overall accuracy. Follow this process strictly:
     > directly — that overwrites the Logger/Charger data already backfilled by the patchers.
     > Correct flow: `--fast --debug` to validate → patcher backfill.
     This is the single full statement of the validation/backfill command discipline;
-    workflow step 5.6 and the guideline below point here.
+    workflow step 5.5 and the guideline below point here.
 
 ## Phase 4 — Finalize
 

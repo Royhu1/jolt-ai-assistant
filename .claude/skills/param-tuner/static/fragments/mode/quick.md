@@ -24,6 +24,6 @@
 5. **Priority ordering**: review active days first, sorted by SOC range
    (days with largest SOC swing first — most likely to reveal segmentation issues).
 
-## Re-check scope (workflow step 5.4 / Phase 3)
+## Re-check scope (workflow step 5.3 / Phase 3)
 
 Spot-check ~10 key figures (5 previously problematic + 5 previously correct).

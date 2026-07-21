@@ -32,7 +32,8 @@ Enter this health check carrying "last time's to-dos + known traps" to avoid rep
 
 **List the checklist first, then execute item by item**; for each item "read-only reconnaissance → give a conclusion → then act":
 
-1. **Git / version**: `git status` / `log` / `tag` / branches; whether the `pyproject.toml` version is
+1. **Git / version**: `git status` / `log` / `tag` / branches; whether `jolt_toolkit.__version__` (the constant
+   in `src/jolt_toolkit/__init__.py`, history in `src/jolt_toolkit/versions.md`) is
    consistent with version references across the whole project (the version numbers in skill examples, READMEs and agent knowledge should all point to the current canonical version).
 2. **Temporary / stale files**: `tmp/`, stray scripts in the root directory, the scratch of each workspace; clean up / archive per `housekeeping.md`
    (prefer `Move-Item` to `archive/` or the local `scratch_archive/`, not deletion).

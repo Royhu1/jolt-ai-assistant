@@ -1,5 +1,5 @@
 name: generate-data-dashboard
-version: 2.1.0   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline; 2.1.0 = v3.1.0 re-homing — the skill now OWNS the dashboard code (code/)
+version: 2.1.1   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline; 2.1.0 = v3.1.0 re-homing — the skill now OWNS the dashboard code (code/); 2.1.1 = v3.2.0 workspace-form doc sync (version source = __init__.py, not pyproject)
 description: >
   Declarative manifest for the static/dynamic split. SKILL.md uses this to
   decide what to load for a given request. This skill drives its OWN

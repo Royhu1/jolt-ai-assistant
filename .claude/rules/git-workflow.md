@@ -1,9 +1,10 @@
 > Git workflow conventions — referenced from the root `CLAUDE.md` "## Git Workflow" section via `@import`.
 > Editing here = editing the git / version / changelog conventions for the whole project (team-shared, committed with `.claude/`).
 
-### Version number (refers only to the `src/jolt_toolkit` package)
+### Version number (refers only to the `src/jolt_toolkit` workspace)
 
-The version number **belongs only to the `src/jolt_toolkit` package**, is maintained in the `version` field of `pyproject.toml`, and follows
+The version number **belongs only to the `src/jolt_toolkit` code workspace**, is maintained in the `__version__` constant of
+`src/jolt_toolkit/__init__.py` (with the version history recorded in `src/jolt_toolkit/versions.md`), and follows
 SemVer; the project's other modules (`data_analysis_workspace/` / `research_projects/` / `publication_workspace/`, etc.) are not part of this scheme and are not tagged.
 
 - `patch` (x.x.**N**): bug fixes / minor adjustments, no interface change
@@ -24,8 +25,8 @@ anatomy-v2 (router / static-dynamic) restructure of 2026-07-11.
 - `major`: breaking change to the skill's invocation contract, axes, or output paths
 - **Any conversation that edits a skill's files MUST bump that skill's `version:` in the
   same change** and mention the new version in the changelog entry. A skill edit without
-  a version bump is an incomplete change (same discipline as `pyproject.toml` for the
-  package). `check_skill_registry.py` enforces the field's presence and SemVer format.
+  a version bump is an incomplete change (same discipline as `__version__` for the
+  toolkit workspace). `check_skill_registry.py` enforces the field's presence and SemVer format.
 
 ### Commit messages (Conventional Commits)
 
@@ -47,7 +48,8 @@ Meaningless messages (such as "update", "checkpoint", "11") are forbidden.
 ### Standard version-release procedure
 
 1. Complete the code change → 2. Update `src/jolt_toolkit/README.md` (architecture/field/module changes) →
-3. Update the version number in `pyproject.toml` → 4. `git commit` → 5. `git tag vX.Y.Z`.
+3. Bump `__version__` in `src/jolt_toolkit/__init__.py` **and append the matching section to `src/jolt_toolkit/versions.md`**
+(the history file is append-forward — every release adds its section in the same change) → 4. `git commit` → 5. `git tag vX.Y.Z`.
 
 ### Artefacts not committed to git
 

@@ -10,6 +10,6 @@
 
 Review all validation figures.
 
-## Re-check scope (workflow step 5.4 / Phase 3)
+## Re-check scope (workflow step 5.3 / Phase 3)
 
 Re-check every previously flagged AND previously correct day.

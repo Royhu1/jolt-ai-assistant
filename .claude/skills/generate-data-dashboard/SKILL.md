@@ -52,8 +52,8 @@ Read [manifest.yaml](manifest.yaml), then every file listed under `always_load`:
 ### 2. Resolve version and output path
 
 Per the core conventions ("Inputs to confirm with the user"): the report-database
-version (default: the current `jolt_toolkit` version in `pyproject.toml` — 2.2.8 at
-the time of writing) and the output path (default in-place under
+version (default: the current `jolt_toolkit.__version__` from
+`src/jolt_toolkit/__init__.py`) and the output path (default in-place under
 `excel_report_database/<version>/dashboard/`); ask only if ambiguous. Check the
 preconditions (local files only, Excel-lock caveat, `jolt` env / `PYTHONPATH=src`).
 

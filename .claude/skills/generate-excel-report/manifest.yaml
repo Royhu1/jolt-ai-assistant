@@ -1,5 +1,5 @@
 name: generate-excel-report
-version: 2.0.2   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline; 2.0.2 = tools/recompute_from_cache.py re-homed here from the package (v3.1.0; manual migration tool, no workflow change)
+version: 2.0.3   # per-skill SemVer (see .claude/rules/git-workflow.md); 2.0.0 = anatomy-v2 baseline; 2.0.2 = tools/recompute_from_cache.py re-homed here from the package (v3.1.0; manual migration tool, no workflow change); 2.0.3 = v3.2.0 workspace-form doc sync (version source = __init__.py; editable-install rationale rewritten)
 description: >
   Declarative manifest for the static/dynamic split (pattern adapted from
   nature-skills/nature-figure). SKILL.md uses this to decide which fragments

@@ -75,7 +75,8 @@ validation figures alongside the `.xlsx`, so **there is no separate "produce ins
 step** — it is part of report generation.
 
 ```bash
-pip install -e . -q
+# runs from source — needs src/ on the import path (PYTHONPATH=src or the env's
+# site-packages .pth); the toolkit is a vendored code workspace, never pip-installed
 python .claude/skills/generate-excel-report/generate_report.py -veh {REG} -ds {start} -de {end} --debug
 # long / full range → batch_generate.py --veh {REG} --ds {start} --de {end} --debug (auto-splits into meteorological quarters)
 ```

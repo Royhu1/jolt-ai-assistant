@@ -52,7 +52,8 @@ When starting, the skill presents both modes to the user — there is no silent 
    grouping issues by root cause.
 3. **Propose** — the minimum set of parameter changes that fixes the most common issues, as a
    table (param, current, proposed, expected impact + trade-offs).
-4. **Apply + revalidate** — edit configs → `pip install -e . -q` → regenerate with
+4. **Apply + revalidate** — edit configs (no reinstall — the workspace runs from source,
+   so config/code edits take effect on the next run) → regenerate with
    `--fast --debug` → re-check figures (Quick: ~10 key; Thorough: every flagged + correct day)
    → append a new Round to the evaluations log.
 5. **Backfill** — once segmentation is confirmed, run `ChargerPatcher` + `LoggerPatcher`

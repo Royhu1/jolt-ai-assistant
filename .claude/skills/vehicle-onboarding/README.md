@@ -65,7 +65,8 @@ mode and the vehicle-type axis (from SRF `fuel`), and walks the six phases. The 
 initial report is a thin call into `/generate-excel-report`:
 
 ```bash
-pip install -e . -q
+# runs from source — needs src/ on the import path (PYTHONPATH=src or the env's
+# site-packages .pth); the toolkit is a vendored code workspace, never pip-installed
 python .claude/skills/generate-excel-report/generate_report.py -veh {REG} -ds {start} -de {end} --debug
 # long / full range → batch_generate.py --veh {REG} --ds {start} --de {end} --debug (auto-splits into meteorological quarters)
 ```

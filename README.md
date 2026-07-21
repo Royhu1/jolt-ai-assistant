@@ -1,6 +1,6 @@
 # JOLT — Joint Operators Logistics Trial
 
-> **This file is the project map** — overall design, repository layout, and how to use & develop this project (including skills and commands). For *how to install and run the toolkit itself*, see the package README below. At every level, that directory's own `README.md` is the single source of truth for that directory.
+> **This file is the project map** — overall design, repository layout, and how to use & develop this project (including skills and commands). For *how to set up and run the toolkit itself*, see the toolkit's own README (`src/jolt_toolkit/README.md`). At every level, that directory's own `README.md` is the single source of truth for that directory.
 
 ## Project architecture: a hierarchical design
 
@@ -16,7 +16,7 @@ Only the top level is shown. Any folder that has its own `README.md` documents i
 
 ```
 ./
-├── src/jolt_toolkit         # core toolkit package (src-layout; the only installable, versioned unit)
+├── src/jolt_toolkit         # core toolkit workspace (src-layout; the versioned unit)
 ├── excel_report_database    # directory holding the generated Excel reports
 ├── publication_workspace    # workspace for technical reports or academic papers
 ├── pdf_report_workspace     # generated partner-briefing artefacts (output_by_*/ + HERE-tile cache/); produced by the generate-pdf-report skill
@@ -36,9 +36,11 @@ Only the top level is shown. Any folder that has its own `README.md` documents i
 └── .claude                  # Claude Code configuration, skills / commands / agents, etc.
 ```
 
-> The generated / runtime directory `cache/` and the packaging file `pyproject.toml` at the repo
+> The generated / runtime directory `cache/` and the tool-config file `pyproject.toml` at the repo
 > root are omitted from this conceptual map (`cache/` is a gitignored build artefact;
-> `pyproject.toml` defines the `src/jolt_toolkit` package). The report-generation CLIs
+> `pyproject.toml` carries only the formatting / test tool config — since v3.2.0 `jolt_toolkit`
+> is a vendored code workspace, not an installable package; its version lives in
+> `src/jolt_toolkit/__init__.py` and its history in `src/jolt_toolkit/versions.md`). The report-generation CLIs
 > (`generate_report.py` / `batch_generate.py` / `test_data_config.json`) and the
 > cached-recompute tool (`tools/recompute_from_cache.py`) now live inside the
 > `generate-excel-report` skill, and old analysis figures have been moved to `archive/`.
@@ -54,11 +56,14 @@ Only the top level is shown. Any folder that has its own `README.md` documents i
 conda create -n jolt python=3.11 -y
 conda activate jolt
 
-# Install the project dependencies
+# Install the project dependencies (pulls in the toolkit's runtime deps via
+# -r src/jolt_toolkit/requirements.txt)
 pip install -r requirements.txt
 
-# Install the core package jolt_toolkit in editable mode (for local development)
-pip install -e .
+# Put the toolkit workspace on the import path — jolt_toolkit is a vendored code
+# workspace since v3.2.0 (no pip install / editable install). Either export
+# PYTHONPATH=src per shell, or persist it once into the active env's site-packages:
+python -c "import sysconfig, pathlib; (pathlib.Path(sysconfig.get_paths()['purelib'])/'jolt_src.pth').write_text(str(pathlib.Path('src').resolve()))"
 ```
 
 ## Quick usage / development guide

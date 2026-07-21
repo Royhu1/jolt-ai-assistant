@@ -62,18 +62,19 @@ land, and the weather / elevation data-source contract.
    first — that configures the pipeline and produces the first report.
 3. **Confirm the toolkit version + output directory before generating anything.**
    This is a mandatory pre-step for every run (single or batch):
-   - **(a) Toolkit version** — confirm which `jolt_toolkit.__version__` (= the
-     `pyproject.toml` `version`) is in effect. Check with
+   - **(a) Toolkit version** — confirm which `jolt_toolkit.__version__` (the constant in
+     `src/jolt_toolkit/__init__.py`) is in effect. Check with
      `python -c "import jolt_toolkit; print(jolt_toolkit.__version__)"`.
    - **(b) Output directory** — defaults to `excel_report_database/<__version__>/<REG>/`,
      because the CLIs build the path from `__version__`
      (`./excel_report_database/{__version__}`). Confirm this is the directory the user
      wants, or override it with `--out-dir`.
-   - **Why this matters:** the editable-install version number is **shared across the
-     whole conda env**, so two concurrent sessions on different versions (or one session
-     that re-`pip install`s a new version mid-run) will silently write into each other's
-     `excel_report_database/<ver>/` directory (cf. the recent 2.2.3 / 2.2.4 split
-     incident). Pinning version + output dir up front keeps a batch run self-consistent.
+   - **Why this matters:** the version is read from whichever `src/` is on the import
+     path (the main checkout vs a worktree — the toolkit runs from source, never
+     installed), so two concurrent sessions importing different checkouts will silently
+     write into different `excel_report_database/<ver>/` directories (cf. the
+     2.2.3 / 2.2.4 split incident). Pinning version + output dir up front keeps a batch
+     run self-consistent.
 
 ## Output artefacts
 

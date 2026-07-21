@@ -26,7 +26,7 @@ Each sub-project documents its own internal structure and results in its linked 
 |---|---|---|---|
 | [`simulation/`](simulation/README.md) | physics simulation (`compute_ep()` + Arrhenius `eta_bat()`, factor-isolation Exp 1–9); pure physics, no SRF API | `simulation` | `python research_projects/simulation/run_all.py` |
 | [`regen_analysis/`](regen_analysis/report.md) | regenerative-braking energy recovery: Logger 1 Hz CAN × telematics counters, system-level η_regen ≈ 0.42 | `regen-analysis` | `python research_projects/regen_analysis/scripts/run_all.py` |
-| `parameter_identify/` | **data / logs / results** of C_rr / C_dA identification only; the identification **code** lives in `src/jolt_toolkit/vehicle_params_identificator/` | `param-identifier` | `python -m jolt_toolkit.vehicle_params_identificator.run_identification` (needs `PYTHONPATH=src` or `pip install -e .`) |
+| `parameter_identify/` | C_rr / C_dA identification, self-contained: the identification **code** in `code/` (canonical home since jolt_toolkit v3.1.0 — moved out of the package) + Logger **data / logs / results** | `param-identifier` | `python research_projects/parameter_identify/code/run_identification.py --veh <REG>` (needs `PYTHONPATH=src` for the `jolt_toolkit` imports) |
 
 ## Path conventions
 

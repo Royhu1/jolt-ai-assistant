@@ -13,5 +13,5 @@ All sources are **read-only**. Never write to or modify any of these files.
 | Simulation results | `research_projects/simulation/results/EP_simulation_report.md` | Physics simulation findings |
 | Simulation tables | `research_projects/simulation/results/tables/*.csv` | Numerical experiment data |
 | Changelog | `changelogs/changelog_*.md` | Weekly Q&A logs of completed tasks |
-| Package version | `pyproject.toml` | Current version number |
+| Toolkit version | `src/jolt_toolkit/__init__.py` (`__version__`) | Current version number (history in `src/jolt_toolkit/versions.md`) |
 | Architecture docs | `src/jolt_toolkit/README.md` | Module structure |

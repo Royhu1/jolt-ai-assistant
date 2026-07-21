@@ -28,8 +28,8 @@ generate-data-dashboard/
 
 ## Pipeline
 
-1. **Confirm** — the version to scan (default: the current `jolt_toolkit` version in
-   `pyproject.toml`, 2.2.8 at the time of writing) and the output path (default in-place).
+1. **Confirm** — the version to scan (default: the current `jolt_toolkit.__version__`
+   from `src/jolt_toolkit/__init__.py`) and the output path (default in-place).
 2. **Read (local only)** — per vehicle: `jolt_report_*.xlsx` (skips `_finetuned`), the raw
    dirs (`raw_telematics/`, `raw_logger_v1/`, `raw_logger_v2/`,
    `raw_charger/charger_transactions.csv`), and configs (`vehicles.json` + `plot_config.json`

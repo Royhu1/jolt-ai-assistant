@@ -76,7 +76,8 @@ Read the current week's changelog file from `changelogs/changelog_YYYYMMDD_YYYYM
 Today's date is available from context. Find the file matching the current week
 (Monday–Sunday), and summarise recent tasks.
 
-### 8. Package version and branch
+### 8. Toolkit version and branch
 
-Read `pyproject.toml` for the version. Run `git branch --show-current` (read-only)
-to confirm the current branch.
+Read the `__version__` constant in `src/jolt_toolkit/__init__.py` for the version
+(version history in `src/jolt_toolkit/versions.md`). Run `git branch --show-current`
+(read-only) to confirm the current branch.

@@ -46,7 +46,7 @@ produces no artefacts and therefore accumulates no per-run state.
    - reports — `excel_report_database/<version>/` (via Glob)
    - test ranges — `generate-excel-report/test_data_config.json`
    - simulation — `research_projects/simulation/results/…`; changelog —
-     `changelogs/changelog_*.md`; version — `pyproject.toml`
+     `changelogs/changelog_*.md`; version — `src/jolt_toolkit/__init__.py` (`__version__`)
 5. **Answer** — lead with the direct answer, then details; use tables for multiple
    vehicles/params; include units; say so clearly if data is missing.
 

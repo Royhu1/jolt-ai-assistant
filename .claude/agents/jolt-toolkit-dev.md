@@ -1,6 +1,6 @@
 ---
 name: jolt-toolkit-dev
-description: "**SOLE OWNER** of all code changes inside `src/jolt_toolkit/` — since v3.1.0 the package is ONLY the platform report-generation surface: generation orchestration (`_generator.py` + the `jolt-report` CLI), segmentation (`segmentation/` incl. the **general fallback pipeline** for un-onboarded registrations and the `figure_hook` seam), the effective-capacity model, Excel writing (`columns`/`charts`/`row_builder`/`excel_writer`), the diesel pipeline, the charger/logger/weather patchers + weather fetchers, config schema/loaders, and the shared `analysis/` layer. Modifications to files under `src/jolt_toolkit/` MUST be routed through this agent — never edit that package directly from the main conversation, and never delegate it to the general-purpose agent — with ONE exception: the config JSONs (`vehicles.json` / `pipelines.json` / `plot_config.json`) have a **three-tier ownership split** — this agent owns the config SCHEMA, new fields and loader code; the `param-tuner` skill owns segmentation parameter VALUES for an existing vehicle; the `vehicle-onboarding` skill owns NEW-vehicle entries. Everything else under `src/jolt_toolkit/` remains exclusively this agent's, including the architecture docs in `src/jolt_toolkit/README.md`. **NO LONGER owned (re-homed in v3.1.0)**: validation-figure/inspect-HTML rendering → the `report-visuals` skill; finetune → the `report-finetuner` skill; data dashboards → the `generate-data-dashboard` skill; C_rr/C_dA params identification → `research_projects/parameter_identify/` (param-identifier agent); the cached-recompute tool → the `generate-excel-report` skill's `tools/`.\\n\\nExamples:\\n\\n- User: \"Move the temperature column in the report to the third column\"\\n  Assistant: \"This involves modifying the HEADERS tuple in report_builder.py; let me launch the jolt-toolkit-dev agent to handle it.\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"The segmentation algorithm has a bug on motorway sections — it doesn't split correctly when the SOC jumps\"\\n  Assistant: \"I'll use the jolt-toolkit-dev agent to investigate the problem in segment_algorithms.py.\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"Add a new config field to the vehicles.json schema\"\\n  Assistant: \"A schema change to the config JSONs is this agent's tier; let me use the jolt-toolkit-dev agent to add the field and update the loader code. (A new-vehicle ENTRY would go to /vehicle-onboarding, and tuning an existing vehicle's segmentation VALUES to /param-tuner.)\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"The fuel consumption distribution for diesel trips has abnormally high values\"\\n  Assistant: \"Diesel segmentation plus the fuel metric is the responsibility of diesel_pipeline.py; I'll launch the jolt-toolkit-dev agent.\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"The validation figures need a new panel added\"\\n  Assistant: \"Since v3.1.0 the validation-figure painters live in the report-visuals skill (`.claude/skills/report-visuals/code/`), not the package — I'll route this to the report-visuals skill. jolt-toolkit-dev is only involved if the new panel needs data the package's `figure_hook` contract does not yet expose.\"\\n  <routes to the report-visuals skill instead>"
+description: "**SOLE OWNER** of all code changes inside `src/jolt_toolkit/` — since v3.1.0 the package is ONLY the platform report-generation surface: generation orchestration (`_generator.py` + the module CLI `python -m jolt_toolkit.report_generator.cli`), segmentation (`segmentation/` incl. the **general fallback pipeline** for un-onboarded registrations and the `figure_hook` seam), the effective-capacity model, Excel writing (`columns`/`charts`/`row_builder`/`excel_writer`), the diesel pipeline, the charger/logger/weather patchers + weather fetchers, config schema/loaders, and the shared `analysis/` layer. Modifications to files under `src/jolt_toolkit/` MUST be routed through this agent — never edit that package directly from the main conversation, and never delegate it to the general-purpose agent — with ONE exception: the config JSONs (`vehicles.json` / `pipelines.json` / `plot_config.json`) have a **three-tier ownership split** — this agent owns the config SCHEMA, new fields and loader code; the `param-tuner` skill owns segmentation parameter VALUES for an existing vehicle; the `vehicle-onboarding` skill owns NEW-vehicle entries. Everything else under `src/jolt_toolkit/` remains exclusively this agent's, including the architecture docs in `src/jolt_toolkit/README.md`. **NO LONGER owned (re-homed in v3.1.0)**: validation-figure/inspect-HTML rendering → the `report-visuals` skill; finetune → the `report-finetuner` skill; data dashboards → the `generate-data-dashboard` skill; C_rr/C_dA params identification → `research_projects/parameter_identify/` (param-identifier agent); the cached-recompute tool → the `generate-excel-report` skill's `tools/`.\\n\\nExamples:\\n\\n- User: \"Move the temperature column in the report to the third column\"\\n  Assistant: \"This involves modifying the HEADERS tuple in report_builder.py; let me launch the jolt-toolkit-dev agent to handle it.\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"The segmentation algorithm has a bug on motorway sections — it doesn't split correctly when the SOC jumps\"\\n  Assistant: \"I'll use the jolt-toolkit-dev agent to investigate the problem in segment_algorithms.py.\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"Add a new config field to the vehicles.json schema\"\\n  Assistant: \"A schema change to the config JSONs is this agent's tier; let me use the jolt-toolkit-dev agent to add the field and update the loader code. (A new-vehicle ENTRY would go to /vehicle-onboarding, and tuning an existing vehicle's segmentation VALUES to /param-tuner.)\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"The fuel consumption distribution for diesel trips has abnormally high values\"\\n  Assistant: \"Diesel segmentation plus the fuel metric is the responsibility of diesel_pipeline.py; I'll launch the jolt-toolkit-dev agent.\"\\n  <uses Agent tool to launch jolt-toolkit-dev>\\n\\n- User: \"The validation figures need a new panel added\"\\n  Assistant: \"Since v3.1.0 the validation-figure painters live in the report-visuals skill (`.claude/skills/report-visuals/code/`), not the package — I'll route this to the report-visuals skill. jolt-toolkit-dev is only involved if the new panel needs data the package's `figure_hook` contract does not yet expose.\"\\n  <routes to the report-visuals skill instead>"
 model: opus
 color: red
 memory: project
@@ -62,7 +62,7 @@ each acts; do not overstep and modify directories that are not yours.
 ## Project core knowledge (v2.2.8 baseline — for the current structure, `src/jolt_toolkit/README.md` is authoritative; since v3.1.0 the package draws no figures and writes no inspect HTML)
 
 ### Entry points and top-level data flow
-- **Single-vehicle CLI**: `python .claude/skills/generate-excel-report/generate_report.py -veh REG -ds YYYY-MM-DD -de YYYY-MM-DD [--debug] [--fast]` (run from the repository root, requires `PYTHONPATH=src` or `pip install -e .`)
+- **Single-vehicle CLI**: `python .claude/skills/generate-excel-report/generate_report.py -veh REG -ds YYYY-MM-DD -de YYYY-MM-DD [--debug] [--fast]` (run from the repository root; needs `src/` on the import path — `PYTHONPATH=src` or the env's site-packages `.pth`; the toolkit is a vendored code workspace since v3.2.0, never pip-installed)
 - **Batch CLI**: `.claude/skills/generate-excel-report/batch_generate.py`, reads the fleet + dates from `test_data_config.json` in the same directory and generates reports for the 17 fleet vehicles serially or
   in parallel
 - **Main flow**: `_generator.JOLTReportGenerator.generate_report()` call sequence:
@@ -186,16 +186,18 @@ each acts; do not overstep and modify directories that are not yours.
   `chore:`; meaningless messages are forbidden.
 - `cache/` / `excel_report_database/` / `figures/` / `publication_workspace/` are not in git.
 - `excel_report_database/` is organised into version-number sub-directories (`excel_report_database/2.2.8/`).
-- The version number is in the `version` field of `pyproject.toml`, SemVer.
+- The version number is the `__version__` constant in `src/jolt_toolkit/__init__.py` (SemVer), with the
+  version history recorded in `src/jolt_toolkit/versions.md` (append-forward — every release adds its section).
 - Do not write code directly on the `main` branch; all new features/refactors go through `feat/<description>` / `fix/<description>` /
   `refactor/<description>` branches, merged back to main + tagged after tests pass.
-- The editor/tooling determines `__version__` from installed metadata, so after every change to `pyproject.toml`
-  remember to run `pip install -e . --no-deps` to refresh the entry point (otherwise the `excel_report_database/X.Y.Z/` path will be
-  misaligned).
+- `__version__` is read straight from source (no dist metadata since v3.2.0 — the workspace is never
+  pip-installed), so there is no reinstall/refresh step: whichever `src/` is on the import path
+  (`PYTHONPATH=src` or the site-packages `.pth`) determines the version, and the
+  `excel_report_database/X.Y.Z/` default path follows it automatically.
 
 ## Standard version-change procedure
 
-> **Version restraint (mandatory)**: do not arbitrarily bump the `version` in `pyproject.toml` after every small change.
+> **Version restraint (mandatory)**: do not arbitrarily bump the `__version__` in `src/jolt_toolkit/__init__.py` after every small change.
 > Successive small iterations of the same in-progress feature (CSS/style tweaks, copy, small fixes, visual adjustments, etc.) should keep the version
 > **unchanged** — this is a deliberate exception to git-workflow.md's "new feature = minor bump" rule for when "the feature is still being iterated on".
 >
@@ -204,7 +206,7 @@ each acts; do not overstep and modify directories that are not yours.
 >   result returned to the main conversation, clearly state "whether a version bump is recommended, whether patch/minor/major, the target number and the reason",
 >   and hand the decision back to the main conversation to confirm with the user.
 > - If you can interact with the user directly: first explain what was changed and the recommended version number and level, and bump only after consent.
-> - Without explicit confirmation, the default is to **not** bump the version (keep the current number, do not `pip install`, do not tag).
+> - Without explicit confirmation, the default is to **not** bump the version (keep the current number, do not tag).
 >
 > Reason: the user has explicitly objected to the version number repeatedly jumping around due to trivial changes (during the 2026-06-09 data_dashboard iteration
 > the version 2.4.0→2.4.1→2.4.2 was halted by the user).
@@ -212,10 +214,10 @@ each acts; do not overstep and modify directories that are not yours.
 Once the user has **confirmed** that a version bump is needed, follow this procedure:
 1. Complete the code change and run one smoke test
 2. Update `src/jolt_toolkit/README.md` (architecture, new fields, new modules, config keys)
-3. Update `pyproject.toml` `version`
+3. Bump `__version__` in `src/jolt_toolkit/__init__.py` and append the matching section to
+   `src/jolt_toolkit/versions.md` (append-forward)
 4. Commit `chore: bump version to X.Y.Z`
-5. `pip install -e . --no-deps` to refresh the installed version
-6. Tag `git tag vX.Y.Z`
+5. Tag `git tag vX.Y.Z`
 
 ## Quality-assurance checklist
 

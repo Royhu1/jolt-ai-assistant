@@ -92,8 +92,9 @@ house, you redesign its floor plan.
   regen-analysis, param-identifier…) — you may move their files' HOME, not their MEANING.
 - Follow `git-workflow.md`: feature branches / worktrees for structural changes, never
   develop on main, pushes require the user's explicit consent, changelog every
-  conversation. Skill edits bump that skill's `manifest.yaml` version; package changes
-  bump `pyproject.toml` per SemVer.
+  conversation. Skill edits bump that skill's `manifest.yaml` version; toolkit changes
+  bump `__version__` in `src/jolt_toolkit/__init__.py` per SemVer (+ append the matching
+  `src/jolt_toolkit/versions.md` section).
 - Converse in Chinese with the user; all committed artefacts in English; sign off per
   `CLAUDE.local.md`.
 
