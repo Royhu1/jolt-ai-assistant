@@ -244,3 +244,16 @@ worktree HEAD~1 vs HEAD trees, or a pre-cleanup copy).
 | W2 — comment cleanup + AST proof | pending | — |
 | W3 — repo governance docs | pending | — |
 | W4 — verification wrap + merge decision | pending | — |
+
+
+## Execution status (2026-07-21)
+
+| Phase | Status | Commit |
+|---|---|---|
+| Plan (ADR-003) | done | 58576e7 |
+| W1 — de-packaging + versions.md + package docs | done (both smokes 0 diffs, 249 tests) | fd284c8 |
+| W2 — comment cleanup (31 files, 30/30 AST-identical; 3 argparse-help string edits enumerated; residual tokens = __version__ + one thesis-section citation) | done (smokes 0 diffs) | 3476233 |
+| W3 — governance sync (rules/README/agent+skill docs, 5 manifest bumps) | done (registry + independence green) | 567ded0 |
+| W4 — tip verification (pytest 249/2, registry OK, independence OK, version 3.2.0, matplotlib-free import) | done | — |
+
+Merge/tag v3.2.0 + post-merge .pth env switch pending user go-ahead.
