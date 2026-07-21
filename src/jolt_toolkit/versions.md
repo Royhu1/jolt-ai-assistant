@@ -67,6 +67,10 @@
   a whole-period aggregate.
 - **Unstable stationary mass ignored**: unreliable stationary mass readings are
   excluded, falling back to stationary data only when no driving data exists.
+- **Shared analysis layer founded**: under the sub-project-independence
+  convention the `jolt_toolkit.analysis` shared layer was established — the
+  battery-efficiency physics model (`eta_bat`) was promoted verbatim from the
+  simulation sub-project into `analysis/physics.py` as its canonical home.
 
 ## 2.2.5 — per-leg Operator column + zero-speed anchoring
 

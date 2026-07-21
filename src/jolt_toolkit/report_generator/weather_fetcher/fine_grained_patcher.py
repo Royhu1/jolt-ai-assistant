@@ -27,10 +27,10 @@ Usage:
     from jolt_toolkit.report_generator.weather_fetcher.fine_grained_patcher \
         import FineGrainedWeatherPatcher
     patcher = FineGrainedWeatherPatcher(
-        raw_telematics_dir="excel_report_database/2.2.2/YK73WFN/raw_telematics",
+        raw_telematics_dir="excel_report_database/<version>/YK73WFN/raw_telematics",
         min_sample_interval_s=60,
     )
-    patcher.patch_file("excel_report_database/2.2.2/YK73WFN/jolt_report_*.xlsx")
+    patcher.patch_file("excel_report_database/<version>/YK73WFN/jolt_report_*.xlsx")
 
 Notes:
     - The patcher is a standalone post-processing tool, **not embedded** in the

@@ -2,8 +2,8 @@
 
 Small, env-overridable helpers so the toolkit can run against a writable cache
 location and an alternate SRF API root without any code change. Every default
-reproduces the pre-v3.0.0 behaviour byte-for-byte when the process is launched
-from the repository root, so existing caches keep hitting.
+resolves relative to the repository root when the process is launched from
+there, so existing caches keep hitting.
 """
 
 from __future__ import annotations

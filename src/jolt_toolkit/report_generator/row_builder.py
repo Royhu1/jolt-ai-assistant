@@ -7,7 +7,8 @@ elevation / elevation- and kinetics-corrected EP), postcode reverse geocoding
 with an on-disk cache, home detection + leg-type classification, and Stop-row
 synthesis (``_stop_row_from_neighbours`` / ``_insert_stop_rows``).
 
-Split out of report_builder.py in v3.0.0 (pure move).
+Split out of report_builder.py, which re-exports these names for backward
+compatibility.
 """
 
 from __future__ import annotations
@@ -165,14 +166,14 @@ def _get_vehicle_mass(
 ) -> tuple[float, float]:
     """Return (mass_kg, cv) or (nan, nan).
 
-    v2.2.4: prefer computing the leg mean/CV from **moving** (speed >
+    Prefer computing the leg mean/CV from **moving** (speed >
     ``speed_threshold_kmh``) mass samples only — the J1939 GCVW broadcast while
     stationary (load/unload transients / default values) is unreliable. When there
-    are ≥2 moving samples in the window, use the moving samples; otherwise revert
-    to the old behaviour (all > 0 samples in the window). If the speed column is
-    missing, the behaviour is identical to the old version.
+    are ≥2 moving samples in the window, use the moving samples; otherwise fall
+    back to all > 0 samples in the window. If the speed column is missing, all > 0
+    samples are used.
 
-    v2.2.6: the filter convention is unchanged, but the final aggregation is now
+    The filter convention is independent of the final aggregation, which is
     done by ``_agg_mass`` according to ``method`` (``mean`` / ``median`` /
     ``iqr_median`` / ``mad_mean`` / ``mad_tw_mean`` …), for a robust estimate
     against anomalous weight spikes. The default ``mean`` is value-identical to the
@@ -901,7 +902,7 @@ def _seg_to_row(
     recuperation = _get_recuperation(df_leg, t_s, t_e)
     elevation_diff = _get_elevation_diff(df_leg, t_s, t_e, altitude_col)
 
-    # ── Propulsion energy (kWh) — trip segments only (v2.2.3) ─────────────
+    # ── Propulsion energy (kWh) — trip segments only ──────────────────────
     # For charge / stationary segments propulsion is necessarily 0; writing NaN is
     # consistent with the existing EP columns' handling on charge/stop rows; the
     # interpolated difference is computed only for discharge.
@@ -1026,8 +1027,8 @@ def _seg_to_row(
         dec_hist,  # Histogram Dec Pedal
         energy_source,  # Energy Source
         energy_perf_kinetics,  # Energy Performance Kinetics Corrected (kWh/km)
-        propulsion_kwh,  # Propulsion Energy (kWh)  [v2.2.3]
-        ep_exclude_aux,  # EP_exclude_aux (kWh/km)  [v2.2.4]
-        operator,  # Operator (project code)  [v2.2.5]
+        propulsion_kwh,  # Propulsion Energy (kWh)
+        ep_exclude_aux,  # EP_exclude_aux (kWh/km)
+        operator,  # Operator (project code)
     )
     return row, cumulative_km

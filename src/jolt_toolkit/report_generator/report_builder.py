@@ -4,13 +4,10 @@ report_builder.py
 Convert the charge/discharge segment dictionaries produced by
 segment_algorithms into Excel report rows, and write a formatted Excel file.
 
-Migrated from the original segment_dev implementation and used as an internal
-module of the jolt_toolkit.report_generator package.
-
 --------------------------------------------------------------------------------
-v3.0.0 facade note (English; slimmed in v3.1.0)
+Facade note
 --------------------------------------------------------------------------------
-This module was split in v3.0.0 into cohesive sub-modules; it now re-exports
+This module was split into cohesive sub-modules; it now re-exports
 the names that stay in the package so existing ``from ...report_builder import X``
 call sites keep working unchanged:
 
@@ -22,7 +19,7 @@ call sites keep working unchanged:
                        home/leg-type classification, Stop-row synthesis, _seg_to_row.
     excel_writer.py  — _write_na, _write_excel_report (+ per-sheet block helpers).
 
-Removed in v3.1.0 → now owned by the report-visuals skill
+Now owned by the report-visuals skill
 ---------------------------------------------------------
 The inspect-HTML viewer left the package with the validation-figure rendering.
 These names are NO LONGER importable from this facade: ``_write_html_viewer``,

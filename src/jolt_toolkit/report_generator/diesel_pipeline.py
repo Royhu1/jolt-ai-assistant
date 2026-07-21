@@ -1,8 +1,7 @@
 """
 diesel_pipeline.py
 ==================
-Diesel-vehicle Logger-side data-processing pipeline (added in v2.2.2; switched to
-the separate DIESEL_HEADERS in v2.2.3).
+Diesel-vehicle Logger-side data-processing pipeline.
 
 Main differences from the EV pipeline:
   * The data source is SRFLOGGER_V1 legs (not FPS telematics legs)
@@ -18,7 +17,7 @@ Main differences from the EV pipeline:
 External entry point:
   * process_diesel_leg(leg, cfg, cumulative_km, srf_data, ...) -> (row_tuples, cumulative_km)
 
-v3.1.0: this module no longer paints the diesel validation figures. The 4-panel
+This module no longer paints the diesel validation figures. The 4-panel
 diesel painter (Speed / cumulative fuel / cumulative mileage / GCVW) and its
 in-place overlay-regenerate entry moved to the report-visuals skill together with
 matplotlib; the skill re-drives the shared, package-side segmentation
@@ -342,7 +341,7 @@ def _trip_metrics(
         m_all = pd.to_numeric(sl[mass_col], errors="coerce")
         # Exclude the 0 broadcast by the CVW counter while stationary
         valid_m = m_all.notna() & (m_all > 0)
-        # v2.2.4: prefer moving (speed > threshold) CVW readings only; a trip's
+        # Prefer moving (speed > threshold) CVW readings only; a trip's
         # stop transients (red lights / load/unload) have equally unreliable CVW.
         # Revert to all > 0 when there are fewer than 1 moving samples in the window.
         thr = float(cfg.get("speed_threshold_kmh", 1.0))
@@ -496,7 +495,7 @@ def _diesel_seg_to_row(
         seg.get("wind_dir_text") or nan,  # Average Wind Direction   — Logger Channel 7
         nan,  # Weather Type — text label, still needs the OpenWeather WeatherPatcher
         "lfc_fuel",  # Energy Source
-        operator,  # Operator (project code) [v2.2.5]
+        operator,  # Operator (project code)
     )
 
     assert (
@@ -513,7 +512,7 @@ def _segments_from_df(
 
     Shared, package-side segmentation logic with two consumers (DRY):
       * ``process_diesel_leg`` — generates xlsx rows (the caller converts seg_metrics to rows).
-      * the report-visuals skill's diesel figure regenerate (v3.1.0) — re-drives
+      * the report-visuals skill's diesel figure regenerate — re-drives
         this to redraw the 4-panel validation figure without re-running the xlsx.
 
     The returned ``trips`` are all windows from :func:`find_speed_trips` (for the
@@ -617,8 +616,8 @@ def process_diesel_leg(
     """
     Process one SRFLOGGER_V1 leg: pull Logger channels, speed segmentation, per-trip computation, and generate row tuples.
 
-    v3.1.0: this function no longer paints the diesel validation figure — that
-    moved to the report-visuals skill. The ``out_dir`` / ``debug_mode`` /
+    This function no longer paints the diesel validation figure — that is
+    the report-visuals skill's job. The ``out_dir`` / ``debug_mode`` /
     ``generate_validation_fig`` / ``leg_idx`` parameters are retained for
     backward-compatible call sites but are now inert (no figure is drawn here); the
     raw logger CSV is still persisted independently by the upstream

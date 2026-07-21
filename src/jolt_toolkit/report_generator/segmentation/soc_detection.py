@@ -1,7 +1,7 @@
 """
 SOC-based charge / discharge segmentation.
 
-Behaviour-preserving split of the former ``segment_algorithms.py`` (v3.0.0).
+Behaviour-preserving split of the former ``segment_algorithms.py``.
 """
 
 from __future__ import annotations

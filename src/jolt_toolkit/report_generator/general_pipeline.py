@@ -2,7 +2,7 @@
 report_generator.general_pipeline
 ==================================
 General **fallback** pipeline for registrations that are NOT onboarded in
-``configs/vehicles.json`` (added in v3.1.0). The platform must never surface an
+``configs/vehicles.json``. The platform must never surface an
 "onboard first" prompt: any registration that exists on SRF is guaranteed to
 produce a structurally valid ``jolt_report_<REG>_<start>_<end>.xlsx`` — for both
 EV and diesel — with graceful degradation and clear English log warnings.

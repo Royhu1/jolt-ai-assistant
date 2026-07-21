@@ -1,21 +1,20 @@
 """
 report_generator.capacity
 ==========================
-Effective battery-capacity post-processing, extracted from ``_generator`` in
-the v3.0.0 behaviour-preserving refactor. Owns the row-tuple column-index
-bookkeeping (``_row_idx`` / ``_IDX_*``), the ΔSOC-weighted donor-capacity
-estimator (:func:`_soc_weighted_cap`), the per-period donor capacity
-(:func:`_period_capacity_from_rows`), the quarterly weighted-average schema
-(:func:`_recompute_weighted_capacity`), the time-local ±1σ capacity correction
-(:func:`_correct_effective_capacity`) and the ``vehicles.json`` capacity-ledger
-write-back (:func:`_persist_effective_capacity`).
+Effective battery-capacity post-processing, extracted from ``_generator``. Owns
+the row-tuple column-index bookkeeping (``_row_idx`` / ``_IDX_*``), the
+ΔSOC-weighted donor-capacity estimator (:func:`_soc_weighted_cap`), the
+per-period donor capacity (:func:`_period_capacity_from_rows`), the quarterly
+weighted-average schema (:func:`_recompute_weighted_capacity`), the time-local
+±1σ capacity correction (:func:`_correct_effective_capacity`) and the
+``vehicles.json`` capacity-ledger write-back
+(:func:`_persist_effective_capacity`).
 
 The two big functions were ``@staticmethod``s on ``JOLTReportGenerator``; they
 are re-exposed there (``JOLTReportGenerator._correct_effective_capacity`` /
 ``_persist_effective_capacity``) by ``_generator`` so existing call sites keep
 working (the cached-recompute tool
-``.claude/skills/generate-excel-report/tools/recompute_from_cache.py`` — moved
-out of the package in v3.1.0 — and
+``.claude/skills/generate-excel-report/tools/recompute_from_cache.py`` and
 :mod:`jolt_toolkit.report_generator.capacity_backfill`).
 """
 
@@ -63,7 +62,7 @@ _IDX_EPERF_KIN = _row_idx("Energy Performance Kinetics Corrected (kWh/km)")
 _IDX_EP_EXCL_AUX = _row_idx("EP_exclude_aux")
 _IDX_START = _row_idx("Start Time (UTC)")
 
-# ── v2.2.4: time-local (~1-month) effective-capacity window ──────────────────
+# ── time-local (~1-month) effective-capacity window ─────────────────────────
 # A soc_estimate segment's capacity is instead inferred from the non-soc_estimate
 # effective capacities within a window of "that row's Start Time ±CAP_WINDOW_HALF_DAYS
 # days", to reflect battery ageing and seasonal temperature drift (especially in
@@ -78,7 +77,7 @@ CAP_WINDOW_HALF_DAYS = 15  # half window width (days); total window ≈ 1 month
 _DAY_NS = 86_400 * 1_000_000_000
 
 
-# ── v2.2.6+: quarterly (report-period) level effective-capacity weighted-average schema ──
+# ── quarterly (report-period) level effective-capacity weighted-average schema ──
 # vehicles.json's ``effective_capacity_kwh`` is no longer overwritten by "the
 # period mean of the last generation" (the old implementation = capacity drift /
 # losing the degradation trajectory). Instead, take the donor-count weighted
@@ -98,7 +97,7 @@ _DAY_NS = 86_400 * 1_000_000_000
 MIN_DONORS = 5
 
 
-# ── v2.2.8: per-vehicle SOC-energy fallback for stale counter anchors ─────────
+# ── per-vehicle SOC-energy fallback for stale counter anchors ────────────────
 # On a handful of vehicles the Total-Energy-Used counter ANCHORS (endpoint
 # snapshots) are stale / bursty — far from the trip boundary — so a discharge
 # leg's counter delta under/over-attributes energy (a frozen anchor makes one leg
@@ -239,7 +238,7 @@ def _period_capacity_from_rows(
         src = row[idx_esrc]
         soc = row[idx_soc]
         # measured donor := real energy counter (NOT SOC-derived). Exclude both
-        # 'soc_estimate' (SOC × nominal) and 'soc_fallback' (v2.2.8 SOC-rewritten
+        # 'soc_estimate' (SOC × nominal) and 'soc_fallback' (SOC-rewritten
         # stale-anchor legs) — neither is a measured capacity donor.
         if (
             isinstance(src, str)
@@ -367,8 +366,8 @@ def _correct_effective_capacity(
             wrong counter energy, and re-deriving from SOC would inject the
             integer-% underestimate into short legs, forming a spurious low-EP band.
 
-    Per-vehicle SOC-energy fallback (v2.2.8, opt-in, see the ``soc_fallback`` parameter)
-    -----------------------------------------------------------------------------------
+    Per-vehicle SOC-energy fallback (opt-in, see the ``soc_fallback`` parameter)
+    ---------------------------------------------------------------------------
     On a few vehicles the Total-Energy-Used counter anchors are stale / bursty
     (endpoint snapshots far from the trip boundary), causing paired
     under/over-attribution: one leg reads ≈0 kWh because the anchor is frozen while
@@ -392,12 +391,11 @@ def _correct_effective_capacity(
 
     Vehicles are opted in via ``soc_energy_fallback`` in vehicles.json. Vehicles
     with user-verified trustworthy high-rate counters (AV24LXJ/K/L) are
-    deliberately NOT opted in, so their numeric path stays byte-identical to
-    v2.2.7. (The rejected "±1σ scaled by ΔSOC" MODE B alternative and the deferred
-    systematic-counter-bias / anchor-spillover investigations live in the git
-    history / changelogs / pending_issues.)
+    deliberately NOT opted in. (The rejected "±1σ scaled by ΔSOC" MODE B
+    alternative and the deferred systematic-counter-bias / anchor-spillover
+    investigations live in the git history / changelogs / pending_issues.)
     """
-    # v2.2.8 per-vehicle SOC-energy fallback control (None = MODE A only).
+    # Per-vehicle SOC-energy fallback control (None = MODE A only).
     fb_enabled = bool(soc_fallback and soc_fallback.get("enabled"))
     fb_min_dsoc = float(
         (soc_fallback or {}).get("min_dsoc_pct", SOC_FALLBACK_MIN_DSOC_PCT)
@@ -408,7 +406,7 @@ def _correct_effective_capacity(
         """Re-derive energy from ``ΔSOC/100 × cap`` (signed) and recompute the
         downstream EP / Battery Power / elevation- & kinetics-corrected EP,
         exactly as a native ``soc_estimate`` leg. Shared by the step-1
-        soc_estimate rewrite and the v2.2.8 step-2 SOC-fallback rewrite."""
+        soc_estimate rewrite and the step-2 SOC-fallback rewrite."""
         row[idx_energy] = round(soc_chg / 100.0 * cap, 3)
         dist = row[idx_dist]
         if _cap_is_valid(dist) and dist > 0 and _cap_is_valid(row[idx_energy]):
@@ -420,7 +418,7 @@ def _correct_effective_capacity(
         _recalc_eperf_corrected(row)
 
     def _fallback_applies(row, original_cap, repl):
-        """Dual gate for the v2.2.8 SOC-energy fallback (counter-sourced outlier
+        """Dual gate for the SOC-energy fallback (counter-sourced outlier
         rows only). True iff ΔSOC is large enough that the fallback's integer-%
         quantisation error stays small (``|ΔSOC| ≥ fb_min_dsoc``) AND the row's
         original IMPLIED capacity sits far enough from the inlier replacement
@@ -587,7 +585,7 @@ def _correct_effective_capacity(
                     n_fallback += 1
                 else:
                     n_global += 1
-                # v3.1.0: an un-onboarded vehicle with no capacity donors AND no
+                # An un-onboarded vehicle with no capacity donors AND no
                 # srf/nominal fallback leaves ``avg_eff_cap`` None. There is no
                 # capacity to attribute, so leave this soc_estimate row's capacity
                 # / energy as-is (NaN) instead of crashing on round(None). For any
@@ -637,7 +635,7 @@ def _correct_effective_capacity(
         # as inlier donors. On fresh generation none exist at this point, so
         # this is a defensive no-op; it matters only for replay of already-
         # corrected rows. soc_estimate rows are intentionally KEPT here — after
-        # step 1 they carry a donor-derived cap, matching pre-v2.2.8 behaviour.)
+        # step 1 they carry a donor-derived cap.)
         inlier_donors = [
             (
                 n,
@@ -689,7 +687,7 @@ def _correct_effective_capacity(
                     if _cap_is_valid(soc_chg) and soc_chg != 0:
                         _apply_soc_energy(row, soc_chg, repl)
                 elif fb_enabled and _fallback_applies(row, original_cap, repl):
-                    # v2.2.8 per-vehicle SOC-energy fallback: a counter-sourced
+                    # Per-vehicle SOC-energy fallback: a counter-sourced
                     # anomalous row, but with ΔSOC large enough that the
                     # quantisation error is controllable AND the IMPLIED cap
                     # severely deviating — judged to be a stale counter anchor, so
@@ -720,7 +718,7 @@ def _correct_effective_capacity(
         if final_caps:
             avg_eff_cap = float(np.mean(final_caps))
 
-    # v3.1.0: an all-fallback report on an un-onboarded vehicle with no capacity
+    # An all-fallback report on an un-onboarded vehicle with no capacity
     # source leaves ``avg_eff_cap`` None; return None rather than crashing on
     # round(None). For onboarded vehicles ``avg_eff_cap`` is always a number here
     # (fallback_kwh is never None), so this is a no-op for them.
@@ -732,7 +730,7 @@ def _correct_effective_capacity(
 def _persist_effective_capacity(
     reg: str, eff_cap: float | None, n_donors: int, source: str, period_key: str
 ) -> None:
-    """Merge this report period's effective capacity into vehicles.json (v2.2.6+ merge).
+    """Merge this report period's effective capacity into vehicles.json.
 
     New schema:
     - ``effective_capacity_quarterly``: ``{period_key: {kwh, n}}``, period_key =

@@ -2,7 +2,7 @@
 Top-level orchestrator: run charge + discharge segmentation for one leg and
 optionally render the validation figure.
 
-Behaviour-preserving split of the former ``segment_algorithms.py`` (v3.0.0).
+Behaviour-preserving split of the former ``segment_algorithms.py``.
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ def run_segment_detection(
                        (dSOC / energy delta / charger / regen / mass) are NOT baked
                        into the PNG; instead a ``<png>.boxes.json`` sidecar is
                        written for the inspect HTML to do the interactive overlay.
-    figure_hook : optional keyword-only external painter (v3.1.0). The package no
+    figure_hook : optional keyword-only external painter. The package no
                        longer imports matplotlib or paints validation figures
                        itself; the ``report-visuals`` skill supplies its own painter
                        here so figures come out identical in a single pass. When
@@ -222,7 +222,7 @@ def run_segment_detection(
             speed_p.setdefault("cap_lo", cap_lo)
         if cap_hi:
             speed_p.setdefault("cap_hi", cap_hi)
-        # Trip endpoint anchoring strategy (pipeline top-level field). From v2.2.5
+        # Trip endpoint anchoring strategy (pipeline top-level field).
         # zero_speed is the fleet-wide default; a pipeline can explicitly set
         # trip_endpoint_anchor: "first_motion" to revert to the old behaviour.
         # See the find_speed_trips() docstring for the zero_speed mode.
@@ -334,7 +334,7 @@ def run_segment_detection(
 
     if cfg.get("split_by_mass", True) and _m_col in df_raw.columns:
         # 1. Cluster the mass data over the whole leg, adding mass_cluster + mass_moving columns
-        #    v2.2.4: cluster means use only "moving" mass readings (stationary GCVW
+        #    Cluster means use only "moving" mass readings (stationary GCVW
         #    is unreliable); if the mass-from-logger path has no telematics speed
         #    column, cluster_mass_data automatically falls back to clustering all
         #    valid readings (low-risk, no behaviour change).
@@ -413,7 +413,7 @@ def run_segment_detection(
             suffix,
         )
 
-    # ── Validation-figure seam (v3.1.0) ────────────────────────────────────
+    # ── Validation-figure seam ──────────────────────────────────────────────
     # The package no longer paints figures or imports matplotlib. When an external
     # ``figure_hook`` is supplied (by the report-visuals skill), it is called here
     # — at exactly the point, and with exactly the arguments, the former inline

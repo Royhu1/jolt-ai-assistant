@@ -10,7 +10,7 @@ OpenWeather API, and backfills the report's missing weather columns
 Usage:
     from jolt_toolkit.report_generator.weather_patcher import WeatherPatcher
     patcher = WeatherPatcher()
-    patcher.patch_folder("excel_report_database/1.0.0/KY24LHT/")
+    patcher.patch_folder("excel_report_database/<version>/KY24LHT/")
 """
 
 from __future__ import annotations

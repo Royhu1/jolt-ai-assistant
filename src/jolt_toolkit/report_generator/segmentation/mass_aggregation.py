@@ -1,7 +1,7 @@
 """
 Per-segment vehicle-mass aggregation (configurable, robust).
 
-Behaviour-preserving split of the former ``segment_algorithms.py`` (v3.0.0).
+Behaviour-preserving split of the former ``segment_algorithms.py``.
 """
 
 from __future__ import annotations
@@ -192,9 +192,8 @@ def _agg_mass(
     Each method is a two-step recipe — an outlier *fence* (which inliers to keep)
     followed by a central *estimator* (median or mean over the kept set):
 
-        ``"mean"``         — no fence; arithmetic mean of all samples (legacy
-                             default; identical to the pre-v2.2.6 behaviour, so
-                             non-opted-in vehicles are unchanged).
+        ``"mean"``         — no fence; arithmetic mean of all samples (the
+                             default; non-opted-in vehicles use this).
         ``"median"``       — no fence; plain median (matches the diesel pipeline).
         ``"iqr_median"``   — Tukey 1.5·IQR fence (:func:`_iqr_inliers`) → median.
         ``"iqr_mean"``     — Tukey 1.5·IQR fence (:func:`_iqr_inliers`) → mean.

@@ -2,9 +2,9 @@
 segment_algorithms.py
 =====================
 Unified detection algorithm for charge segments (Volvo / Renault) and discharge
-segments (Scania). Per-leg validation figures are painted externally since
-v3.1.0 (the report-visuals skill passes a painter via
-``run_segment_detection(figure_hook=...)``); this package no longer imports
+segments (Scania). Per-leg validation figures are painted externally by the
+report-visuals skill, which passes a painter via
+``run_segment_detection(figure_hook=...)``; this package no longer imports
 matplotlib.
 
 Unified output schema (v2)
@@ -50,15 +50,15 @@ _ANCHOR_PRIVATE_KEYS
 """
 
 # =============================================================================
-# Backward-compatibility facade (v3.0.0; slimmed in v3.1.0)
+# Backward-compatibility facade
 # -----------------------------------------------------------------------------
-# The implementation was split into the ``segmentation/`` sub-package (a pure,
-# behaviour-preserving move — see ``segmentation/__init__.py`` for the module
-# map). This module re-exports the names that stay in the package so existing
-# consumers (``_generator`` / ``report_builder`` / ``diesel_pipeline`` / the
-# patchers / the recompute tool) keep working unchanged.
+# The implementation lives in the ``segmentation/`` sub-package (see
+# ``segmentation/__init__.py`` for the module map). This module re-exports the
+# names that stay in the package so existing consumers (``_generator`` /
+# ``report_builder`` / ``diesel_pipeline`` / the patchers / the recompute tool)
+# keep working unchanged.
 #
-# Removed in v3.1.0 → now owned by the report-visuals skill
+# Now owned by the report-visuals skill
 # ---------------------------------------------------------
 # The validation-figure painter left the package with matplotlib. These names are
 # NO LONGER importable from this facade: ``plot_leg_validation``,

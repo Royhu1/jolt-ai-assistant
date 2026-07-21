@@ -7,7 +7,8 @@ helpers, the fit-subtitle builder and the shared point-filtering routine. The
 same specs drive both render paths (the xlsxwriter generator here and the
 openpyxl ``patch_graphs_2_2_3.py``).
 
-Split out of report_builder.py in v3.0.0 (pure move).
+Split out of report_builder.py, which re-exports these names for backward
+compatibility.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ from jolt_toolkit.report_generator.columns import (
 #   - the generator (xlsxwriter, ``_write_excel_report``) reads it to set fixed
 #     axis bounds and to point each series at a pre-filtered helper block;
 #   - the in-place patch script (openpyxl) imports the very same list to rebuild
-#     the ``Graphs`` sheet on existing 2.2.3 workbooks.
+#     the ``Graphs`` sheet on existing workbooks.
 #
 # Every axis is a FIXED constant (never per-file autoscaling), so the same chart
 # type uses the exact same scale on all vehicles and all reports. Basis for each
@@ -38,7 +39,7 @@ from jolt_toolkit.report_generator.columns import (
 #     (PERF_YLIM / MASS_XLIM / TEMP_XLIM in generate_pdf_report + plot-figure
 #     SKILL), so the Excel charts use the same scales the PDF briefing does.
 #   - The remaining axes (speed, fuel consumption) were fixed from robust
-#     fleet-wide percentiles over the entire 2.2.3 report set (1st/99th percentile
+#     fleet-wide percentiles over the entire report set (1st/99th percentile
 #     of driving-leg values, then rounded outwards to a clean tick), so ~99 % of
 #     real data fits in-frame and the rare telematics spikes (e.g. speed 5299 km/h,
 #     power 96 MW) are clipped rather than blowing up the scale.
@@ -260,7 +261,7 @@ def _chart_subtitle(pts) -> str:
 
 # EV charts. Only Energy-Performance-vs-{Mass, Temperature, Speed} are kept; the
 # former Battery-Power-vs-Energy-Change and SOC-Change-vs-Energy-Change pairs were
-# dropped (v2.2.4 visual pass) so EV and diesel report the same three-panel
+# dropped so EV and diesel report the same three-panel
 # "{performance metric} vs {Mass / Temp / Speed}" set, matching the paper's convention.
 CHART_SPECS_EV: tuple[dict, ...] = (
     {

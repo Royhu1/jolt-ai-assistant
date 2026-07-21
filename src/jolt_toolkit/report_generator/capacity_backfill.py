@@ -1,7 +1,7 @@
 """
 capacity_backfill.py
 ====================
-Backfill vehicles.json's ``effective_capacity_quarterly`` schema (v2.2.6+) from
+Backfill vehicles.json's ``effective_capacity_quarterly`` schema from
 the existing xlsx report library, without re-running the reports.
 
 For each EV (``fuel_type != "DIESEL"``):
@@ -28,7 +28,7 @@ Usage (jolt env, run from the repo root)::
 
     PYTHONUTF8=1 D:/Anaconda/envs/jolt/python.exe \\
         -m jolt_toolkit.report_generator.capacity_backfill \\
-        --report-db excel_report_database/2.2.6 [--dry-run]
+        --report-db excel_report_database/<version> [--dry-run]
 """
 
 from __future__ import annotations
@@ -166,7 +166,7 @@ def main(argv=None):
     ap.add_argument(
         "--report-db",
         required=True,
-        help="report database version dir, e.g. excel_report_database/2.2.6",
+        help="report database version dir, e.g. excel_report_database/<version>",
     )
     ap.add_argument(
         "--min-donors",

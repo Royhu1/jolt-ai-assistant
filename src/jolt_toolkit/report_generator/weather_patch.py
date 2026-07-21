@@ -28,11 +28,11 @@ Usage (Python)
     from jolt_toolkit.report_generator.weather_patch import patch_weather
 
     # default — coarse, quota-friendly
-    patch_weather("excel_report_database/2.2.3/KY24LHT/")
+    patch_weather("excel_report_database/<version>/KY24LHT/")
 
     # explicit opt-in — fine-grained (needs --debug raw_telematics CSVs)
     patch_weather(
-        "excel_report_database/2.2.3/YK73WFN/jolt_report_YK73WFN_20250601_20250830.xlsx",
+        "excel_report_database/<version>/YK73WFN/jolt_report_YK73WFN_20250601_20250830.xlsx",
         mode="fine",
         force_repatch=True,
     )
@@ -41,11 +41,11 @@ Usage (CLI)
 -----------
     # default coarse
     python -m jolt_toolkit.report_generator.weather_patch \
-        excel_report_database/2.2.3/KY24LHT/
+        excel_report_database/<version>/KY24LHT/
 
     # explicit fine-grained
     python -m jolt_toolkit.report_generator.weather_patch \
-        excel_report_database/2.2.3/YK73WFN/jolt_report_YK73WFN_20250601_20250830.xlsx \
+        excel_report_database/<version>/YK73WFN/jolt_report_YK73WFN_20250601_20250830.xlsx \
         --fine-grained --force-repatch
 
 Both patcher classes are left untouched and remain importable directly; this module

@@ -9,7 +9,7 @@ backfills the report's missing Logger Link, weather columns and mass data.
 Usage:
     from jolt_toolkit.report_generator.logger_patcher import LoggerPatcher
     patcher = LoggerPatcher()
-    patcher.patch_file("excel_report_database/1.0.0/YK73WFN/jolt_report_YK73WFN_20250820_20250822.xlsx")
+    patcher.patch_file("excel_report_database/<version>/YK73WFN/jolt_report_YK73WFN_20250820_20250822.xlsx")
 """
 
 from __future__ import annotations

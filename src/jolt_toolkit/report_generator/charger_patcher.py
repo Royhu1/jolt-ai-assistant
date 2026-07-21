@@ -9,7 +9,7 @@ backfills the report's missing Charger Link column.
 Usage:
     from jolt_toolkit.report_generator.charger_patcher import ChargerPatcher
     patcher = ChargerPatcher()
-    patcher.patch_file("excel_report_database/1.0.0/KY24LHT/jolt_report_KY24LHT_20250101_20250131.xlsx")
+    patcher.patch_file("excel_report_database/<version>/KY24LHT/jolt_report_KY24LHT_20250101_20250131.xlsx")
 """
 
 from __future__ import annotations
@@ -117,7 +117,7 @@ def _find_charger_matches(windows: list, t_start, t_end, tol_min: float = 4) -> 
 
 
 def _charger_transaction_to_row(ct) -> dict:
-    """Build one CSV row from a ``ChargerTransaction`` (schema unchanged since v2.2).
+    """Build one CSV row from a ``ChargerTransaction``.
 
     Accesses ``ct.charger`` to record the charger metadata (label / make / model /
     max_power / dc), so callers that do not need metadata should avoid this path.
@@ -497,7 +497,7 @@ def main(argv: list | None = None) -> int:
     parser.add_argument(
         "target",
         help="A single jolt_report_*.xlsx, a vehicle directory, or a version "
-        "directory (e.g. excel_report_database/2.2.7).",
+        "directory (e.g. excel_report_database/<version>).",
     )
     parser.add_argument(
         "--persist-raw",

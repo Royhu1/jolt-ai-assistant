@@ -7,7 +7,7 @@ Provenance
 ----------
 Promoted verbatim from ``research_projects/simulation/models/vehicle_physics.py``
 on 2026-06-11 under the sub-project-independence convention; this is the
-canonical home for ``eta_bat`` as of toolkit v2.2.4.
+canonical home for ``eta_bat``.
 """
 
 # Source: research_projects/simulation/models/vehicle_physics.py

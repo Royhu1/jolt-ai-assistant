@@ -22,9 +22,9 @@ def generate_report(
     """Convenience function: generate a single-vehicle Excel report.
 
     ``debug=True`` persists raw artefacts (raw telematics + raw logger/charger
-    CSVs). ``save_figures`` is a **no-op since v3.1.0**, kept only for
-    backward-compatible call sites — the package no longer paints validation
-    figures or writes the inspect HTML; render them via the report-visuals skill.
+    CSVs). ``save_figures`` is a **no-op**, kept only for backward-compatible
+    call sites — the package no longer paints validation figures or writes the
+    inspect HTML; render them via the report-visuals skill.
     """
     from jolt_toolkit import __version__
 

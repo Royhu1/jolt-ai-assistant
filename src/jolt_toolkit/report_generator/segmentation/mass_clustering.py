@@ -1,7 +1,7 @@
 """
 Mass-cluster based trip splitting / merging and energy-anchor recomputation.
 
-Behaviour-preserving split of the former ``segment_algorithms.py`` (v3.0.0).
+Behaviour-preserving split of the former ``segment_algorithms.py``.
 """
 
 from __future__ import annotations
@@ -40,14 +40,14 @@ def cluster_mass_data(
     ---------
     1. Extract all valid (non-NaN, >0) readings from the mass column.
     2. **Cluster means are computed only from "moving" (speed > ``speed_threshold_kmh``) valid readings**
-       (v2.2.4; the GCVW broadcast while stationary is unreliable). Sort by value
+       (the GCVW broadcast while stationary is unreliable). Sort by value
        and split into separate clusters where the difference between adjacent
        sorted values is ≥ ``min_cluster_gap_kg``.
     3. Compute each cluster's mean; if adjacent cluster means differ by < ``min_cluster_gap_kg``, merge them.
     4. Renumber the clusters from smallest to largest mean: 0 = lowest mass (usually the tractor's own weight).
     5. Assign every **valid** reading (moving + stationary) to its nearest cluster mean.
 
-    Moving flag and fallback (v2.2.4)
+    Moving flag and fallback
     ---------------------------------
     - New boolean column ``mass_moving``: ``True`` means the row's mass is valid
       and the vehicle was moving (speed > threshold) when sampled. Downstream
@@ -184,7 +184,7 @@ def _get_seg_dominant_cluster(
 ) -> float | None:
     """Return the most frequent mass_cluster label within the time window [t_start, t_end].
 
-    v2.2.4: **prefer voting on moving** (``mass_moving == True``) mass rows (the
+    **Prefer voting on moving** (``mass_moving == True``) mass rows (the
     GCVW broadcast while stationary is unreliable). If the window has no moving
     mass rows, fall back to voting on stationary rows (the user's requirement to
     "still use stationary mass data when no moving data is available"). If the
@@ -270,13 +270,13 @@ def _detect_cluster_transitions(
     is treated as a load/unload event and the discharge segment is split at that
     time point.
 
-    Moving-readings restriction (v2.2.5)
+    Moving-readings restriction
     ------------------------------------
     Transition-point detection scans only rows with ``mass_moving == True``: the
     J1939 GCVW broadcast while stationary is unreliable, and including it would
     either create false split points at stops (a fragment dropped by
     ``min_soc_drop`` → a chunk of the trip lost) or blur genuine moving-mass
-    changes. Consistent with ``cluster_mass_data``'s moving-only means (v2.2.4)
+    changes. Consistent with ``cluster_mass_data``'s moving-only means
     and ``_get_seg_dominant_cluster``'s moving-first voting. If the ``mass_moving``
     column is missing (legacy data / call path), fall back to all valid readings.
 
@@ -303,7 +303,7 @@ def _detect_cluster_transitions(
     # (a) fabricate a spurious split at a stop — yielding a tiny sub-segment that
     # gets dropped by min_soc_drop, so a chunk of the trip goes missing — or
     # (b) blur a genuine moving-mass change. This mirrors cluster_mass_data's
-    # moving-only cluster means (v2.2.4) and _get_seg_dominant_cluster's
+    # moving-only cluster means and _get_seg_dominant_cluster's
     # moving-first voting. If mass_moving is absent (legacy data / call path),
     # fall back to the historical all-valid-readings behaviour.
     if "mass_moving" in df_raw.columns:

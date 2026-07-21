@@ -7,7 +7,8 @@ monolithic ``_write_excel_report`` is decomposed here into three private
 block-extraction helpers (``_write_report_sheet`` / ``_write_graphs_sheet`` /
 ``_write_definitions_sheet``) in the original statement order.
 
-Split out of report_builder.py in v3.0.0 (pure move + clean block extraction).
+Split out of report_builder.py, which re-exports these names for backward
+compatibility.
 """
 
 from __future__ import annotations

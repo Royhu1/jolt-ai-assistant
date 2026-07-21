@@ -42,7 +42,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Enable debug mode: persist raw artefacts (raw telematics CSV "
-        "+ raw logger/charger CSVs). Since v3.1.0 the package no longer "
+        "+ raw logger/charger CSVs). The package no longer "
         "draws validation figures or writes inspect HTML here — render "
         "them via the report-visuals skill.",
     )
@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
         fast_mode=args.fast,
         save_figures=save_figures,
     )
-    # v3.1.0: an un-onboarded registration no longer errors — the generator falls
+    # An un-onboarded registration no longer errors — the generator falls
     # back to the general pipeline automatically. The ONE clean failure is a
     # registration that does not exist on SRF at all: report it as a single-line
     # error (no traceback spew) with a distinct non-zero exit code.

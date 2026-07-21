@@ -7,7 +7,7 @@ anchor-key set, and the SINGLE load site of ``VEHICLE_CONFIG`` /
 ``PIPELINE_CONFIGS`` (shared by reference across the package — every other
 module imports these bindings; do not add a second load site).
 
-Behaviour-preserving split of the former ``segment_algorithms.py`` (v3.0.0).
+Behaviour-preserving split of the former ``segment_algorithms.py``.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ RECUP_COL = "electric_energy_recuperation_watthours"
 # ── Mass-clustering default parameters ──────────────────────────────────────────
 MIN_CLUSTER_GAP_KG = 2000.0  # Minimum mass gap between clusters (kg): merge two clusters when their means differ by less than this
 TRACTOR_ONLY_MAX_KG = 13000.0  # When cluster 0's mean is below this value it is treated as tractor-only and its mass is ignored
-# v2.2.4: the J1939 gross-combination-weight is unreliable while stationary
+# The J1939 gross-combination-weight is unreliable while stationary
 # (load/unload transients / default broadcast) and would contaminate the mass
 # clustering. Cluster means are computed only from "moving" readings (speed >
 # this threshold, km/h), aligned with each pipeline's speed_threshold_kmh

@@ -1,7 +1,7 @@
 """
 segmentation — charge/discharge segment-detection sub-package.
 
-Behaviour-preserving decomposition (v3.0.0) of the former monolithic
+Behaviour-preserving decomposition of the former monolithic
 ``segment_algorithms.py``. Every public and internally-consumed name is
 re-exported here so that ``from jolt_toolkit.report_generator.segmentation
 import X`` works, and the legacy ``segment_algorithms`` facade module re-exports
@@ -16,9 +16,9 @@ Module map:
   speed_detection     speed-based trip / discharge segmentation
   mass_clustering     mass-cluster split / merge + energy-anchor recomputation
   detection           run_segment_detection orchestrator (paints figures only via
-                      an external ``figure_hook`` — see v3.1.0 note below)
+                      an external ``figure_hook`` — see the note below)
 
-Removed in v3.1.0 (now owned by the report-visuals skill)
+Now owned by the report-visuals skill
 ---------------------------------------------------------
 The per-leg validation-figure painter and its helpers left the package together
 with matplotlib. The following names are NO LONGER importable from

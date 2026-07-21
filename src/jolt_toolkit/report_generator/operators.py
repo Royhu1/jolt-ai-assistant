@@ -1,4 +1,4 @@
-"""Per-leg operator resolution for JOLT reports (restored v2.2.5 feature).
+"""Per-leg operator resolution for JOLT reports.
 
 The "Operator" column (last column of both ``HEADERS`` and ``DIESEL_HEADERS``)
 holds a single project operator CODE per leg. The code is resolved from SRF with

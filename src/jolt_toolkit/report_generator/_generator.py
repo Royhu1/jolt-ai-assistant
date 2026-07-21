@@ -173,7 +173,7 @@ class JOLTReportGenerator:
     ) -> None:
         """
         save_figures
-            **No-op since v3.1.0**, retained only for backward-compatible call
+            **No-op**, retained only for backward-compatible call
             sites. The package no longer paints validation figures or writes the
             inspect HTML during generation — that is the report-visuals skill's
             job (it re-drives ``run_segment_detection`` / the diesel segmentation
@@ -213,7 +213,7 @@ class JOLTReportGenerator:
         de = datetime.datetime.strptime(date_end, "%Y-%m-%d")
 
         cfg = VEHICLE_CONFIG.get(reg)
-        # ── General fallback pipeline for un-onboarded registrations (v3.1.0) ──
+        # ── General fallback pipeline for un-onboarded registrations ──────────
         # A registration absent from vehicles.json no longer errors: build a
         # RUNTIME vehicle config from SRF metadata + column auto-detection and
         # inject it into the in-memory VEHICLE_CONFIG (never written to disk), so
@@ -238,15 +238,14 @@ class JOLTReportGenerator:
         reg_srf = cfg["srf_reg"]
         # Report-period string (YYYYMMDD_YYYYMMDD), 1:1 with the quarterly report / quarterly schema key
         period_key = f"{date_start.replace('-', '')}_{date_end.replace('-', '')}"
-        # v2.2.2: diesel vehicles have no battery, skip all capacity-related fields
+        # Diesel vehicles have no battery, skip all capacity-related fields
         is_diesel = str(cfg.get("fuel_type", "")).upper() == "DIESEL"
         nominal_kwh = cfg.get("nominal_kwh") if not is_diesel else None
         srf_capacity_kwh = cfg.get("srf_capacity_kwh", nominal_kwh)
         # effective_capacity_kwh: the donor-weighted average over all reliable
-        # quarters (v2.2.6+ schema); None when not computed, falling back to
-        # srf_capacity.
+        # quarters; None when not computed, falling back to srf_capacity.
         eff_cap_kwh = cfg.get("effective_capacity_kwh")
-        # SOC-estimate capacity seed (v2.2.6+): prefer **this report period**'s
+        # SOC-estimate capacity seed: prefer **this report period**'s
         # reliable (n ≥ MIN_DONORS) quarterly capacity, otherwise the whole-fleet
         # weighted-average effective_capacity_kwh, otherwise srf_capacity /
         # nominal. This lets each period's SOC seed use that period's corresponding
@@ -265,7 +264,7 @@ class JOLTReportGenerator:
             soc_est_cap = eff_cap_kwh or srf_capacity_kwh or nominal_kwh
         altitude_col = cfg.get("altitude_col")
         speed_col = cfg.get("speed_col", "wheel_based_speed")
-        # v2.2.6: per-segment mass aggregation method (vehicle > pipeline > default
+        # Per-segment mass aggregation method (vehicle > pipeline > default
         # 'mean'). Resolved once and passed through to each _seg_to_row so the Excel
         # column and the validation figure use the same robust estimate.
         mass_agg = resolve_mass_agg(
@@ -314,7 +313,7 @@ class JOLTReportGenerator:
         cumulative_km = 0.0
         home_point = None
 
-        # ── Operator resolution (restored in v2.2.5) ────────────────────
+        # ── Operator resolution ─────────────────────────────────────────
         # SRF-preferred: round-robin vehicles take leg.trip.trial.description
         # (varies per leg), dedicated vehicles take vehicle.organisation.name
         # (consistent for the whole vehicle). Fetch the static org once, memoise
@@ -386,7 +385,7 @@ class JOLTReportGenerator:
 
         if not sorted_rows:
             if is_runtime_cfg:
-                # Ultimate-degradation guarantee (v3.1.0): an un-onboarded vehicle
+                # Ultimate-degradation guarantee: an un-onboarded vehicle
                 # never surfaces an "onboard first" error. With zero usable
                 # segments we still write a structurally complete, header-only
                 # report so the caller always gets a valid xlsx.
@@ -622,7 +621,7 @@ class JOLTReportGenerator:
             tqdm(logger_legs, desc="Processing diesel logger legs")
         ):
             try:
-                # v3.1.0: process_diesel_leg no longer paints figures (the
+                # process_diesel_leg no longer paints figures (the
                 # report-visuals skill does). The diesel raw logger CSV is written
                 # independently by _save_logger_data (gated on debug_mode). The
                 # out_dir / reg / leg_idx / debug_mode args are retained for
@@ -745,7 +744,7 @@ class JOLTReportGenerator:
                 except Exception:
                     leg_charger_meter = None
 
-            # v3.1.0: figures are painted by the report-visuals skill via an
+            # Figures are painted by the report-visuals skill via an
             # external figure_hook, never inline here — so no hook is passed and
             # segmentation runs figure-free. The raw CSV was written independently
             # above (gated on debug_mode).
@@ -930,7 +929,7 @@ class JOLTReportGenerator:
                     row[_IDX_EPERF_KIN] = float("nan")
                     row[_IDX_EP_EXCL_AUX] = float("nan")
 
-            # v2.2.6+: this report period's donor-based capacity (kwh, n), same
+            # This report period's donor-based capacity (kwh, n), same
             # convention as _correct_effective_capacity's avg_eff_cap (charge-preferred
             # measured-leg mean). Computed before Stop rows are inserted, on the same
             # sorted_rows after _correct, for _persist_effective_capacity to merge
@@ -971,16 +970,16 @@ class JOLTReportGenerator:
         time_start,
         is_runtime_cfg: bool = False,
     ):
-        """Persist effective capacity (EV), write the xlsx (+ inspect HTML in debug
-        mode), then run the charger/logger patchers (EV only). Returns the
-        report path (or the existing path when overwrite is disabled).
+        """Persist effective capacity (EV), write the xlsx, then run the
+        charger/logger patchers (EV only). Returns the report path (or the
+        existing path when overwrite is disabled).
 
-        ``is_runtime_cfg`` (v3.1.0): the vehicle is un-onboarded (a runtime
-        fallback config). The ``effective_capacity`` write-back is skipped — no
-        invented vehicles.json entry is created — and the computed capacity is
-        logged instead.
+        ``is_runtime_cfg``: the vehicle is un-onboarded (a runtime fallback
+        config). The ``effective_capacity`` write-back is skipped — no invented
+        vehicles.json entry is created — and the computed capacity is logged
+        instead.
         """
-        # Persist effective_capacity to vehicles.json (v2.2.6+ merge semantics:
+        # Persist effective_capacity to vehicles.json (merge semantics:
         # write this period's quarterly[period_key] = {kwh, n}, then recompute the
         # donor weighted average from all reliable quarters). Skipped for diesel
         # (no battery) and for un-onboarded runtime configs (never invent a
@@ -1018,7 +1017,7 @@ class JOLTReportGenerator:
         )
 
         if self.debug_mode:
-            # v3.1.0: debug persists raw data only — no figures, no inspect HTML
+            # Debug persists raw data only — no figures, no inspect HTML
             # from the package. Render them via the report-visuals skill.
             logger.info(
                 "Raw data persisted; render validation figures/inspect HTML "

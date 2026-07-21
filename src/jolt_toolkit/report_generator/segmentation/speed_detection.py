@@ -1,7 +1,7 @@
 """
 Speed-based trip / discharge segmentation.
 
-Behaviour-preserving split of the former ``segment_algorithms.py`` (v3.0.0).
+Behaviour-preserving split of the former ``segment_algorithms.py``.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ def find_speed_trips(
                             shorter zero-speed intervals are bridged (e.g. red lights, brief stops)
     min_trip_duration_min : discard trips shorter than this duration (minutes) as noise
     trip_endpoint_anchor : trip endpoint anchoring strategy:
-        - 'zero_speed' (default, from v2.2.5): after split + merge + filtering,
+        - 'zero_speed' (default): after split + merge + filtering,
                                   extend the endpoints outward to the nearest
                                   v == 0 sample (within max_extend_minutes minutes).
                                   Purpose: let the trip window fully cover the
@@ -96,7 +96,7 @@ def find_speed_trips(
                                   fleet-wide standard.
         - 'first_motion' (opt-out / legacy): endpoints = the first/last
                                   v > speed_threshold_kmh sample within the trip
-                                  (the sole behaviour before v2.2.3, kept for
+                                  (the legacy behaviour, kept for
                                   backward compatibility / per-pipeline override).
     max_extend_minutes  : maximum window (minutes) for extending the endpoints in
                           zero_speed mode; beyond this, silently fall back to the
@@ -166,7 +166,7 @@ def find_speed_trips(
 
     result: list[tuple[pd.Timestamp, pd.Timestamp]] = []
     for trip_s, trip_e in merged_trips:
-        # Trip-length filter is based on the original first_motion endpoints (consistent with v2.2.2 behaviour)
+        # Trip-length filter is based on the original first_motion endpoints
         if int(times[trip_e] - times[trip_s]) < min_trip_ns:
             continue
 

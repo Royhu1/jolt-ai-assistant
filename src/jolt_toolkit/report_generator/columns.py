@@ -6,8 +6,8 @@ the row-tuple index helper, the leg-type predicates, the ``_is_nan`` guard, and
 the telematics source-column name constants. Imports nothing package-internal so
 every other report-builder module can depend on it without a cycle.
 
-Split out of report_builder.py in v3.0.0 (pure move; report_builder re-exports
-these names for backward compatibility).
+Split out of report_builder.py, which re-exports these names for backward
+compatibility.
 """
 
 from __future__ import annotations
@@ -63,17 +63,17 @@ HEADERS = (
     "Weather Type",
     "Histogram of Accelerator Pedal Position",
     "Histogram of Decelerator Pedal Position",
-    # Additional columns (newer versions)
+    # Additional columns
     "Energy Source",
     "Energy Performance Kinetics Corrected (kWh/km)",
-    # Added in v2.2.3: total motor propulsion energy over the trip (kWh), from the
+    # Total motor propulsion energy over the trip (kWh), from the
     # telematics `electric_energy_propulsion` cumulative counter (Wh), differenced
     # by time-window interpolation. Difference from 'Energy Change (kWh)':
     # propulsion does **not** deduct regenerative-braking recovery — it counts only
     # forward drive; commonly used to back-calculate η_BM. EV only; diesel goes
     # through DIESEL_HEADERS and does not carry this column.
     "Propulsion Energy (kWh)",
-    # Added in v2.2.4: net traction energy performance (kWh/km) after removing the
+    # Net traction energy performance (kWh/km) after removing the
     # auxiliary / parked loads (HVAC, low-voltage systems, etc.). Definition in
     # data_analysis_workspace/energy_balance_check/report.md:
     #   EP_exclude_aux = (propulsion − recuperation) / distance = EP − auxiliary/distance
@@ -91,7 +91,7 @@ HEADERS = (
     # are all ≤ 47 and unaffected. Diesel goes through DIESEL_HEADERS and does not
     # carry this column.
     "EP_exclude_aux",
-    # Added in v2.2.5: the per-vehicle, per-leg project operator CODE. The source
+    # The per-vehicle, per-leg project operator CODE. The source
     # cascade is in report_generator/operators.py (SRF preferred: round-robin
     # takes leg.trip.trial.description, dedicated vehicles take
     # vehicle.organisation.name; vehicles.json is the fallback).
@@ -101,7 +101,7 @@ HEADERS = (
     "Operator",
 )
 
-# ── Diesel-only column headers (extended in v2.2.2: no longer reuses the EV HEADERS) ──
+# ── Diesel-only column headers (a distinct set, not the EV HEADERS) ──
 # Keeps only fields with physical meaning for diesel: no SOC, AC/DC charge energy,
 # Battery Capacity, Energy Performance (kWh/km) or other electricity-related
 # columns. Fuel consumption is expressed in L and L/100km.
@@ -131,7 +131,7 @@ DIESEL_HEADERS = (
     "Average Wind Direction",
     "Weather Type",
     "Energy Source",
-    # Added in v2.2.5: operator code, aligning the diesel column set with the EV
+    # Operator code, aligning the diesel column set with the EV
     # one. Appended at the **end** (the diesel row appends it at the end, and the
     # length assertion len(row) == len(DIESEL_HEADERS) - 1 follows automatically).
     "Operator",
@@ -173,13 +173,13 @@ def is_trip_leg(leg_type) -> bool:
 
 
 _WEIGHT_COL = "gross_combination_vehicle_weight"
-# v2.2.4: EV telematics speed column (km/h). The per-leg mass mean/CV preferably
+# EV telematics speed column (km/h). The per-leg mass mean/CV preferably
 # uses moving samples only, excluding the unreliable GCVW broadcast while
 # stationary; falls back to the old all-(> 0)-samples behaviour when the column
 # is missing.
 _SPEED_COL = "wheel_based_speed"
 _RECUP_COL = "electric_energy_recuperation_watthours"
-# v2.2.3: cumulative motor propulsion energy counter (Wh, since vehicle
+# Cumulative motor propulsion energy counter (Wh, since vehicle
 # inception). The trip start/end times obtain Δ by linear interpolation between
 # the nearest RFMS snapshots, then divide by 1000 to convert to kWh and write it
 # into the new `Propulsion Energy (kWh)` column. Diesel vehicles do not have this
